@@ -1,0 +1,29 @@
+# Fallback ruff config used when the target repo has no ruff configuration.
+# Tuned as an anti-slop gate for AI-generated code: bug-prone patterns,
+# needless complexity, dead arguments, outdated idioms.
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (unused imports/variables, undefined names)
+    "B",   # bugbear (likely bugs, mutable defaults, swallowed exceptions)
+    "C4",  # comprehension misuse
+    "SIM", # needless complexity (collapsible ifs, redundant bools)
+    "ARG", # unused function arguments
+    "PL",  # pylint: complexity limits, magic values, boolean traps
+    "RUF", # ruff-native checks
+    "UP",  # outdated syntax for the target Python version
+    "N",   # pep8 naming
+]
+ignore = [
+    "PLR2004", # magic values in comparisons are fine in small scripts
+    "E501",    # line length is enforced above, long strings shouldn't fail twice
+]
+
+[lint.pylint]
+max-args = 6
+max-branches = 12
+max-statements = 50
