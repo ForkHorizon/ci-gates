@@ -1,0 +1,74 @@
+name: Unity Quality Gate
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: JSON array of runner labels to target.
+        type: string
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+      config:
+        description: Path to the gate config in the target repo.
+        type: string
+        default: .unity-quality-gate.json
+      duplication-threshold:
+        description: Max allowed duplicated-code percentage (jscpd, C# under Assets).
+        type: string
+        default: "2"
+      gates-ref:
+        description: ci-gates ref to fetch scripts from.
+        type: string
+        default: main
+      explain-model:
+        description: Ollama model that explains failures; empty string disables.
+        type: string
+        default: qwen3-coder:30b-a3b-q4_K_M
+
+jobs:
+  unity-quality-gate:
+    name: Unity Quality Gate
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+
+    # No project checkout: Unity repos are multi-GB, so the gate maintains a
+    # persistent cached clone (with its Library) under ~/Library/Caches/ci-gates
+    # and only fetches the new commits each run.
+    steps:
+      - name: Fetch ci-gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/ci-gates"
+          git clone --quiet --depth 1 --branch "${{ inputs.gates-ref }}" \
+            https://github.com/ForkHorizon/ci-gates "$RUNNER_TEMP/ci-gates"
+
+      - name: Compile with Unity analyzers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/unity-quality-gate.py" \
+            --config "${{ inputs.config }}" \
+            --repo-url "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" \
+            --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --slug "${{ github.repository }}" 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+
+      - name: Copy-paste detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$HOME/Library/Caches/ci-gates/unity-workspaces/$(echo '${{ github.repository }}' | sed 's#/#__#')"
+          npx -y jscpd Assets \
+            --format "c-sharp" \
+            --threshold "${{ inputs.duplication-threshold }}" \
+            --ignore "**/Plugins/**,**/Libs/**,**/TextMesh Pro/**,**/ThirdParty/**" \
+            2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+
+      - name: Explain failure
+        if: ${{ failure() && inputs.explain-model != '' }}
+        shell: bash
+        run: |
+          cd "$HOME/Library/Caches/ci-gates/unity-workspaces/$(echo '${{ github.repository }}' | sed 's#/#__#')" || cd "$RUNNER_TEMP"
+          python3 "$RUNNER_TEMP/ci-gates/scripts/explain-failure.py" \
+            --log "$RUNNER_TEMP/ci-gate.log" \
+            --gate "Unity Quality Gate" \
+            --model "${{ inputs.explain-model }}" \
+            --base "origin/${{ github.event.repository.default_branch }}"
