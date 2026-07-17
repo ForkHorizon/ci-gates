@@ -23,6 +23,10 @@ on:
         description: ci-gates ref to fetch scripts from.
         type: string
         default: main
+      explain-model:
+        description: Ollama model that explains failures; empty string disables.
+        type: string
+        default: qwen3-coder:30b-a3b-q4_K_M
 
 jobs:
   swift-quality-gate:
@@ -85,7 +89,7 @@ jobs:
           python3 .ci-gates/scripts/swift-quality-gate.py \
             --config "${{ inputs.config }}" \
             --stage build \
-            --mode all
+            --mode all 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
 
       - name: Format
         shell: bash
@@ -96,7 +100,7 @@ jobs:
             --stage format \
             --mode "${{ steps.scan.outputs.mode }}" \
             --base "${{ steps.scan.outputs.base }}" \
-            --head "${{ steps.scan.outputs.head }}"
+            --head "${{ steps.scan.outputs.head }}" 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
 
       - name: DeadCodeGate
         shell: bash
@@ -105,4 +109,14 @@ jobs:
           python3 .ci-gates/scripts/swift-quality-gate.py \
             --config "${{ inputs.config }}" \
             --stage dead-code \
-            --mode all
+            --mode all 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+
+      - name: Explain failure
+        if: ${{ failure() && inputs.explain-model != '' }}
+        shell: bash
+        run: |
+          python3 .ci-gates/scripts/explain-failure.py \
+            --log "$RUNNER_TEMP/ci-gate.log" \
+            --gate "Swift Quality Gate" \
+            --model "${{ inputs.explain-model }}" \
+            --base "${{ steps.scan.outputs.base }}"

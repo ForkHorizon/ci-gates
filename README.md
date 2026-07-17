@@ -57,6 +57,13 @@ Common to all workflows:
 - `config` — path to the gate's JSON config in the calling repo.
 - `gates-ref` — which ref of this repo to fetch scripts from (default `main`).
 
+- `explain-model` — Ollama model used by the failure explainer (default `qwen3-coder:30b-a3b-q4_K_M`); set to `''` to disable.
+
+When a gate fails, `scripts/explain-failure.py` sends the log tail and diff
+summary to the local Ollama on the runner and writes a "Why this failed"
+analysis to the job summary. Advisory only — it never changes the gate
+verdict, and it silently skips if Ollama is unreachable.
+
 `readability.yml` and `swift-quality.yml` also take `mode`
 (`auto`/`all`/`changed`; `auto` scans changed files on `pull_request` and
 `merge_group`, everything otherwise). `swift-quality.yml` takes `run-build`

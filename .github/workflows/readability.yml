@@ -19,6 +19,10 @@ on:
         description: ci-gates ref to fetch scripts from.
         type: string
         default: main
+      explain-model:
+        description: Ollama model that explains failures; empty string disables.
+        type: string
+        default: qwen3-coder:30b-a3b-q4_K_M
 
 jobs:
   readability:
@@ -83,9 +87,19 @@ jobs:
               --config "${{ inputs.config }}" \
               --mode changed \
               --base "${{ steps.scan.outputs.base }}" \
-              --head "${{ steps.scan.outputs.head }}"
+              --head "${{ steps.scan.outputs.head }}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
           else
             python3 .ci-gates/scripts/linter-checker-300-lines.py \
               --config "${{ inputs.config }}" \
-              --mode all
+              --mode all 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
           fi
+
+      - name: Explain failure
+        if: ${{ failure() && inputs.explain-model != '' }}
+        shell: bash
+        run: |
+          python3 .ci-gates/scripts/explain-failure.py \
+            --log "$RUNNER_TEMP/ci-gate.log" \
+            --gate "Readability Gate" \
+            --model "${{ inputs.explain-model }}" \
+            --base "${{ steps.scan.outputs.base }}"
