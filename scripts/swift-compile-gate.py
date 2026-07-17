@@ -15,7 +15,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Pattern, Sequence
+from re import Pattern
+from collections.abc import Sequence
 
 
 DEFAULT_IGNORE = [
@@ -121,7 +122,9 @@ def main(argv: Sequence[str]) -> int:
     if result.critical_warnings:
         annotate_critical_warnings(root, result.critical_warnings)
         first = truncate(result.critical_warnings[0].summary(), 240)
-        emit_error(f"Swift Compile Gate failed: found {len(result.critical_warnings)} critical warning(s). First: {first}")
+        emit_error(
+            f"Swift Compile Gate failed: found {len(result.critical_warnings)} critical warning(s). First: {first}"
+        )
         return 1
 
     print("Swift Compile Gate passed: compile completed with no blocking warnings.")
@@ -165,7 +168,9 @@ def load_config(path: Path) -> dict:
 def warning_policy(config: dict, config_path: Path) -> WarningPolicy:
     return WarningPolicy(
         fail_on_any_warning=bool(config.get("fail_on_any_warning", False)),
-        include_patterns=compile_patterns(config["critical_warning_patterns"], "critical_warning_patterns", config_path),
+        include_patterns=compile_patterns(
+            config["critical_warning_patterns"], "critical_warning_patterns", config_path
+        ),
         exclude_patterns=compile_patterns(
             config["critical_warning_exclude_patterns"],
             "critical_warning_exclude_patterns",
@@ -233,15 +238,25 @@ def detect_project(root: Path, config: dict) -> SwiftProject:
 
     if len(workspaces) == 1:
         relative = workspaces[0].relative_to(root).as_posix()
-        return SwiftProject("xcode-workspace", relative, scheme or detect_scheme(root, "-workspace", relative), destination, configuration)
+        return SwiftProject(
+            "xcode-workspace",
+            relative,
+            scheme or detect_scheme(root, "-workspace", relative),
+            destination,
+            configuration,
+        )
     if len(projects) == 1:
         relative = projects[0].relative_to(root).as_posix()
-        return SwiftProject("xcode-project", relative, scheme or detect_scheme(root, "-project", relative), destination, configuration)
+        return SwiftProject(
+            "xcode-project", relative, scheme or detect_scheme(root, "-project", relative), destination, configuration
+        )
     if not workspaces and not projects and (root / "Package.swift").exists():
         return SwiftProject("spm")
 
     if len(workspaces) + len(projects) > 1:
-        fail("Multiple Xcode projects/workspaces found. Set xcode_workspace or xcode_project in .swift-compile-gate.json.")
+        fail(
+            "Multiple Xcode projects/workspaces found. Set xcode_workspace or xcode_project in .swift-compile-gate.json."
+        )
     fail("No SwiftPM package or root Xcode project/workspace found.")
 
 
@@ -266,7 +281,9 @@ def detect_scheme(root: Path, flag: str, project_path: str) -> str:
         return str(schemes[0])
     if not schemes:
         fail(f"No shared schemes found for {project_path}. Set xcode_scheme in .swift-compile-gate.json.")
-    fail(f"Multiple schemes found for {project_path}: {', '.join(map(str, schemes))}. Set xcode_scheme in .swift-compile-gate.json.")
+    fail(
+        f"Multiple schemes found for {project_path}: {', '.join(map(str, schemes))}. Set xcode_scheme in .swift-compile-gate.json."
+    )
 
 
 def xcodebuild_base_command(project: SwiftProject, config: dict) -> list[str]:

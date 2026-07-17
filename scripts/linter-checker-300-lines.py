@@ -17,7 +17,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 
 LANGUAGE_BY_EXTENSION = {
@@ -98,9 +98,7 @@ CONTROL_WORDS = {
     "with",
 }
 
-RUBY_BLOCK_START = re.compile(
-    r"^\s*(class|module|if|unless|case|begin|for|while|until)\b|(^|[^A-Za-z0-9_])do\b"
-)
+RUBY_BLOCK_START = re.compile(r"^\s*(class|module|if|unless|case|begin|for|while|until)\b|(^|[^A-Za-z0-9_])do\b")
 
 
 @dataclass(frozen=True)
@@ -130,9 +128,7 @@ def main(argv: Sequence[str]) -> int:
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Check source file and function length for AI-readable code."
-    )
+    parser = argparse.ArgumentParser(description="Check source file and function length for AI-readable code.")
     parser.add_argument("--mode", choices=("all", "changed"), default="all")
     parser.add_argument("--base", default="origin/main", help="Base ref for changed mode.")
     parser.add_argument("--head", default="HEAD", help="Head ref for changed mode.")
@@ -162,18 +158,14 @@ def load_config(path: Path) -> dict:
     config["max_function_lines"] = int(config.get("max_function_lines", 50))
     config["ignore"] = list(config.get("ignore", []))
     config["include_extensions"] = [
-        ext if ext.startswith(".") else f".{ext}"
-        for ext in config.get("include_extensions", LANGUAGE_BY_EXTENSION)
+        ext if ext.startswith(".") else f".{ext}" for ext in config.get("include_extensions", LANGUAGE_BY_EXTENSION)
     ]
     config["language_overrides"] = dict(config.get("language_overrides", {}))
     return config
 
 
 def collect_paths(root: Path, config: dict, args: argparse.Namespace) -> list[Path]:
-    if args.mode == "changed":
-        candidates = changed_paths(root, args.base, args.head)
-    else:
-        candidates = all_repo_paths(root)
+    candidates = changed_paths(root, args.base, args.head) if args.mode == "changed" else all_repo_paths(root)
 
     include_extensions = set(config["include_extensions"])
     paths = []
@@ -199,7 +191,7 @@ def changed_paths(root: Path, base: str, head: str) -> list[Path]:
         stderr = result.stderr.strip() or result.stdout.strip()
         print(f"::error::Unable to collect changed files: {stderr}", file=sys.stderr)
         sys.exit(2)
-    return [root / path for path in result.stdout.split('\0') if path]
+    return [root / path for path in result.stdout.split("\0") if path]
 
 
 def all_repo_paths(root: Path) -> list[Path]:
@@ -211,7 +203,7 @@ def all_repo_paths(root: Path) -> list[Path]:
         check=False,
     )
     if result.returncode == 0:
-        return [root / path for path in result.stdout.split('\0') if path]
+        return [root / path for path in result.stdout.split("\0") if path]
 
     paths = []
     for current_root, dirnames, filenames in os.walk(root):
@@ -256,10 +248,7 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
                         path=relative,
                         line=start_line,
                         kind="function_length",
-                        message=(
-                            f"{name} has {length} lines; function/method limit is "
-                            f"{max_function_lines}."
-                        ),
+                        message=(f"{name} has {length} lines; function/method limit is {max_function_lines}."),
                     )
                 )
     return issues
@@ -363,8 +352,7 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
             pending = None
 
         brace_depth += opens - closes
-        if brace_depth < 0:
-            brace_depth = 0
+        brace_depth = max(brace_depth, 0)
 
         while active and brace_depth <= active[-1].parent_depth:
             block = active.pop()
@@ -373,7 +361,7 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
     return results
 
 
-def detect_brace_function(line: str, language: str) -> str | None:
+def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0911, PLR0912 - per-language dispatch
     if not line:
         return None
 
@@ -538,15 +526,9 @@ def print_report(issues: Sequence[Issue], checked_count: int, mode: str) -> None
         return
 
     for issue in issues:
-        print(
-            f"::error file={issue.path},line={issue.line},title={issue.kind}::"
-            f"{escape_github_message(issue.message)}"
-        )
+        print(f"::error file={issue.path},line={issue.line},title={issue.kind}::{escape_github_message(issue.message)}")
 
-    print(
-        f"AI readability check failed: {len(issues)} issue(s) across "
-        f"{checked_count} scanned file(s) in {mode} mode."
-    )
+    print(f"AI readability check failed: {len(issues)} issue(s) across {checked_count} scanned file(s) in {mode} mode.")
 
 
 def escape_github_message(message: str) -> str:

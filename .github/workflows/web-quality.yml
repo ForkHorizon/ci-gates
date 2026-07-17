@@ -39,12 +39,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout ci-gates
-        uses: actions/checkout@v6
-        with:
-          repository: ForkHorizon/ci-gates
-          ref: ${{ inputs.gates-ref }}
-          path: .ci-gates
+      - name: Fetch ci-gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/ci-gates"
+          git clone --quiet --depth 1 --branch "${{ inputs.gates-ref }}" \
+            https://github.com/ForkHorizon/ci-gates "$RUNNER_TEMP/ci-gates"
 
       - name: Install dependencies
         run: |
@@ -91,7 +92,7 @@ jobs:
       - name: Explain failure
         if: ${{ failure() && inputs.explain-model != '' }}
         run: |
-          python3 "$GITHUB_WORKSPACE/.ci-gates/scripts/explain-failure.py" \
+          python3 "$RUNNER_TEMP/ci-gates/scripts/explain-failure.py" \
             --log "$RUNNER_TEMP/ci-gate.log" \
             --gate "Web Quality Gate" \
             --model "${{ inputs.explain-model }}" \
