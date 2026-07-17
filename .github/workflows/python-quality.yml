@@ -1,0 +1,91 @@
+name: Python Quality Gate
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: JSON array of runner labels to target.
+        type: string
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+      working-directory:
+        description: Directory containing the Python sources.
+        type: string
+        default: "."
+      gates-ref:
+        description: ci-gates ref to fetch scripts from.
+        type: string
+        default: main
+      explain-model:
+        description: Ollama model that explains failures; empty string disables.
+        type: string
+        default: qwen3-coder:30b-a3b-q4_K_M
+
+jobs:
+  python-quality-gate:
+    name: Python Quality Gate
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout ci-gates
+        uses: actions/checkout@v6
+        with:
+          repository: ForkHorizon/ci-gates
+          ref: ${{ inputs.gates-ref }}
+          path: .ci-gates
+
+      - name: Ensure ruff
+        run: |
+          set -euo pipefail
+          command -v ruff >/dev/null || brew install ruff
+
+      - name: Select ruff config
+        id: ruff
+        run: |
+          set -euo pipefail
+          config=""
+          if [ -f ruff.toml ] || [ -f .ruff.toml ]; then
+            :
+          elif [ -f pyproject.toml ] && grep -q "\[tool\.ruff" pyproject.toml; then
+            :
+          else
+            config="$GITHUB_WORKSPACE/.ci-gates/configs/ruff-strict.toml"
+          fi
+          echo "config=$config" >> "$GITHUB_OUTPUT"
+
+      - name: Ruff lint
+        run: |
+          set -euo pipefail
+          config="${{ steps.ruff.outputs.config }}"
+          if [ -n "$config" ]; then
+            ruff check --config "$config" . 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+          else
+            ruff check . 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+          fi
+
+      - name: Ruff format check
+        run: |
+          set -euo pipefail
+          config="${{ steps.ruff.outputs.config }}"
+          if [ -n "$config" ]; then
+            ruff format --check --config "$config" . 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+          else
+            ruff format --check . 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+          fi
+
+      - name: Explain failure
+        if: ${{ failure() && inputs.explain-model != '' }}
+        run: |
+          python3 "$GITHUB_WORKSPACE/.ci-gates/scripts/explain-failure.py" \
+            --log "$RUNNER_TEMP/ci-gate.log" \
+            --gate "Python Quality Gate" \
+            --model "${{ inputs.explain-model }}" \
+            --base "origin/${{ github.event.repository.default_branch }}"

@@ -1,0 +1,98 @@
+name: Web Quality Gate
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: JSON array of runner labels to target.
+        type: string
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+      working-directory:
+        description: Directory containing package.json.
+        type: string
+        default: "."
+      duplication-threshold:
+        description: Max allowed duplicated-code percentage (jscpd).
+        type: string
+        default: "2"
+      gates-ref:
+        description: ci-gates ref to fetch scripts from.
+        type: string
+        default: main
+      explain-model:
+        description: Ollama model that explains failures; empty string disables.
+        type: string
+        default: qwen3-coder:30b-a3b-q4_K_M
+
+jobs:
+  web-quality-gate:
+    name: Web Quality Gate
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout ci-gates
+        uses: actions/checkout@v6
+        with:
+          repository: ForkHorizon/ci-gates
+          ref: ${{ inputs.gates-ref }}
+          path: .ci-gates
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+          elif [ -f package-lock.json ]; then
+            npm ci 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+          else
+            npm install 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+          fi
+
+      - name: Typecheck
+        run: |
+          set -euo pipefail
+          if [ ! -f tsconfig.json ]; then
+            echo "::notice::Typecheck skipped: no tsconfig.json."
+            exit 0
+          fi
+          npx --no-install tsc --noEmit 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+
+      - name: Lint
+        run: |
+          set -euo pipefail
+          if ! ls eslint.config.* .eslintrc* >/dev/null 2>&1; then
+            echo "::notice::ESLint skipped: no config in this repo. Add eslint.config.mjs to enable linting."
+            exit 0
+          fi
+          npx --no-install eslint . --max-warnings 0 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+
+      - name: Dead code and unused dependencies
+        run: |
+          set -euo pipefail
+          npx -y knip 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+
+      - name: Copy-paste detection
+        run: |
+          set -euo pipefail
+          npx -y jscpd . \
+            --threshold "${{ inputs.duplication-threshold }}" \
+            --ignore "**/node_modules/**,**/dist/**,**/build/**,**/coverage/**,**/*.min.js" \
+            2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+
+      - name: Explain failure
+        if: ${{ failure() && inputs.explain-model != '' }}
+        run: |
+          python3 "$GITHUB_WORKSPACE/.ci-gates/scripts/explain-failure.py" \
+            --log "$RUNNER_TEMP/ci-gate.log" \
+            --gate "Web Quality Gate" \
+            --model "${{ inputs.explain-model }}" \
+            --base "origin/${{ github.event.repository.default_branch }}"

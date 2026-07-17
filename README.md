@@ -11,6 +11,8 @@ pushing to `main` in this repo updates every project instantly.
 | `readability.yml` | File length ≤ 300 lines, function length ≤ 50 lines (12+ languages). |
 | `swift-compile.yml` | Project compiles; fails on critical warnings (Swift 6 concurrency, Sendable, data races). |
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
+| `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
+| `python-quality.yml` | Ruff lint (strict fallback config in `configs/ruff-strict.toml`) and `ruff format --check`. |
 
 All jobs target self-hosted macOS ARM64 runners by default; the full label
 set is configurable via the `runs-on` input (a JSON array).
@@ -68,6 +70,9 @@ verdict, and it silently skips if Ollama is unreachable.
 (`auto`/`all`/`changed`; `auto` scans changed files on `pull_request` and
 `merge_group`, everything otherwise). `swift-quality.yml` takes `run-build`
 to skip its build stage when the compile gate already builds the project.
+`web-quality.yml` and `python-quality.yml` take `working-directory`;
+`web-quality.yml` also takes `duplication-threshold` (max % of duplicated
+code, default 2).
 
 ## Versioning
 
