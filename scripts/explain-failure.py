@@ -16,7 +16,7 @@ import subprocess
 import sys
 import urllib.request
 from pathlib import Path
-from typing import Sequence
+from collections.abc import Sequence
 
 LOG_TAIL_CHARS = 8000
 DIFF_TAIL_CHARS = 8000
@@ -48,7 +48,7 @@ def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
     try:
         explanation = explain(args)
-    except Exception as exc:  # noqa: BLE001 - advisory step must never fail the job
+    except Exception as exc:
         print(f"::notice title=Failure explainer::Skipped: {exc}")
         return 0
     publish(args.gate, args.model, explanation)
