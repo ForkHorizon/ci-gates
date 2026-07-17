@@ -3,10 +3,10 @@ name: Swift Quality Gate
 on:
   workflow_call:
     inputs:
-      runner-label:
-        description: Extra self-hosted runner label.
+      runs-on:
+        description: JSON array of runner labels to target.
         type: string
-        default: ci-scope-broker
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope-broker"]'
       mode:
         description: "Files to scan: auto (derive from event), all, or changed."
         type: string
@@ -27,7 +27,7 @@ on:
 jobs:
   swift-quality-gate:
     name: Swift Quality Gate
-    runs-on: [self-hosted, macOS, ARM64, "${{ inputs.runner-label }}"]
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
 
     steps:
       - name: Checkout project

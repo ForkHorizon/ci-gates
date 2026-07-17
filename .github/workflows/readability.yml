@@ -3,10 +3,10 @@ name: Readability Gate
 on:
   workflow_call:
     inputs:
-      runner-label:
-        description: Extra self-hosted runner label.
+      runs-on:
+        description: JSON array of runner labels to target.
         type: string
-        default: ci-scope
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
       mode:
         description: "Files to scan: auto (derive from event), all, or changed."
         type: string
@@ -23,7 +23,7 @@ on:
 jobs:
   readability:
     name: Readability Gate
-    runs-on: [self-hosted, macOS, ARM64, "${{ inputs.runner-label }}"]
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
 
     steps:
       - name: Checkout project

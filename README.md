@@ -12,8 +12,8 @@ pushing to `main` in this repo updates every project instantly.
 | `swift-compile.yml` | Project compiles; fails on critical warnings (Swift 6 concurrency, Sendable, data races). |
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 
-All jobs target self-hosted macOS ARM64 runners; the extra label is
-configurable via the `runner-label` input.
+All jobs target self-hosted macOS ARM64 runners by default; the full label
+set is configurable via the `runs-on` input (a JSON array).
 
 ## Usage
 
@@ -53,7 +53,7 @@ Per-repo tuning stays in the project via config files:
 
 Common to all workflows:
 
-- `runner-label` — extra runner label (`ci-scope` for readability, `ci-scope-broker` for Swift gates by default).
+- `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope` for readability, `ci-scope-broker` for Swift gates).
 - `config` — path to the gate's JSON config in the calling repo.
 - `gates-ref` — which ref of this repo to fetch scripts from (default `main`).
 
