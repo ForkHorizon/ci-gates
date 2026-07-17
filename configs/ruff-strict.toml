@@ -27,3 +27,9 @@ ignore = [
 max-args = 6
 max-branches = 12
 max-statements = 50
+
+# Test code legitimately uses stub lambdas with unused args, sys.path setup
+# before imports, and short exception names.
+[lint.per-file-ignores]
+"**/tests/**" = ["ARG", "E402", "N818", "S101"]
+"**/test_*.py" = ["ARG", "E402", "N818", "S101"]
