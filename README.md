@@ -13,6 +13,7 @@ pushing to `main` in this repo updates every project instantly.
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
 | `python-quality.yml` | Ruff lint (strict fallback config in `configs/ruff-strict.toml`) and `ruff format --check`. |
+| `unity-quality.yml` | Unity C#: `dotnet build` with Microsoft.Unity.Analyzers (fails on first-party warnings), jscpd for C#. Uses a persistent per-repo workspace cache under `~/Library/Caches/ci-gates` — no project checkout, incremental fetch + Library reuse. |
 
 All jobs target self-hosted macOS ARM64 runners by default; the full label
 set is configurable via the `runs-on` input (a JSON array).
