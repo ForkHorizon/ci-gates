@@ -13,6 +13,7 @@ pushing to `main` in this repo updates every project instantly.
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
 | `python-quality.yml` | Ruff lint (strict fallback config in `configs/ruff-strict.toml`) and `ruff format --check`. |
+| `slop-review.yml` | **Advisory, non-blocking.** Sends each changed file's diff to a local Ollama model to flag semantic AI-slop that linters miss (swallowed errors, fake tests, misleading names, insecure string-built queries, dead-end code), with a 3-vote adversarial refutation pass. Posts `::warning` annotations + a job-summary table and a calibration journal; never affects the merge decision. |
 
 All jobs target self-hosted macOS ARM64 runners by default; the full label
 set is configurable via the `runs-on` input (a JSON array).
