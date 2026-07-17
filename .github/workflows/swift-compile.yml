@@ -1,0 +1,41 @@
+name: Swift Compile Gate
+
+on:
+  workflow_call:
+    inputs:
+      runner-label:
+        description: Extra self-hosted runner label.
+        type: string
+        default: ci-scope-broker
+      config:
+        description: Path to the compile gate config in the calling repo.
+        type: string
+        default: .swift-compile-gate.json
+      gates-ref:
+        description: ci-gates ref to fetch scripts from.
+        type: string
+        default: main
+
+jobs:
+  swift-compile-gate:
+    name: Swift Compile Gate
+    runs-on: [self-hosted, macOS, ARM64, "${{ inputs.runner-label }}"]
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout ci-gates
+        uses: actions/checkout@v6
+        with:
+          repository: ForkHorizon/ci-gates
+          ref: ${{ inputs.gates-ref }}
+          path: .ci-gates
+
+      - name: Compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .ci-gates/scripts/swift-compile-gate.py --config "${{ inputs.config }}"

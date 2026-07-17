@@ -1,0 +1,108 @@
+name: Swift Quality Gate
+
+on:
+  workflow_call:
+    inputs:
+      runner-label:
+        description: Extra self-hosted runner label.
+        type: string
+        default: ci-scope-broker
+      mode:
+        description: "Files to scan: auto (derive from event), all, or changed."
+        type: string
+        default: auto
+      config:
+        description: Path to the quality gate config in the calling repo.
+        type: string
+        default: .swift-quality-gate.json
+      run-build:
+        description: Run the build stage (redundant if Swift Compile Gate also runs).
+        type: boolean
+        default: true
+      gates-ref:
+        description: ci-gates ref to fetch scripts from.
+        type: string
+        default: main
+
+jobs:
+  swift-quality-gate:
+    name: Swift Quality Gate
+    runs-on: [self-hosted, macOS, ARM64, "${{ inputs.runner-label }}"]
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout ci-gates
+        uses: actions/checkout@v6
+        with:
+          repository: ForkHorizon/ci-gates
+          ref: ${{ inputs.gates-ref }}
+          path: .ci-gates
+
+      - name: Select scan mode
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mode="${{ inputs.mode }}"
+          base="origin/${{ github.event.repository.default_branch }}"
+          head="HEAD"
+
+          if [ "$mode" = "auto" ] || [ -z "$mode" ]; then
+            case "${{ github.event_name }}" in
+              pull_request) mode=changed ;;
+              merge_group)  mode=changed ;;
+              *)            mode=all ;;
+            esac
+          fi
+
+          case "${{ github.event_name }}" in
+            pull_request)
+              base="${{ github.event.pull_request.base.sha }}"
+              head="${{ github.sha }}"
+              ;;
+            merge_group)
+              base="${{ github.event.merge_group.base_sha }}"
+              head="${{ github.sha }}"
+              ;;
+          esac
+
+          {
+            echo "mode=$mode"
+            echo "base=$base"
+            echo "head=$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        if: ${{ inputs.run-build }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .ci-gates/scripts/swift-quality-gate.py \
+            --config "${{ inputs.config }}" \
+            --stage build \
+            --mode all
+
+      - name: Format
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .ci-gates/scripts/swift-quality-gate.py \
+            --config "${{ inputs.config }}" \
+            --stage format \
+            --mode "${{ steps.scan.outputs.mode }}" \
+            --base "${{ steps.scan.outputs.base }}" \
+            --head "${{ steps.scan.outputs.head }}"
+
+      - name: DeadCodeGate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .ci-gates/scripts/swift-quality-gate.py \
+            --config "${{ inputs.config }}" \
+            --stage dead-code \
+            --mode all

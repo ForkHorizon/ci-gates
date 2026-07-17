@@ -1,0 +1,91 @@
+name: Readability Gate
+
+on:
+  workflow_call:
+    inputs:
+      runner-label:
+        description: Extra self-hosted runner label.
+        type: string
+        default: ci-scope
+      mode:
+        description: "Files to scan: auto (derive from event), all, or changed."
+        type: string
+        default: auto
+      config:
+        description: Path to the readability config in the calling repo.
+        type: string
+        default: .linter-checker-300-lines.json
+      gates-ref:
+        description: ci-gates ref to fetch scripts from.
+        type: string
+        default: main
+
+jobs:
+  readability:
+    name: Readability Gate
+    runs-on: [self-hosted, macOS, ARM64, "${{ inputs.runner-label }}"]
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout ci-gates
+        uses: actions/checkout@v6
+        with:
+          repository: ForkHorizon/ci-gates
+          ref: ${{ inputs.gates-ref }}
+          path: .ci-gates
+
+      - name: Select scan mode
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mode="${{ inputs.mode }}"
+          base="origin/${{ github.event.repository.default_branch }}"
+          head="HEAD"
+
+          if [ "$mode" = "auto" ] || [ -z "$mode" ]; then
+            case "${{ github.event_name }}" in
+              pull_request) mode=changed ;;
+              merge_group)  mode=changed ;;
+              *)            mode=all ;;
+            esac
+          fi
+
+          case "${{ github.event_name }}" in
+            pull_request)
+              base="${{ github.event.pull_request.base.sha }}"
+              head="${{ github.sha }}"
+              ;;
+            merge_group)
+              base="${{ github.event.merge_group.base_sha }}"
+              head="${{ github.sha }}"
+              ;;
+          esac
+
+          {
+            echo "mode=$mode"
+            echo "base=$base"
+            echo "head=$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run readability gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.scan.outputs.mode }}" = "changed" ]; then
+            python3 .ci-gates/scripts/linter-checker-300-lines.py \
+              --config "${{ inputs.config }}" \
+              --mode changed \
+              --base "${{ steps.scan.outputs.base }}" \
+              --head "${{ steps.scan.outputs.head }}"
+          else
+            python3 .ci-gates/scripts/linter-checker-300-lines.py \
+              --config "${{ inputs.config }}" \
+              --mode all
+          fi
