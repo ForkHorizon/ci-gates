@@ -13,6 +13,7 @@ pushing to `main` in this repo updates every project instantly.
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
 | `python-quality.yml` | Ruff lint (strict fallback config in `configs/ruff-strict.toml`) and `ruff format --check`. |
+| `go-quality.yml` | `go vet`, `gofmt -l` (fails on unformatted files), `golangci-lint run`. Does not run `go test` — test execution stays with the project's own CI. |
 | `unity-quality.yml` | Unity C#: `dotnet build` with Microsoft.Unity.Analyzers (fails on first-party warnings), jscpd for C#. Uses a persistent per-repo workspace cache under `~/Library/Caches/ci-gates` — no project checkout, incremental fetch + Library reuse. |
 | `slop-review.yml` | **Advisory, non-blocking.** Sends each changed file's diff to a local Ollama model to flag semantic AI-slop that linters miss (swallowed errors, fake tests, misleading names, insecure string-built queries, dead-end code), with a 3-vote adversarial refutation pass. Posts `::warning` annotations + a job-summary table and a calibration journal; never affects the merge decision. |
 
@@ -72,9 +73,12 @@ verdict, and it silently skips if Ollama is unreachable.
 (`auto`/`all`/`changed`; `auto` scans changed files on `pull_request` and
 `merge_group`, everything otherwise). `swift-quality.yml` takes `run-build`
 to skip its build stage when the compile gate already builds the project.
-`web-quality.yml` and `python-quality.yml` take `working-directory`;
-`web-quality.yml` also takes `duplication-threshold` (max % of duplicated
-code, default 2).
+`web-quality.yml`, `python-quality.yml`, and `go-quality.yml` take
+`working-directory`; `web-quality.yml` also takes `duplication-threshold`
+(max % of duplicated code, default 2). `go-quality.yml` also takes
+`bootstrap-command`, an optional shell command run before vet/lint —
+e.g. to satisfy a `go:embed` target that needs at least one file present
+on a fresh checkout.
 
 ## Versioning
 
