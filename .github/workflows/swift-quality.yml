@@ -86,6 +86,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 .ci-gates/scripts/_progress.py --step quality --current 1 --total 3 --detail "Building"
           python3 .ci-gates/scripts/swift-quality-gate.py \
             --config "${{ inputs.config }}" \
             --stage build \
@@ -95,6 +96,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 .ci-gates/scripts/_progress.py --step quality --current ${{ inputs.run-build && 2 || 1 }} --total ${{ inputs.run-build && 3 || 2 }} --detail "Checking format"
           python3 .ci-gates/scripts/swift-quality-gate.py \
             --config "${{ inputs.config }}" \
             --stage format \
@@ -106,6 +108,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 .ci-gates/scripts/_progress.py --step quality --current ${{ inputs.run-build && 3 || 2 }} --total ${{ inputs.run-build && 3 || 2 }} --detail "Finding dead code"
           python3 .ci-gates/scripts/swift-quality-gate.py \
             --config "${{ inputs.config }}" \
             --stage dead-code \

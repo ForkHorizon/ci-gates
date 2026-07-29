@@ -46,12 +46,14 @@ jobs:
       - name: Ensure ruff
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 1 --total 4 --detail "Preparing Ruff"
           command -v ruff >/dev/null || brew install ruff
 
       - name: Select ruff config
         id: ruff
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 2 --total 4 --detail "Loading Ruff configuration"
           config=""
           if [ -f ruff.toml ] || [ -f .ruff.toml ]; then
             :
@@ -65,6 +67,7 @@ jobs:
       - name: Ruff lint
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 3 --total 4 --detail "Linting Python sources"
           config="${{ steps.ruff.outputs.config }}"
           if [ -n "$config" ]; then
             ruff check --config "$config" . 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
@@ -75,6 +78,7 @@ jobs:
       - name: Ruff format check
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 4 --total 4 --detail "Checking Python formatting"
           config="${{ steps.ruff.outputs.config }}"
           if [ -n "$config" ]; then
             ruff format --check --config "$config" . 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"

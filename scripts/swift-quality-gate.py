@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Sequence
 
+from _progress import progress
+
 
 DEFAULT_IGNORE = [
     ".git",
@@ -82,7 +84,9 @@ def main(argv: Sequence[str]) -> int:
     config = load_config(root / args.config)
 
     if args.stage == "all":
-        for stage in ("build", "format", "dead-code"):
+        stages = ("build", "format", "dead-code")
+        for index, stage in enumerate(stages, start=1):
+            progress("quality", current=index, total=len(stages), detail=stage)
             run_stage(stage, root, config, args)
         return 0
 

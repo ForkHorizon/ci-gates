@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Iterable, Sequence
 
+from _progress import progress
+
 
 LANGUAGE_BY_EXTENSION = {
     ".swift": "swift",
@@ -122,6 +124,8 @@ def main(argv: Sequence[str]) -> int:
     config = load_config(root / args.config)
 
     paths = collect_paths(root, config, args)
+    if not paths:
+        progress("lint", detail="No matching source files")
     issues = check_paths(root, paths, config)
     print_report(issues, len(paths), args.mode)
     return 1 if issues else 0
@@ -215,8 +219,10 @@ def all_repo_paths(root: Path) -> list[Path]:
 
 def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
     issues: list[Issue] = []
-    for path in paths:
+    paths = list(paths)
+    for index, path in enumerate(paths, start=1):
         relative = to_relative(root, path)
+        progress("lint", current=index, total=len(paths), detail=str(relative))
         language = LANGUAGE_BY_EXTENSION.get(path.suffix)
         if language is None:
             continue
