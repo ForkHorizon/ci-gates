@@ -18,6 +18,8 @@ from pathlib import Path
 from re import Pattern
 from collections.abc import Sequence
 
+from _progress import progress
+
 
 DEFAULT_IGNORE = [
     ".git",
@@ -320,13 +322,26 @@ def run_and_collect(command: Sequence[str], root: Path, config: dict, policy: Wa
 
     critical_warnings = []
     assert process.stdout is not None
+    progress("compiling", detail="Starting build")
+    last_progress_detail = None
     for line in process.stdout:
         print(line, end="", flush=True)
+        detail = compiling_file(line)
+        if detail and detail != last_progress_detail:
+            progress("compiling", detail=detail)
+            last_progress_detail = detail
         warning = parse_warning_line(line)
         if warning and is_critical_warning(root, warning, config, policy):
             critical_warnings.append(warning)
 
     return BuildResult(process.wait(), critical_warnings)
+
+
+def compiling_file(line: str) -> str | None:
+    match = re.search(r"(?:CompileSwift|Compiling).*?([^\s,]+\.swift)\b", line)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def parse_warning_line(line: str) -> WarningRecord | None:

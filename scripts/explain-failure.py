@@ -18,6 +18,8 @@ import urllib.request
 from pathlib import Path
 from collections.abc import Sequence
 
+from _progress import progress
+
 LOG_TAIL_CHARS = 8000
 DIFF_TAIL_CHARS = 8000
 REQUEST_TIMEOUT_SECONDS = 300
@@ -93,6 +95,7 @@ def run_git(command: list[str]) -> str:
 
 
 def generate(host: str, model: str, prompt: str) -> str:
+    progress("explaining")
     payload = json.dumps(
         {
             "model": model,

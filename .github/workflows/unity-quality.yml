@@ -55,6 +55,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step unity --current 5 --total 5 --detail "Checking duplication"
           cd "$HOME/Library/Caches/ci-gates/unity-workspaces/$(echo '${{ github.repository }}' | sed 's#/#__#')"
           npx -y jscpd Assets \
             --format "c-sharp" \

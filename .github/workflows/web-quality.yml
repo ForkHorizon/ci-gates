@@ -50,6 +50,7 @@ jobs:
       - name: Install dependencies
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 1 --total 5 --detail "Installing dependencies"
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
           elif [ -f package-lock.json ]; then
@@ -61,6 +62,7 @@ jobs:
       - name: Typecheck
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 2 --total 5 --detail "Type checking"
           if [ ! -f tsconfig.json ]; then
             echo "::notice::Typecheck skipped: no tsconfig.json."
             exit 0
@@ -70,6 +72,7 @@ jobs:
       - name: Lint
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 3 --total 5 --detail "Linting source"
           if ! ls eslint.config.* .eslintrc* >/dev/null 2>&1; then
             echo "::notice::ESLint skipped: no config in this repo. Add eslint.config.mjs to enable linting."
             exit 0
@@ -79,11 +82,13 @@ jobs:
       - name: Dead code and unused dependencies
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 4 --total 5 --detail "Finding unused code"
           npx -y knip 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
 
       - name: Copy-paste detection
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 5 --total 5 --detail "Checking duplication"
           npx -y jscpd . \
             --threshold "${{ inputs.duplication-threshold }}" \
             --ignore "**/node_modules/**,**/dist/**,**/build/**,**/coverage/**,**/*.min.js" \

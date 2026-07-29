@@ -20,6 +20,8 @@ import zipfile
 from pathlib import Path
 from collections.abc import Sequence
 
+from _progress import progress
+
 ANALYZERS_URL = "https://www.nuget.org/api/v2/package/Microsoft.Unity.Analyzers"
 CACHE_DIR = Path.home() / "Library/Caches/ci-gates"
 WARNING_RE = re.compile(
@@ -37,11 +39,18 @@ DEFAULT_CONFIG = {
 
 def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
-    root = sync_workspace(args.repo_url, args.sha, args.slug) if args.repo_url else Path(args.root).resolve()
+    if args.repo_url:
+        root = sync_workspace(args.repo_url, args.sha, args.slug)
+    else:
+        progress("unity", current=1, total=5, detail="Preparing workspace")
+        root = Path(args.root).resolve()
     config = load_config(root / args.config)
 
+    progress("unity", current=2, total=5, detail="Preparing project files")
     ensure_csproj(root, config)
+    progress("unity", current=3, total=5, detail="Loading analyzers")
     analyzer = ensure_analyzers()
+    progress("unity", current=4, total=5, detail="Compiling C#")
     warnings = build_and_collect(root, config, analyzer)
     offending = [
         w
@@ -91,6 +100,7 @@ def sync_workspace(repo_url: str, sha: str, slug: str) -> Path:
     survive between CI runs; each run only fetches the new objects."""
     if not sha or not slug:
         fail("--repo-url requires --sha and --slug.")
+    progress("unity", current=1, total=5, detail="Syncing workspace")
     workspace = CACHE_DIR / "unity-workspaces" / slug.replace("/", "__")
     workspace.parent.mkdir(parents=True, exist_ok=True)
     if not (workspace / ".git").exists():

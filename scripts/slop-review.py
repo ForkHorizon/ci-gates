@@ -23,6 +23,8 @@ import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
 
+from _progress import progress
+
 CACHE_DIR = Path.home() / "Library/Caches/ci-gates"
 
 DEFAULT_CONFIG = {
@@ -158,17 +160,25 @@ def run_review(args: argparse.Namespace) -> None:
     config = load_config(Path(args.config))
     files = changed_files(args.base, args.head, config)
     if not files:
+        progress("finding", detail="No reviewable files")
         print("Slop review: no reviewable files changed.")
         return
 
     candidates: list[dict] = []
-    for path in files:
+    for index, path in enumerate(files, start=1):
+        progress("finding", current=index, total=len(files), detail=path)
         diff = numbered_diff(args.base, args.head, path, config["max_file_diff_lines"])
         if diff:
             candidates.extend(find_candidates(args, config, path, diff))
 
     candidates = dedupe(candidates)[: config["max_candidates"]]
-    survivors = [c for c in candidates if survives_refutation(args, c, config["refute_votes"])]
+    if not candidates:
+        progress("refuting", detail="No findings to verify")
+    survivors = []
+    for index, candidate in enumerate(candidates, start=1):
+        progress("refuting", current=index, total=len(candidates), detail=f"{candidate['path']}:{candidate['line']}")
+        if survives_refutation(args, candidate, config["refute_votes"]):
+            survivors.append(candidate)
     survivors.sort(key=lambda f: SEVERITY_RANK.get(f["severity"], 3))
     survivors = survivors[: config["max_findings"]]
 

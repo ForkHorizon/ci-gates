@@ -47,21 +47,30 @@ jobs:
             https://github.com/ForkHorizon/ci-gates "$RUNNER_TEMP/ci-gates"
 
       - name: Download modules
-        run: go mod download
+        run: |
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 1 --total ${{ inputs.bootstrap-command != '' && 6 || 5 }} --detail "Downloading modules"
+          go mod download
 
       - name: Bootstrap
         if: ${{ inputs.bootstrap-command != '' }}
-        run: ${{ inputs.bootstrap-command }}
+        run: |
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current 2 --total 6 --detail "Bootstrapping project"
+          ${{ inputs.bootstrap-command }}
 
       - name: Ensure golangci-lint
-        run: command -v golangci-lint >/dev/null || brew install golangci-lint
+        run: |
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current ${{ inputs.bootstrap-command != '' && 3 || 2 }} --total ${{ inputs.bootstrap-command != '' && 6 || 5 }} --detail "Preparing golangci-lint"
+          command -v golangci-lint >/dev/null || brew install golangci-lint
 
       - name: go vet
-        run: go vet ./... 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+        run: |
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current ${{ inputs.bootstrap-command != '' && 4 || 3 }} --total ${{ inputs.bootstrap-command != '' && 6 || 5 }} --detail "Running go vet"
+          go vet ./... 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
 
       - name: gofmt check
         run: |
           set -euo pipefail
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current ${{ inputs.bootstrap-command != '' && 5 || 4 }} --total ${{ inputs.bootstrap-command != '' && 6 || 5 }} --detail "Checking formatting"
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
             echo "$unformatted" | tee -a "$RUNNER_TEMP/ci-gate.log"
@@ -70,7 +79,9 @@ jobs:
           fi
 
       - name: golangci-lint
-        run: golangci-lint run ./... 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
+        run: |
+          python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step quality --current ${{ inputs.bootstrap-command != '' && 6 || 5 }} --total ${{ inputs.bootstrap-command != '' && 6 || 5 }} --detail "Running golangci-lint"
+          golangci-lint run ./... 2>&1 | tee -a "$RUNNER_TEMP/ci-gate.log"
 
       - name: Explain failure
         if: ${{ failure() && inputs.explain-model != '' }}
