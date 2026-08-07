@@ -328,8 +328,10 @@ def python_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             end_line = getattr(node, "end_lineno", node.lineno)
+            pos_args = getattr(node.args, "posonlyargs", [])
             pcount = (
-                len(node.args.args)
+                len(pos_args)
+                + len(node.args.args)
                 + len(node.args.kwonlyargs)
                 + (1 if node.args.vararg else 0)
                 + (1 if node.args.kwarg else 0)
@@ -428,30 +430,15 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
 
 
 def count_params_in_signature(signature_line: str) -> int:
-    start = signature_line.find("(")
+    signature_clean = strip_strings(signature_line)
+    start = signature_clean.find("(")
     if start == -1:
         return 0
 
     depth = 0
     end = -1
-    in_str: str | None = None
-    esc = False
-
-    for index in range(start, len(signature_line)):
-        char = signature_line[index]
-        if in_str:
-            if esc:
-                esc = False
-            elif char == "\\":
-                esc = True
-            elif char == in_str:
-                in_str = None
-            continue
-
-        if char in ('"', "'"):
-            in_str = char
-            continue
-
+    for index in range(start, len(signature_clean)):
+        char = signature_clean[index]
         if char == "(":
             depth += 1
         elif char == ")":
@@ -463,29 +450,13 @@ def count_params_in_signature(signature_line: str) -> int:
     if end <= start:
         return 0
 
-    params_str = signature_line[start + 1:end].strip()
+    params_str = signature_clean[start + 1:end].strip()
     if not params_str:
         return 0
 
     depth = 0
     count = 1
-    in_str = None
-    esc = False
-
     for char in params_str:
-        if in_str:
-            if esc:
-                esc = False
-            elif char == "\\":
-                esc = True
-            elif char == in_str:
-                in_str = None
-            continue
-
-        if char in ('"', "'"):
-            in_str = char
-            continue
-
         if char in "(<{[" :
             depth += 1
         elif char in ")>}]" :
@@ -838,6 +809,8 @@ def should_ignore(relative_path: str, patterns: Sequence[str]) -> bool:
             normalized = normalized[2:]
         if normalized.startswith(".\\"):
             normalized = normalized[2:]
+        if normalized.startswith("/"):
+            normalized = normalized[1:]
         if not normalized:
             continue
         if "/" not in normalized:
