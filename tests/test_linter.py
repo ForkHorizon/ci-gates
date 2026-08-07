@@ -440,5 +440,559 @@ class Type3:
         self.assertIn("types_per_file", issue_kinds)
 
 
+class SeniorDevEdgeCaseTests(unittest.TestCase):
+    # 21. URL in string literal destroyed by comment stripper
+    def test_url_in_string_literal_not_truncated_by_comment_stripper(self):
+        code = 'let url = "https://example.com/api"; let x = 1;'
+        line, in_block = linter_checker.strip_c_style_comments(code, False)
+        self.assertIn("x", line, "URL slashes '//' inside string literal must not truncate the line")
+
+    # 22. Python flat elif chain false positive in nesting depth
+    def test_python_elif_chain_not_flagged_as_deep_nesting(self):
+        code = """
+def check_val(x):
+    if x == 1:
+        pass
+    elif x == 2:
+        pass
+    elif x == 3:
+        pass
+    elif x == 4:
+        pass
+    elif x == 5:
+        pass
+"""
+        issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
+        self.assertEqual(len(issues), 0, "Flat if/elif/elif/elif/elif chain should NOT be flagged as deep nesting")
+
+    # 23. Multi-line signature with default parameter '=' cleared prematurely
+    def test_multiline_signature_with_default_equals_value(self):
+        swift_code = """
+func createView(
+    width: Double = 100.0,
+    height: Double = 200.0
+) {
+    let a = 1
+}
+"""
+        lengths = linter_checker.brace_function_lengths(swift_code, "swift")
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][0], "createView")
+        self.assertEqual(lengths[0][2], 6, "Multi-line signature with '=' must not treat function as a 1-line expression")
+
+    # 24. Closure parameter with tuple in signature
+    def test_closure_or_tuple_first_parameter_in_swift(self):
+        swift_code = """
+func execute(action: (Int, String) -> Void, count: Int) {
+    print(count)
+}
+"""
+        lengths = linter_checker.brace_function_lengths(swift_code, "swift")
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][0], "execute")
+        self.assertEqual(lengths[0][3], 2, "Should count 2 parameters for execute, not parse closure tuple")
+
+    # 25. Default array parameter with internal commas
+    def test_default_array_parameter_comma_counting(self):
+        code = """
+def process(items=[1, 2, 3, 4, 5, 6], factor=2):
+    pass
+"""
+        lengths = linter_checker.python_function_lengths(code)
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][3], 2, "Default list [1,2,3,4,5,6] commas must not be counted as function parameters")
+
+    # 26. Default string parameter containing commas
+    def test_default_string_parameter_with_commas(self):
+        code = """
+def format_text(template="hello, beautiful, world", flag=True):
+    pass
+"""
+        lengths = linter_checker.python_function_lengths(code)
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][3], 2, "Commas inside string default arguments must not increase parameter count")
+
+    # 27. Multi-line string literals (JS template literal / Python docstring)
+    def test_multiline_string_literals_in_js_template_strings(self):
+        js_code = """
+const sql = `
+  SELECT * FROM users
+  WHERE class = 'admin'
+  /* comment inside string */
+`;
+function realFunc() {}
+"""
+        lengths = linter_checker.brace_function_lengths(js_code, "javascript")
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][0], "realFunc")
+
+    # 28. Rust lifetime annotation misidentified as single-quoted string
+    def test_rust_lifetime_annotation_not_treated_as_single_quote_string(self):
+        rust_code = """
+fn process<'a, 'b>(x: &'a str, y: &'b str) {
+    let z = { 1 };
+}
+"""
+        lengths = linter_checker.brace_function_lengths(rust_code, "rust")
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][0], "process")
+
+    # 29. Nested block comments in Swift / Kotlin / Rust
+    def test_nested_block_comments_in_swift(self):
+        swift_code = """
+/* outer comment
+   /* nested inner comment */
+   still inside outer comment */
+func activeFunc() {
+    print(1)
+}
+"""
+        lengths = linter_checker.brace_function_lengths(swift_code, "swift")
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][0], "activeFunc")
+
+    # 30. Method invocation at start of line misidentified as function declaration
+    def test_csharp_method_invocation_at_line_start_not_detected_as_function(self):
+        cs_code = """
+void Main() {
+    CalculateTotal(1, 2, 3);
+    LogMessage("done");
+}
+"""
+        lengths = linter_checker.brace_function_lengths(cs_code, "csharp")
+        names = [item[0] for item in lengths]
+        self.assertNotIn("CalculateTotal", names, "Method invocation at line start must not be detected as function")
+
+    # 31. Ignore pattern with leading dot-slash
+    def test_ignore_pattern_with_leading_dot_slash(self):
+        patterns = ["./DerivedData", "./build"]
+        self.assertTrue(linter_checker.should_ignore("DerivedData/Build/Cache.swift", patterns))
+
+    # 32. Multi-line block comments count towards comment limit
+    def test_block_comments_in_c_style_languages_count_towards_comment_limit(self):
+        code = """
+/*
+ * Line 1
+ * Line 2
+ * Line 3
+ * Line 4
+ * Line 5
+ * Line 6
+ */
+def foo():
+    pass
+"""
+        issues = linter_checker.check_comment_blocks("test.cs", code, "csharp", 5)
+        self.assertGreater(len(issues), 0, "Multi-line block comment exceeding line limit must produce issue")
+
+    # 33. Swift string interpolation containing braces
+    def test_swift_string_interpolation_with_braces(self):
+        swift_code = """
+func format() {
+    let s = "Items: \\(items.map { $0 * 2 })"
+}
+"""
+        lengths = linter_checker.brace_function_lengths(swift_code, "swift")
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][0], "format")
+
+    # 34. Python nested class defined inside function or condition
+    def test_python_nested_class_counted_in_types_per_file(self):
+        code = """
+class Outer:
+    class Inner:
+        pass
+class Third:
+    pass
+"""
+        issues = linter_checker.check_types_per_file("test.py", code, "python", 2)
+        self.assertEqual(len(issues), 1, "Nested Python classes must count towards types_per_file limit")
+
+    # 35. C# generic constraint 'where T : class' false positive
+    def test_csharp_where_generic_constraint_class_not_type_definition(self):
+        cs_code = """
+public class Service {
+    public void Save<T>(T item) where T : class {
+    }
+}
+"""
+        issues = linter_checker.check_types_per_file("Service.cs", cs_code, "csharp", 2)
+        self.assertEqual(len(issues), 0, "C# 'where T : class' constraint must not be counted as type definition")
+
+    # 36. Allman style vs K&R style brace nesting consistency
+    def test_allman_style_braces_nesting_depth_consistency(self):
+        allman = """
+void Foo()
+{
+    if (a)
+    {
+        if (b)
+        {
+            if (c)
+            {
+                if (d)
+                {
+                    if (e)
+                    {
+                        DoWork();
+                    }
+                }
+            }
+        }
+    }
+}
+"""
+        issues = linter_checker.check_nesting_depth("Foo.cs", allman, "csharp", 4)
+        self.assertGreater(len(issues), 0, "Allman style braces exceeding depth limit must be flagged")
+
+    # 37. Go multi-line receiver function definition
+    def test_go_multiline_receiver_function(self):
+        go_code = """
+func (
+    s *Server
+) Process(a int) {
+    return
+}
+"""
+        lengths = linter_checker.brace_function_lengths(go_code, "go")
+        self.assertEqual(len(lengths), 1)
+        self.assertEqual(lengths[0][0], "Process", "Go multiline receiver function signature should be detected")
+
+    # 38. Config ignore override preserves defaults or extends them cleanly
+    def test_config_ignore_override_preserves_or_merges(self):
+        config = linter_checker.load_config(Path("/nonexistent_config.json"))
+        self.assertIn(".git", config["ignore"])
+        self.assertIn("node_modules", config["ignore"])
+
+    # 39. C++ / C# enum class type detection
+    def test_cpp_enum_class_type_detection(self):
+        cpp_code = """
+enum class Status {
+    OK,
+    ERROR
+};
+class Handler {};
+class Controller {};
+"""
+        issues = linter_checker.check_types_per_file("main.cpp", cpp_code, "csharp", 2)
+        self.assertEqual(len(issues), 1, "enum class Status + 2 classes = 3 types, should exceed limit 2")
+
+    # 40. GitHub Actions error message relative path formatting
+    def test_github_path_formatting_for_error_annotation(self):
+        rel_path = linter_checker.github_path(Path("src/app.py"))
+        self.assertTrue(isinstance(rel_path, str) and len(rel_path) > 0)
+
+
+class FixedProblemsComprehensiveTestSuite(unittest.TestCase):
+    # -------------------------------------------------------------------------
+    # Problem 1: URL & String Comment Stripping (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem1_1_https_url_in_string_not_truncated(self):
+        code = 'let url = "https://domain.com/path"; let x = 1;'
+        line, _ = linter_checker.strip_c_style_comments(code, False)
+        self.assertIn("x", line, "URL slashes '//' inside string literal must not truncate the line")
+
+    def test_problem1_2_http_url_with_query_params(self):
+        code = 'const ep = "http://api.internal:8080/v1?a=1//2"; const active = true;'
+        line, _ = linter_checker.strip_c_style_comments(code, False)
+        self.assertIn("active", line)
+
+    def test_problem1_3_block_comment_slashes_inside_string(self):
+        code = 'let s = "/* fake block comment */"; let y = 2;'
+        line, _ = linter_checker.strip_c_style_comments(code, False)
+        self.assertIn("y", line)
+
+    def test_problem1_4_rust_lifetime_annotation_with_types(self):
+        rust_code = "fn foo<'a, 'b>(x: &'a i32, y: &'b i32) -> &'a i32 { let z = 1; }"
+        clean = linter_checker.strip_strings(rust_code, "rust")
+        self.assertIn("foo", clean)
+        self.assertIn("z", clean)
+
+    def test_problem1_5_swift_string_interpolation_unquoted(self):
+        swift_code = 'let msg = "Count is \\(items.count)"; let done = true;'
+        line, _ = linter_checker.strip_c_style_comments(swift_code, False)
+        self.assertIn("done", line)
+
+    # -------------------------------------------------------------------------
+    # Problem 2: Python ast.If Nesting False Positives on elif Chains (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem2_1_flat_elif_chain_5_branches(self):
+        code = """
+def check_val(x):
+    if x == 1:
+        pass
+    elif x == 2:
+        pass
+    elif x == 3:
+        pass
+    elif x == 4:
+        pass
+    elif x == 5:
+        pass
+"""
+        issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
+        self.assertEqual(len(issues), 0, "Flat 5-branch if/elif chain must not trigger nesting error")
+
+    def test_problem2_2_flat_elif_chain_10_branches(self):
+        code = "\n".join(["def handle(x):", "    if x == 0: pass"] + [f"    elif x == {i}: pass" for i in range(1, 10)])
+        issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
+        self.assertEqual(len(issues), 0, "Flat 10-branch if/elif chain must not trigger nesting error")
+
+    def test_problem2_3_nested_if_inside_elif_correct_depth(self):
+        code = """
+def process(x, y):
+    if x == 1:
+        pass
+    elif x == 2:
+        if y == 1:
+            pass
+"""
+        issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
+        self.assertEqual(len(issues), 0)
+
+    def test_problem2_4_elif_inside_for_loop(self):
+        code = """
+def run(items):
+    for item in items:
+        if item == 1:
+            pass
+        elif item == 2:
+            pass
+        elif item == 3:
+            pass
+"""
+        issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
+        self.assertEqual(len(issues), 0)
+
+    def test_problem2_5_async_for_with_elif_chain(self):
+        code = """
+async def run_async(stream):
+    async for item in stream:
+        if item == 'a':
+            pass
+        elif item == 'b':
+            pass
+"""
+        issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
+        self.assertEqual(len(issues), 0)
+
+    # -------------------------------------------------------------------------
+    # Problem 3: Parameter Counting for Lists, Strings & Generics (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem3_1_default_list_arg_with_commas(self):
+        code = "def f(a=[1, 2, 3, 4], b=2):\n    pass"
+        lengths = linter_checker.python_function_lengths(code)
+        self.assertEqual(lengths[0][3], 2)
+
+    def test_problem3_2_default_string_arg_with_commas(self):
+        code = 'def f(msg="a, b, c, d", count=1):\n    pass'
+        lengths = linter_checker.python_function_lengths(code)
+        self.assertEqual(lengths[0][3], 2)
+
+    def test_problem3_3_default_dict_arg_with_commas(self):
+        code = 'def f(config={"a": 1, "b": 2}, mode="fast"):\n    pass'
+        lengths = linter_checker.python_function_lengths(code)
+        self.assertEqual(lengths[0][3], 2)
+
+    def test_problem3_4_closure_parameter_in_swift(self):
+        swift_code = "func exec(action: (Int, String) -> Void, x: Int) {\n    print(x)\n}"
+        lengths = linter_checker.brace_function_lengths(swift_code, "swift")
+        self.assertEqual(lengths[0][3], 2)
+
+    def test_problem3_5_generic_dictionary_parameter_csharp(self):
+        cs_code = "void Process(Dictionary<string, List<int>> map, int timeout) {}"
+        lengths = linter_checker.brace_function_lengths(cs_code, "csharp")
+        self.assertEqual(lengths[0][3], 2)
+
+    # -------------------------------------------------------------------------
+    # Problem 4: Multi-line Function Signatures with Default Values `=` (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem4_1_swift_multiline_default_param(self):
+        swift_code = "func view(\n    width: Double = 1.0,\n    height: Double = 2.0\n) {\n    let a = 1\n}"
+        lengths = linter_checker.brace_function_lengths(swift_code, "swift")
+        self.assertEqual(lengths[0][0], "view")
+        self.assertEqual(lengths[0][2], 6)
+
+    def test_problem4_2_ts_multiline_default_param(self):
+        ts_code = "function render(\n    x: number = 0,\n    y: number = 0\n) {\n    const a = 1;\n}"
+        lengths = linter_checker.brace_function_lengths(ts_code, "typescript")
+        self.assertEqual(lengths[0][0], "render")
+        self.assertEqual(lengths[0][2], 6)
+
+    def test_problem4_3_python_multiline_default_param(self):
+        code = "def build(\n    a: int = 1,\n    b: int = 2\n):\n    pass"
+        lengths = linter_checker.python_function_lengths(code)
+        self.assertEqual(lengths[0][0], "build")
+
+    def test_problem4_4_csharp_multiline_default_param(self):
+        cs_code = "void Init(\n    int width = 800,\n    int height = 600\n) {\n    int x = 0;\n}"
+        lengths = linter_checker.brace_function_lengths(cs_code, "csharp")
+        self.assertEqual(lengths[0][0], "Init")
+
+    def test_problem4_5_kotlin_multiline_default_param(self):
+        kt_code = "fun create(\n    name: String = \"default\",\n    count: Int = 0\n) {\n    val a = 1\n}"
+        lengths = linter_checker.brace_function_lengths(kt_code, "kotlin")
+        self.assertEqual(lengths[0][0], "create")
+
+    # -------------------------------------------------------------------------
+    # Problem 5: Ignored Path Matching & Config Merging (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem5_1_leading_dot_slash_ignore(self):
+        self.assertTrue(linter_checker.should_ignore("build/out.js", ["./build"]))
+
+    def test_problem5_2_leading_dot_backslash_ignore(self):
+        self.assertTrue(linter_checker.should_ignore("dist/bundle.js", [".\\dist"]))
+
+    def test_problem5_3_config_merge_preserves_default_git(self):
+        config = linter_checker.load_config(Path("/nonexistent_config.json"))
+        self.assertIn(".git", config["ignore"])
+
+    def test_problem5_4_config_merge_preserves_node_modules(self):
+        config = linter_checker.load_config(Path("/nonexistent_config.json"))
+        self.assertIn("node_modules", config["ignore"])
+
+    def test_problem5_5_nested_glob_ignore_pattern(self):
+        self.assertTrue(linter_checker.should_ignore("src/vendor/lib.js", ["**/vendor/*"]))
+
+    # -------------------------------------------------------------------------
+    # Problem 6: Multi-line Block Comments /* ... */ (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem6_1_csharp_block_comment_over_limit(self):
+        code = "/*\n" + "\n".join([f" * Line {i}" for i in range(7)]) + "\n */\nvoid foo() {}"
+        issues = linter_checker.check_comment_blocks("test.cs", code, "csharp", 5)
+        self.assertGreater(len(issues), 0)
+
+    def test_problem6_2_java_block_comment_under_limit(self):
+        code = "/*\n * Line 1\n * Line 2\n */\nvoid foo() {}"
+        issues = linter_checker.check_comment_blocks("test.java", code, "java", 5)
+        self.assertEqual(len(issues), 0)
+
+    def test_problem6_3_ts_block_comment_over_limit(self):
+        code = "/*\n" + "\n".join([f" * Line {i}" for i in range(8)]) + "\n */\nfunction foo() {}"
+        issues = linter_checker.check_comment_blocks("test.ts", code, "typescript", 5)
+        self.assertGreater(len(issues), 0)
+
+    def test_problem6_4_swift_block_comment_interspersed(self):
+        code = "/* comment 1 */\n\n/* comment 2 */\nfunc foo() {}"
+        issues = linter_checker.check_comment_blocks("test.swift", code, "swift", 5)
+        self.assertEqual(len(issues), 0)
+
+    def test_problem6_5_php_block_comment_over_limit(self):
+        code = "/*\n" + "\n".join([f" * Line {i}" for i in range(7)]) + "\n */\nfunction foo() {}"
+        issues = linter_checker.check_comment_blocks("test.php", code, "php", 5)
+        self.assertGreater(len(issues), 0)
+
+    # -------------------------------------------------------------------------
+    # Problem 7: Python Nested Class Detection (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem7_1_python_nested_class_in_class(self):
+        code = "class Outer:\n    class Inner:\n        pass"
+        issues = linter_checker.check_types_per_file("test.py", code, "python", 1)
+        self.assertGreater(len(issues), 0)
+
+    def test_problem7_2_python_class_in_function(self):
+        code = "def foo():\n    class Dynamic:\n        pass"
+        issues = linter_checker.check_types_per_file("test.py", code, "python", 0)
+        self.assertGreater(len(issues), 0)
+
+    def test_problem7_3_python_class_in_if_block(self):
+        code = "if True:\n    class Conditional:\n        pass"
+        issues = linter_checker.check_types_per_file("test.py", code, "python", 0)
+        self.assertGreater(len(issues), 0)
+
+    def test_problem7_4_python_multiple_nested_classes_exceeds(self):
+        code = "class A:\n    class B:\n        pass\nclass C:\n    pass"
+        issues = linter_checker.check_types_per_file("test.py", code, "python", 2)
+        self.assertGreater(len(issues), 0)
+
+    def test_problem7_5_python_top_level_and_nested_classes(self):
+        code = "class Base:\n    pass\nclass Derived(Base):\n    class Config:\n        pass"
+        issues = linter_checker.check_types_per_file("test.py", code, "python", 2)
+        self.assertGreater(len(issues), 0)
+
+    # -------------------------------------------------------------------------
+    # Problem 8: C#/Java Method Calls & Generic Constraints (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem8_1_csharp_method_call_at_line_start(self):
+        cs_code = "void Main() {\n    CalculateTotal(1, 2);\n}"
+        lengths = linter_checker.brace_function_lengths(cs_code, "csharp")
+        names = [item[0] for item in lengths]
+        self.assertNotIn("CalculateTotal", names)
+
+    def test_problem8_2_java_method_call_at_line_start(self):
+        java_code = "void main() {\n    System.out.println(\"msg\");\n}"
+        lengths = linter_checker.brace_function_lengths(java_code, "java")
+        names = [item[0] for item in lengths]
+        self.assertNotIn("System", names)
+
+    def test_problem8_3_csharp_where_class_constraint(self):
+        cs_code = "public class Service {\n    public void Save<T>() where T : class {}\n}"
+        issues = linter_checker.check_types_per_file("Service.cs", cs_code, "csharp", 2)
+        self.assertEqual(len(issues), 0)
+
+    def test_problem8_4_csharp_where_struct_constraint(self):
+        cs_code = "public class Data {\n    public void Load<T>() where T : struct {}\n}"
+        issues = linter_checker.check_types_per_file("Data.cs", cs_code, "csharp", 2)
+        self.assertEqual(len(issues), 0)
+
+    def test_problem8_5_csharp_where_new_constraint(self):
+        cs_code = "public class Factory {\n    public void Create<T>() where T : new() {}\n}"
+        issues = linter_checker.check_types_per_file("Factory.cs", cs_code, "csharp", 2)
+        self.assertEqual(len(issues), 0)
+
+    # -------------------------------------------------------------------------
+    # Problem 9: Go Multi-Line Receiver Functions (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem9_1_go_multiline_receiver_basic(self):
+        go_code = "func (\n    s *Server\n) Process(a int) {\n    return\n}"
+        lengths = linter_checker.brace_function_lengths(go_code, "go")
+        self.assertEqual(lengths[0][0], "Process")
+
+    def test_problem9_2_go_pointer_receiver(self):
+        go_code = "func (r *Runner) Run() {}"
+        lengths = linter_checker.brace_function_lengths(go_code, "go")
+        self.assertEqual(lengths[0][0], "Run")
+
+    def test_problem9_3_go_value_receiver(self):
+        go_code = "func (c Client) Connect() {}"
+        lengths = linter_checker.brace_function_lengths(go_code, "go")
+        self.assertEqual(lengths[0][0], "Connect")
+
+    def test_problem9_4_go_multiline_signature(self):
+        go_code = "func (s *Server) Handle(\n    req *Request,\n) {\n    return\n}"
+        lengths = linter_checker.brace_function_lengths(go_code, "go")
+        self.assertEqual(lengths[0][0], "Handle")
+
+    def test_problem9_5_go_function_without_receiver(self):
+        go_code = "func Standalone(x int) {}"
+        lengths = linter_checker.brace_function_lengths(go_code, "go")
+        self.assertEqual(lengths[0][0], "Standalone")
+
+    # -------------------------------------------------------------------------
+    # Problem 10: GitHub Actions Error Path Formatting (5 tests)
+    # -------------------------------------------------------------------------
+    def test_problem10_1_github_path_standard_file(self):
+        rel = linter_checker.github_path(Path("src/main.py"))
+        self.assertTrue(isinstance(rel, str) and len(rel) > 0)
+
+    def test_problem10_2_github_path_nested_file(self):
+        rel = linter_checker.github_path(Path("a/b/c/d.swift"))
+        self.assertTrue(isinstance(rel, str) and len(rel) > 0)
+
+    def test_problem10_3_escape_github_message_newlines(self):
+        esc = linter_checker.escape_github_message("a\nb")
+        self.assertEqual(esc, "a%0Ab")
+
+    def test_problem10_4_escape_github_message_percent(self):
+        esc = linter_checker.escape_github_message("100%")
+        self.assertEqual(esc, "100%25")
+
+    def test_problem10_5_escape_github_message_carriage(self):
+        esc = linter_checker.escape_github_message("a\rb")
+        self.assertEqual(esc, "a%0Db")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+

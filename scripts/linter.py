@@ -161,7 +161,14 @@ def load_config(path: Path) -> dict:
         if not isinstance(loaded, dict):
             print(f"::error file={github_path(path)}::.ai-readability config must be a JSON object", file=sys.stderr)
             sys.exit(2)
+        loaded_ignore = loaded.get("ignore")
         config.update(loaded)
+        if loaded_ignore is not None:
+            merged = list(DEFAULT_IGNORE)
+            for item in loaded_ignore:
+                if item not in merged:
+                    merged.append(item)
+            config["ignore"] = merged
 
     config["max_file_lines"] = int(config.get("max_file_lines", 300))
     config["max_function_lines"] = int(config.get("max_function_lines", 50))
@@ -169,7 +176,6 @@ def load_config(path: Path) -> dict:
     config["max_parameters"] = int(config.get("max_parameters", 5))
     config["max_comment_lines"] = int(config.get("max_comment_lines", 5))
     config["max_types_per_file"] = int(config.get("max_types_per_file", 2))
-    config["ignore"] = list(config.get("ignore", []))
     config["include_extensions"] = [
         ext if ext.startswith(".") else f".{ext}" for ext in config.get("include_extensions", LANGUAGE_BY_EXTENSION)
     ]
@@ -401,10 +407,11 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
             pending_sig = []
 
         if pending and opens == 0 and closes == 0 and ("=" in stripped or "=>" in stripped):
-            name, start_line, pcount = pending
-            results.append((name, start_line, 1, pcount))
-            pending = None
-            pending_sig = []
+            if not (stripped.endswith(",") or (len(pending_sig) > 1 and not stripped.endswith(";"))):
+                name, start_line, pcount = pending
+                results.append((name, start_line, 1, pcount))
+                pending = None
+                pending_sig = []
 
         if pending and stripped.endswith(";"):
             pending = None
@@ -424,10 +431,27 @@ def count_params_in_signature(signature_line: str) -> int:
     start = signature_line.find("(")
     if start == -1:
         return 0
+
     depth = 0
     end = -1
+    in_str: str | None = None
+    esc = False
+
     for index in range(start, len(signature_line)):
         char = signature_line[index]
+        if in_str:
+            if esc:
+                esc = False
+            elif char == "\\":
+                esc = True
+            elif char == in_str:
+                in_str = None
+            continue
+
+        if char in ('"', "'"):
+            in_str = char
+            continue
+
         if char == "(":
             depth += 1
         elif char == ")":
@@ -435,20 +459,40 @@ def count_params_in_signature(signature_line: str) -> int:
             if depth == 0:
                 end = index
                 break
+
     if end <= start:
         return 0
+
     params_str = signature_line[start + 1:end].strip()
     if not params_str:
         return 0
+
     depth = 0
     count = 1
+    in_str = None
+    esc = False
+
     for char in params_str:
-        if char in "(<{":
+        if in_str:
+            if esc:
+                esc = False
+            elif char == "\\":
+                esc = True
+            elif char == in_str:
+                in_str = None
+            continue
+
+        if char in ('"', "'"):
+            in_str = char
+            continue
+
+        if char in "(<{[" :
             depth += 1
-        elif char in ")>}":
+        elif char in ")>}]" :
             depth = max(0, depth - 1)
         elif char == "," and depth == 0:
             count += 1
+
     return count
 
 
@@ -457,23 +501,38 @@ def check_nesting_depth(relative: str, text: str, language: str, max_depth: int)
     if language == "python":
         try:
             tree = ast.parse(text)
-            match_types = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.With, ast.AsyncWith, getattr(ast, "Match", type(None)))
+            match_types = (
+                ast.If,
+                ast.For,
+                ast.AsyncFor,
+                ast.While,
+                ast.Try,
+                ast.With,
+                ast.AsyncWith,
+                getattr(ast, "Match", type(None)),
+            )
 
-            def walk(node: ast.AST, depth: int) -> None:
+            def walk(node: ast.AST, depth: int, parent: ast.AST | None = None) -> None:
                 for child in ast.iter_child_nodes(node):
                     next_depth = depth
                     if isinstance(child, match_types):
-                        next_depth = depth + 1
-                        if next_depth > max_depth:
-                            issues.append(
-                                Issue(
-                                    path=relative,
-                                    line=getattr(child, "lineno", 1),
-                                    kind="nesting_depth",
-                                    message=f"Nesting depth is {next_depth}; limit is {max_depth}.",
+                        is_elif = (
+                            isinstance(child, ast.If)
+                            and isinstance(parent, ast.If)
+                            and any(child is o for o in parent.orelse)
+                        )
+                        if not is_elif:
+                            next_depth = depth + 1
+                            if next_depth > max_depth:
+                                issues.append(
+                                    Issue(
+                                        path=relative,
+                                        line=getattr(child, "lineno", 1),
+                                        kind="nesting_depth",
+                                        message=f"Nesting depth is {next_depth}; limit is {max_depth}.",
+                                    )
                                 )
-                            )
-                    walk(child, next_depth)
+                    walk(child, next_depth, parent=child)
 
             walk(tree, 0)
         except SyntaxError:
@@ -510,9 +569,28 @@ def check_comment_blocks(relative: str, text: str, language: str, max_comment_li
     prefix = "#" if language in {"python", "ruby"} else "//"
     current_start = None
     count = 0
+    in_block = False
+
     for line_no, raw_line in enumerate(text.splitlines(), start=1):
         stripped = raw_line.strip()
-        if stripped.startswith(prefix) and not stripped.startswith("#!"):
+        is_comment = False
+
+        if language not in {"python", "ruby"}:
+            if in_block:
+                is_comment = True
+                if "*/" in stripped:
+                    in_block = False
+            elif stripped.startswith("/*"):
+                is_comment = True
+                if "*/" not in stripped[2:]:
+                    in_block = True
+            elif stripped.startswith(prefix):
+                is_comment = True
+        else:
+            if stripped.startswith(prefix) and not stripped.startswith("#!"):
+                is_comment = True
+
+        if is_comment:
             if count == 0:
                 current_start = line_no
             count += 1
@@ -528,6 +606,7 @@ def check_comment_blocks(relative: str, text: str, language: str, max_comment_li
                 )
             count = 0
             current_start = None
+
     if count > max_comment_lines and current_start is not None:
         issues.append(
             Issue(
@@ -546,7 +625,7 @@ def check_types_per_file(relative: str, text: str, language: str, max_types: int
     if language == "python":
         try:
             tree = ast.parse(text)
-            for node in ast.iter_child_nodes(tree):
+            for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
                     types.append((node.name, node.lineno))
         except SyntaxError:
@@ -556,6 +635,8 @@ def check_types_per_file(relative: str, text: str, language: str, max_types: int
         for line_no, raw_line in enumerate(text.splitlines(), start=1):
             line, in_block = strip_c_style_comments(raw_line, in_block)
             clean = strip_strings(line, language)
+            if "where " in clean and ": class" in clean:
+                clean = re.sub(r"where\s+\w+\s*:\s*class", "", clean)
             match = re.search(r"\b(class|struct|interface|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)", clean)
             if match:
                 types.append((match.group(2), line_no))
@@ -601,8 +682,10 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
         return None
 
     if language == "go":
-        match = re.search(r"\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
-        return match.group(1) if match else None
+        match = re.search(r"(?:\bfunc\s+)?(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
+        if match and match.group(1) not in CONTROL_WORDS:
+            return match.group(1)
+        return None
 
     if language == "rust":
         match = re.search(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*[<(]", line)
@@ -644,6 +727,9 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
 def strip_c_style_comments(line: str, in_block_comment: bool) -> tuple[str, bool]:
     output = []
     index = 0
+    quote: str | None = None
+    escaped = False
+
     while index < len(line):
         if in_block_comment:
             end = line.find("*/", index)
@@ -653,17 +739,34 @@ def strip_c_style_comments(line: str, in_block_comment: bool) -> tuple[str, bool
             in_block_comment = False
             continue
 
-        slash = line.find("//", index)
-        block = line.find("/*", index)
-        if slash == -1 and block == -1:
-            output.append(line[index:])
+        char = line[index]
+        if quote:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+
+        if char in {'"', "'", "`"}:
+            quote = char
+            output.append(char)
+            index += 1
+            continue
+
+        if line.startswith("//", index):
             break
-        if slash != -1 and (block == -1 or slash < block):
-            output.append(line[index:slash])
-            break
-        output.append(line[index:block])
-        index = block + 2
-        in_block_comment = True
+
+        if line.startswith("/*", index):
+            index += 2
+            in_block_comment = True
+            continue
+
+        output.append(char)
+        index += 1
 
     return "".join(output), in_block_comment
 
@@ -673,25 +776,37 @@ def strip_strings(line: str, language: str = "") -> str:
     quote: str | None = None
     escaped = False
     quotes = {'"', "'"} if language == "swift" else {'"', "'", "`"}
-    for char in line:
+    index = 0
+    while index < len(line):
+        char = line[index]
         if quote:
             if escaped:
                 escaped = False
                 output.append(" ")
+                index += 1
                 continue
             if char == "\\":
                 escaped = True
                 output.append(" ")
+                index += 1
                 continue
             if char == quote:
                 quote = None
             output.append(" ")
+            index += 1
             continue
+
         if char in quotes:
+            if char == "'" and language == "rust" and index + 1 < len(line) and (line[index + 1].isalpha() or line[index + 1] == '_'):
+                if not (index + 2 < len(line) and line[index + 2] == "'"):
+                    output.append(char)
+                    index += 1
+                    continue
             quote = char
             output.append(" ")
         else:
             output.append(char)
+        index += 1
     return "".join(output)
 
 
@@ -719,6 +834,10 @@ def should_ignore(relative_path: str, patterns: Sequence[str]) -> bool:
     basename = parts[-1]
     for pattern in patterns:
         normalized = pattern.strip().replace("\\", "/")
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+        if normalized.startswith(".\\"):
+            normalized = normalized[2:]
         if not normalized:
             continue
         if "/" not in normalized:
@@ -743,6 +862,7 @@ def print_report(issues: Sequence[Issue], checked_count: int, mode: str) -> None
         print(f"::error file={issue.path},line={issue.line},title={issue.kind}::{escape_github_message(issue.message)}")
 
     print(f"AI readability check failed: {len(issues)} issue(s) across {checked_count} scanned file(s) in {mode} mode.")
+
 
 
 def escape_github_message(message: str) -> str:
