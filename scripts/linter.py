@@ -104,7 +104,9 @@ CONTROL_WORDS = {
     "with",
 }
 
-RUBY_BLOCK_START = re.compile(r"^\s*(class|module|if|unless|case|begin|for|while|until)\b|(^|[^A-Za-z0-9_])do\b")
+RUBY_BLOCK_START = re.compile(
+    r"^\s*(class|module|if|unless|case|begin|for|while|until)\b|(^|[^A-Za-z0-9_])do\b"
+)
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,12 @@ class FunctionBlock:
     param_count: int = 0
 
 
+@dataclass
+class CStyleScanState:
+    block_depth: int = 0
+    quote: str | None = None
+
+
 def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
     root = Path(args.root).resolve()
@@ -137,9 +145,13 @@ def main(argv: Sequence[str]) -> int:
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Check source file and function length for AI-readable code.")
+    parser = argparse.ArgumentParser(
+        description="Check source file and function length for AI-readable code."
+    )
     parser.add_argument("--mode", choices=("all", "changed"), default="all")
-    parser.add_argument("--base", default="origin/main", help="Base ref for changed mode.")
+    parser.add_argument(
+        "--base", default="origin/main", help="Base ref for changed mode."
+    )
     parser.add_argument("--head", default="HEAD", help="Head ref for changed mode.")
     parser.add_argument("--config", default=".ai-readability.json")
     parser.add_argument("--root", default=".")
@@ -156,10 +168,16 @@ def load_config(path: Path) -> dict:
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            print(f"::error file={github_path(path)}::Invalid JSON config: {exc}", file=sys.stderr)
+            print(
+                f"::error file={github_path(path)}::Invalid JSON config: {exc}",
+                file=sys.stderr,
+            )
             sys.exit(2)
         if not isinstance(loaded, dict):
-            print(f"::error file={github_path(path)}::.ai-readability config must be a JSON object", file=sys.stderr)
+            print(
+                f"::error file={github_path(path)}::.ai-readability config must be a JSON object",
+                file=sys.stderr,
+            )
             sys.exit(2)
         loaded_ignore = loaded.get("ignore")
         config.update(loaded)
@@ -177,14 +195,19 @@ def load_config(path: Path) -> dict:
     config["max_comment_lines"] = int(config.get("max_comment_lines", 5))
     config["max_types_per_file"] = int(config.get("max_types_per_file", 2))
     config["include_extensions"] = [
-        ext if ext.startswith(".") else f".{ext}" for ext in config.get("include_extensions", LANGUAGE_BY_EXTENSION)
+        ext if ext.startswith(".") else f".{ext}"
+        for ext in config.get("include_extensions", LANGUAGE_BY_EXTENSION)
     ]
     config["language_overrides"] = dict(config.get("language_overrides", {}))
     return config
 
 
 def collect_paths(root: Path, config: dict, args: argparse.Namespace) -> list[Path]:
-    candidates = changed_paths(root, args.base, args.head) if args.mode == "changed" else all_repo_paths(root)
+    candidates = (
+        changed_paths(root, args.base, args.head)
+        if args.mode == "changed"
+        else all_repo_paths(root)
+    )
 
     include_extensions = set(config["include_extensions"])
     paths = []
@@ -201,11 +224,30 @@ def collect_paths(root: Path, config: dict, args: argparse.Namespace) -> list[Pa
 
 
 def changed_paths(root: Path, base: str, head: str) -> list[Path]:
-    diff_args = ["git", "diff", "-z", "--name-only", "--diff-filter=ACMRT", f"{base}...{head}"]
-    result = subprocess.run(diff_args, cwd=root, text=True, capture_output=True, check=False)
+    diff_args = [
+        "git",
+        "diff",
+        "-z",
+        "--name-only",
+        "--diff-filter=ACMRT",
+        f"{base}...{head}",
+    ]
+    result = subprocess.run(
+        diff_args, cwd=root, text=True, capture_output=True, check=False
+    )
     if result.returncode != 0:
-        diff_args = ["git", "diff", "-z", "--name-only", "--diff-filter=ACMRT", base, head]
-        result = subprocess.run(diff_args, cwd=root, text=True, capture_output=True, check=False)
+        diff_args = [
+            "git",
+            "diff",
+            "-z",
+            "--name-only",
+            "--diff-filter=ACMRT",
+            base,
+            head,
+        ]
+        result = subprocess.run(
+            diff_args, cwd=root, text=True, capture_output=True, check=False
+        )
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
         print(f"::error::Unable to collect changed files: {stderr}", file=sys.stderr)
@@ -273,7 +315,9 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
                         path=relative,
                         line=start_line,
                         kind="function_length",
-                        message=(f"{name} has {length} lines; function/method limit is {max_function_lines}."),
+                        message=(
+                            f"{name} has {length} lines; function/method limit is {max_function_lines}."
+                        ),
                     )
                 )
             if param_count > max_parameters:
@@ -282,13 +326,17 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
                         path=relative,
                         line=start_line,
                         kind="max_parameters",
-                        message=(f"Function '{name}' has {param_count} parameters; limit is {max_parameters}."),
+                        message=(
+                            f"Function '{name}' has {param_count} parameters; limit is {max_parameters}."
+                        ),
                     )
                 )
 
         issues.extend(check_nesting_depth(relative, text, language, max_nesting_depth))
         issues.extend(check_comment_blocks(relative, text, language, max_comment_lines))
-        issues.extend(check_types_per_file(relative, text, language, max_types_per_file))
+        issues.extend(
+            check_types_per_file(relative, text, language, max_types_per_file)
+        )
     return issues
 
 
@@ -322,7 +370,14 @@ def python_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
         tree = ast.parse(text)
     except SyntaxError as exc:
         line = exc.lineno or 1
-        return [(f"Python syntax error near line {line}", line, len(text.splitlines()) - line + 1, 0)]
+        return [
+            (
+                f"Python syntax error near line {line}",
+                line,
+                len(text.splitlines()) - line + 1,
+                0,
+            )
+        ]
 
     results = []
     for node in ast.walk(tree):
@@ -350,7 +405,10 @@ def ruby_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
         if not stripped:
             continue
 
-        def_match = re.match(r"\s*def\s+([A-Za-z_][A-Za-z0-9_!?=]*(?:\.[A-Za-z_][A-Za-z0-9_!?=]*)?)", line)
+        def_match = re.match(
+            r"\s*def\s+([A-Za-z_][A-Za-z0-9_!?=]*(?:\.[A-Za-z_][A-Za-z0-9_!?=]*)?)",
+            line,
+        )
         if def_match:
             name = def_match.group(1)
             pcount = count_params_in_signature(line)
@@ -380,21 +438,19 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
     pending: tuple[str, int, int] | None = None
     pending_sig: list[str] = []
     brace_depth = 0
-    in_block_comment = False
-
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
-        line, in_block_comment = strip_c_style_comments(raw_line, in_block_comment)
-        clean = strip_strings(line, language)
+    for line_number, (raw_line, clean, _) in enumerate(
+        scan_c_style_lines(text, language), start=1
+    ):
         stripped = clean.strip()
         depth_before = brace_depth
 
         detected = detect_brace_function(stripped, language)
         if detected:
-            pending_sig = [line]
-            pcount = count_params_in_signature(line)
+            pending_sig = [clean]
+            pcount = count_params_in_signature(clean)
             pending = (detected, line_number, pcount)
         elif pending:
-            pending_sig.append(line)
+            pending_sig.append(clean)
             full_sig = "\n".join(pending_sig)
             pcount = count_params_in_signature(full_sig)
             pending = (pending[0], pending[1], pcount)
@@ -404,12 +460,27 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
 
         if pending and opens:
             name, start_line, pcount = pending
-            active.append(FunctionBlock(name=name, start_line=start_line, parent_depth=depth_before, param_count=pcount))
+            active.append(
+                FunctionBlock(
+                    name=name,
+                    start_line=start_line,
+                    parent_depth=depth_before,
+                    param_count=pcount,
+                )
+            )
             pending = None
             pending_sig = []
 
-        if pending and opens == 0 and closes == 0 and ("=" in stripped or "=>" in stripped):
-            if not (stripped.endswith(",") or (len(pending_sig) > 1 and not stripped.endswith(";"))):
+        if (
+            pending
+            and opens == 0
+            and closes == 0
+            and ("=" in stripped or "=>" in stripped)
+        ):
+            if not (
+                stripped.endswith(",")
+                or (len(pending_sig) > 1 and not stripped.endswith(";"))
+            ):
                 name, start_line, pcount = pending
                 results.append((name, start_line, 1, pcount))
                 pending = None
@@ -424,7 +495,14 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
 
         while active and brace_depth <= active[-1].parent_depth:
             block = active.pop()
-            results.append((block.name, block.start_line, line_number - block.start_line + 1, block.param_count))
+            results.append(
+                (
+                    block.name,
+                    block.start_line,
+                    line_number - block.start_line + 1,
+                    block.param_count,
+                )
+            )
 
     return results
 
@@ -450,16 +528,16 @@ def count_params_in_signature(signature_line: str) -> int:
     if end <= start:
         return 0
 
-    params_str = signature_clean[start + 1:end].strip()
+    params_str = signature_clean[start + 1 : end].strip()
     if not params_str:
         return 0
 
     depth = 0
     count = 1
     for char in params_str:
-        if char in "(<{[" :
+        if char in "(<{[":
             depth += 1
-        elif char in ")>}]" :
+        elif char in ")>}]":
             depth = max(0, depth - 1)
         elif char == "," and depth == 0:
             count += 1
@@ -467,7 +545,9 @@ def count_params_in_signature(signature_line: str) -> int:
     return count
 
 
-def check_nesting_depth(relative: str, text: str, language: str, max_depth: int) -> list[Issue]:
+def check_nesting_depth(
+    relative: str, text: str, language: str, max_depth: int
+) -> list[Issue]:
     issues: list[Issue] = []
     if language == "python":
         try:
@@ -510,14 +590,15 @@ def check_nesting_depth(relative: str, text: str, language: str, max_depth: int)
             pass
     else:
         depth = 0
-        in_block = False
-        for line_no, raw_line in enumerate(text.splitlines(), start=1):
-            line, in_block = strip_c_style_comments(raw_line, in_block)
-            clean = strip_strings(line, language)
+        for line_no, (_, clean, _) in enumerate(
+            scan_c_style_lines(text, language), start=1
+        ):
             opens = clean.count("{")
             closes = clean.count("}")
 
-            first_word = re.search(r"\b(if|for|foreach|while|switch|try|catch|guard|do)\b", clean)
+            first_word = re.search(
+                r"\b(if|for|foreach|while|switch|try|catch|guard|do)\b", clean
+            )
             if first_word and (opens > 0 or depth > 0):
                 current_depth = depth + (1 if opens > 0 else 0)
                 if current_depth > max_depth:
@@ -535,32 +616,24 @@ def check_nesting_depth(relative: str, text: str, language: str, max_depth: int)
     return issues
 
 
-def check_comment_blocks(relative: str, text: str, language: str, max_comment_lines: int) -> list[Issue]:
+def check_comment_blocks(
+    relative: str, text: str, language: str, max_comment_lines: int
+) -> list[Issue]:
     issues: list[Issue] = []
     prefix = "#" if language in {"python", "ruby"} else "//"
     current_start = None
     count = 0
-    in_block = False
+    if language in {"python", "ruby"}:
+        comment_lines = [
+            line.strip().startswith(prefix) and not line.strip().startswith("#!")
+            for line in text.splitlines()
+        ]
+    else:
+        comment_lines = [
+            is_comment for _, _, is_comment in scan_c_style_lines(text, language)
+        ]
 
-    for line_no, raw_line in enumerate(text.splitlines(), start=1):
-        stripped = raw_line.strip()
-        is_comment = False
-
-        if language not in {"python", "ruby"}:
-            if in_block:
-                is_comment = True
-                if "*/" in stripped:
-                    in_block = False
-            elif stripped.startswith("/*"):
-                is_comment = True
-                if "*/" not in stripped[2:]:
-                    in_block = True
-            elif stripped.startswith(prefix):
-                is_comment = True
-        else:
-            if stripped.startswith(prefix) and not stripped.startswith("#!"):
-                is_comment = True
-
+    for line_no, is_comment in enumerate(comment_lines, start=1):
         if is_comment:
             if count == 0:
                 current_start = line_no
@@ -590,7 +663,9 @@ def check_comment_blocks(relative: str, text: str, language: str, max_comment_li
     return issues
 
 
-def check_types_per_file(relative: str, text: str, language: str, max_types: int) -> list[Issue]:
+def check_types_per_file(
+    relative: str, text: str, language: str, max_types: int
+) -> list[Issue]:
     issues: list[Issue] = []
     types: list[tuple[str, int]] = []
     if language == "python":
@@ -602,15 +677,27 @@ def check_types_per_file(relative: str, text: str, language: str, max_types: int
         except SyntaxError:
             pass
     else:
-        in_block = False
-        for line_no, raw_line in enumerate(text.splitlines(), start=1):
-            line, in_block = strip_c_style_comments(raw_line, in_block)
-            clean = strip_strings(line, language)
-            if "where " in clean and ": class" in clean:
-                clean = re.sub(r"where\s+\w+\s*:\s*class", "", clean)
-            match = re.search(r"\b(class|struct|interface|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)", clean)
+        type_patterns = {
+            "csharp": r"\b(?:class|struct|interface|enum|record(?:\s+(?:class|struct))?)\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "swift": r"\b(?:class|struct|enum|actor|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "go": r"\btype\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+            "typescript": r"\b(?:class|interface|enum|type)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+            "javascript": r"\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+            "rust": r"\b(?:struct|enum|trait|union)\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "php": r"\b(?:class|interface|enum|trait)\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "kotlin": r"\b(?:class|interface|object|enum\s+class|typealias)\s+([A-Za-z_][A-Za-z0-9_]*)",
+            "java": r"\b(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)",
+        }
+        pattern = type_patterns.get(
+            language,
+            r"\b(?:class|struct|interface|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)",
+        )
+        for line_no, (_, clean, _) in enumerate(
+            scan_c_style_lines(text, language), start=1
+        ):
+            match = re.search(pattern, clean)
             if match:
-                types.append((match.group(2), line_no))
+                types.append((match.group(1), line_no))
 
     if len(types) > max_types:
         first_violator = types[max_types]
@@ -645,7 +732,10 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
         return None
 
     if language in {"kotlin"}:
-        match = re.search(r"\bfun\s+(?:[A-Za-z_][A-Za-z0-9_<>.]*\.)?([A-Za-z_][A-Za-z0-9_]*)", line)
+        match = re.search(
+            r"\bfun\s+(?:<[^>]+>\s+)?(?:[A-Za-z_][A-Za-z0-9_<>?.]*\.)?([A-Za-z_][A-Za-z0-9_]*)",
+            line,
+        )
         if match:
             return match.group(1)
         if re.search(r"\bconstructor\s*\(", line):
@@ -653,9 +743,14 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
         return None
 
     if language == "go":
-        match = re.search(r"(?:\bfunc\s+)?(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
+        match = re.search(
+            r"\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[[^]]+\])?\s*\(",
+            line,
+        ) or re.match(r"\)\s*([A-Za-z_][A-Za-z0-9_]*)(?:\s*\[[^]]+\])?\s*\(", line)
         if match and match.group(1) not in CONTROL_WORDS:
             return match.group(1)
+        if re.search(r"\bfunc\s*\(", line):
+            return "<anonymous>"
         return None
 
     if language == "rust":
@@ -667,13 +762,19 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
         return match.group(1) if match else None
 
     if language in {"javascript", "typescript"}:
-        match = re.search(r"\bfunction\s+\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(", line)
+        match = re.search(
+            r"\bfunction\s+\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*<[^>]+>)?\s*\(", line
+        )
         if match:
             return match.group(1)
-        match = re.search(r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=.*=>", line)
+        match = re.search(
+            r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=.*=>", line
+        )
         if match:
             return match.group(1)
-        match = re.match(r"(?:async\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{?", line)
+        match = re.match(
+            r"(?:async\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{?", line
+        )
         if match and match.group(1) not in CONTROL_WORDS:
             return match.group(1)
         return None
@@ -681,12 +782,25 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
     if language in {"csharp", "java"}:
         if "(" not in line or "=>" in line:
             return None
-        match = re.match(
+        prefix = (
             r"(?:\[[^\]]+\]\s*)*"
             r"(?:(?:public|private|protected|internal|static|virtual|override|async|sealed|extern|unsafe|partial|new|final|synchronized|abstract)\s+)*"
-            r"(?:[A-Za-z_][A-Za-z0-9_<>,\[\].?]+\s+)?"
-            r"([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-            line,
+        )
+        match = (
+            re.match(
+                prefix + r"\S+\s+([A-Za-z_][A-Za-z0-9_]*)\s*<[^>]+>\s*\(",
+                line,
+            )
+            or re.match(
+                prefix + r"<[^>]+>\s+\S+\s+" + r"([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                line,
+            )
+            or re.match(
+                prefix + r"(?:<[^>]+>\s+)?"
+                r"(?:[A-Za-z_][A-Za-z0-9_<>,\[\].?]+?\s+)?"
+                r"([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^>]+>)?\s*\(",
+                line,
+            )
         )
         if match and match.group(1) not in CONTROL_WORDS:
             return match.group(1)
@@ -742,6 +856,97 @@ def strip_c_style_comments(line: str, in_block_comment: bool) -> tuple[str, bool
     return "".join(output), in_block_comment
 
 
+def scan_c_style_lines(text: str, language: str) -> list[tuple[str, str, bool]]:
+    state = CStyleScanState()
+    scanned = []
+    for raw_line in text.splitlines():
+        clean, is_comment = scan_c_style_line(raw_line, language, state)
+        scanned.append((raw_line, clean, is_comment))
+    return scanned
+
+
+def scan_c_style_line(
+    line: str, language: str, state: CStyleScanState
+) -> tuple[str, bool]:
+    output = []
+    index = 0
+    had_comment = False
+    while index < len(line):
+        if state.block_depth:
+            had_comment = True
+            if language == "swift" and line.startswith("/*", index):
+                state.block_depth += 1
+                index += 2
+            elif line.startswith("*/", index):
+                state.block_depth -= 1
+                index += 2
+            else:
+                index += 1
+            continue
+        if state.quote == '"""':
+            if line.startswith('"""', index):
+                state.quote = None
+                index += 3
+            else:
+                index += 1
+            continue
+        if state.quote == '@"':
+            if line.startswith('""', index):
+                index += 2
+            elif line[index] == '"':
+                state.quote = None
+                index += 1
+            else:
+                index += 1
+            continue
+        if state.quote:
+            char = line[index]
+            if char == "\\" and state.quote != "`" and index + 1 < len(line):
+                index += 2
+            else:
+                if char == state.quote:
+                    state.quote = None
+                index += 1
+            continue
+        if line.startswith("//", index):
+            had_comment = True
+            break
+        if line.startswith("/*", index):
+            state.block_depth = 1
+            had_comment = True
+            index += 2
+            continue
+        if line.startswith('"""', index):
+            state.quote = '"""'
+            index += 3
+            continue
+        if language == "csharp" and line.startswith('@"', index):
+            state.quote = '@"'
+            index += 2
+            continue
+        char = line[index]
+        if char in {'"', "'"}:
+            quote = char
+            index += 1
+            while index < len(line):
+                if line[index] == "\\" and index + 1 < len(line):
+                    index += 2
+                elif line[index] == quote:
+                    index += 1
+                    break
+                else:
+                    index += 1
+            continue
+        if char == "`" and language != "swift":
+            state.quote = char
+            index += 1
+            continue
+        output.append(char)
+        index += 1
+    clean = "".join(output)
+    return clean, had_comment and not clean.strip()
+
+
 def strip_strings(line: str, language: str = "") -> str:
     output = []
     quote: str | None = None
@@ -768,7 +973,12 @@ def strip_strings(line: str, language: str = "") -> str:
             continue
 
         if char in quotes:
-            if char == "'" and language == "rust" and index + 1 < len(line) and (line[index + 1].isalpha() or line[index + 1] == '_'):
+            if (
+                char == "'"
+                and language == "rust"
+                and index + 1 < len(line)
+                and (line[index + 1].isalpha() or line[index + 1] == "_")
+            ):
                 if not (index + 2 < len(line) and line[index + 2] == "'"):
                     output.append(char)
                     index += 1
@@ -813,6 +1023,17 @@ def should_ignore(relative_path: str, patterns: Sequence[str]) -> bool:
             normalized = normalized[1:]
         if not normalized:
             continue
+        is_directory = normalized.endswith("/")
+        normalized = normalized.rstrip("/")
+        if is_directory:
+            if "/" not in normalized:
+                if normalized in parts:
+                    return True
+            elif relative_path.startswith(f"{normalized}/") or fnmatch.fnmatch(
+                relative_path, f"**/{normalized}/*"
+            ):
+                return True
+            continue
         if "/" not in normalized:
             if any(part == normalized for part in parts):
                 return True
@@ -828,14 +1049,19 @@ def should_ignore(relative_path: str, patterns: Sequence[str]) -> bool:
 
 def print_report(issues: Sequence[Issue], checked_count: int, mode: str) -> None:
     if not issues:
-        print(f"AI readability check passed: scanned {checked_count} file(s) in {mode} mode.")
+        print(
+            f"AI readability check passed: scanned {checked_count} file(s) in {mode} mode."
+        )
         return
 
     for issue in issues:
-        print(f"::error file={issue.path},line={issue.line},title={issue.kind}::{escape_github_message(issue.message)}")
+        print(
+            f"::error file={issue.path},line={issue.line},title={issue.kind}::{escape_github_message(issue.message)}"
+        )
 
-    print(f"AI readability check failed: {len(issues)} issue(s) across {checked_count} scanned file(s) in {mode} mode.")
-
+    print(
+        f"AI readability check failed: {len(issues)} issue(s) across {checked_count} scanned file(s) in {mode} mode."
+    )
 
 
 def escape_github_message(message: str) -> str:
