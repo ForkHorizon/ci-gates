@@ -191,7 +191,8 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--base", required=True, help="Base ref (merge base of the PR).")
     parser.add_argument("--head", default="HEAD", help="Head ref.")
     parser.add_argument("--config", default=".slop-review.json")
-    parser.add_argument("--model", default=os.environ.get("CI_GATES_SLOP_MODEL", "qwen3-coder:30b-a3b-q4_K_M"))
+    parser.add_argument("--model", default=os.environ.get("CI_GATES_SLOP_MODEL", "deepseek-chat"))
+    parser.add_argument("--api-key", default=os.environ.get("DEEPSEEK_API_KEY", ""))
     parser.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"))
     return parser.parse_args(argv)
 
@@ -255,7 +256,7 @@ def find_candidates(args: argparse.Namespace, config: dict, path: str, diff: str
         path=path,
         diff=diff,
     )
-    data = ollama_json(args, prompt, FIND_SCHEMA)
+    data = llm_json(args, prompt, FIND_SCHEMA)
     allowed = set(config["categories"])
     findings = []
     for item in data.get("findings", []):
@@ -283,10 +284,43 @@ def survives_refutation(args: argparse.Namespace, finding: dict, votes: int) -> 
     )
     real = 0
     for _ in range(max(1, votes)):
-        verdict = ollama_json(args, prompt, REFUTE_SCHEMA, temperature=0.4)
+        verdict = llm_json(args, prompt, REFUTE_SCHEMA, temperature=0.4)
         if verdict.get("is_real"):
             real += 1
     return real * 2 > max(1, votes)
+
+
+def llm_json(args: argparse.Namespace, prompt: str, schema: dict, temperature: float = 0.1) -> dict:
+    if args.api_key:
+        return deepseek_json(args, prompt, schema, temperature)
+    return ollama_json(args, prompt, schema, temperature)
+
+
+def deepseek_json(args: argparse.Namespace, prompt: str, schema: dict, temperature: float = 0.1) -> dict:
+    model = args.model if args.model and not args.model.startswith("qwen") else "deepseek-chat"
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "response_format": {"type": "json_object"},
+            "temperature": temperature,
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.deepseek.com/chat/completions",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {args.api_key}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=300) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    try:
+        content = body["choices"][0]["message"]["content"]
+        return json.loads(content)
+    except (KeyError, IndexError, json.JSONDecodeError):
+        return {}
 
 
 def ollama_json(args: argparse.Namespace, prompt: str, schema: dict, temperature: float = 0.1) -> dict:
