@@ -83,13 +83,13 @@ jobs:
           set -euo pipefail
 
           if [ "${{ steps.scan.outputs.mode }}" = "changed" ]; then
-            python3 .ci-gates/scripts/linter-checker-300-lines.py \
+            python3 .ci-gates/scripts/linter.py \
               --config "${{ inputs.config }}" \
               --mode changed \
               --base "${{ steps.scan.outputs.base }}" \
               --head "${{ steps.scan.outputs.head }}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
           else
-            python3 .ci-gates/scripts/linter-checker-300-lines.py \
+            python3 .ci-gates/scripts/linter.py \
               --config "${{ inputs.config }}" \
               --mode all 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
           fi

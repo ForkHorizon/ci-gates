@@ -37,7 +37,7 @@ class ProgressScriptTests(unittest.TestCase):
         self.assertEqual(json.loads(payload), {"step": "lint", "current": 3, "total": 10, "detail": "Sources/Foo.swift"})
 
     def test_readability_reports_each_of_ten_files(self):
-        readability = load_script("linter-checker-300-lines.py")
+        readability = load_script("linter.py")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for index in range(10):

@@ -62,7 +62,7 @@ DEFAULT_IGNORE = [
     "out",
     "target",
     "vendor",
-    "linter-checker-300-lines.py",
+    "linter.py",
     "*.designer.cs",
     "*.generated.*",
     "*.g.cs",
