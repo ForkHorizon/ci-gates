@@ -77,6 +77,10 @@ DEFAULT_IGNORE = [
 DEFAULT_CONFIG = {
     "max_file_lines": 300,
     "max_function_lines": 50,
+    "max_nesting_depth": 4,
+    "max_parameters": 5,
+    "max_comment_lines": 5,
+    "max_types_per_file": 2,
     "include_extensions": sorted(LANGUAGE_BY_EXTENSION),
     "ignore": DEFAULT_IGNORE,
     "language_overrides": {},
@@ -116,6 +120,7 @@ class FunctionBlock:
     name: str
     start_line: int
     parent_depth: int
+    param_count: int = 0
 
 
 def main(argv: Sequence[str]) -> int:
@@ -160,6 +165,10 @@ def load_config(path: Path) -> dict:
 
     config["max_file_lines"] = int(config.get("max_file_lines", 300))
     config["max_function_lines"] = int(config.get("max_function_lines", 50))
+    config["max_nesting_depth"] = int(config.get("max_nesting_depth", 4))
+    config["max_parameters"] = int(config.get("max_parameters", 5))
+    config["max_comment_lines"] = int(config.get("max_comment_lines", 5))
+    config["max_types_per_file"] = int(config.get("max_types_per_file", 2))
     config["ignore"] = list(config.get("ignore", []))
     config["include_extensions"] = [
         ext if ext.startswith(".") else f".{ext}" for ext in config.get("include_extensions", LANGUAGE_BY_EXTENSION)
@@ -236,6 +245,10 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
         limits = limits_for_language(config, language)
         max_file_lines = limits["max_file_lines"]
         max_function_lines = limits["max_function_lines"]
+        max_nesting_depth = limits["max_nesting_depth"]
+        max_parameters = limits["max_parameters"]
+        max_comment_lines = limits["max_comment_lines"]
+        max_types_per_file = limits["max_types_per_file"]
 
         if len(lines) > max_file_lines:
             issues.append(
@@ -247,7 +260,7 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
                 )
             )
 
-        for name, start_line, length in function_lengths(text, language):
+        for name, start_line, length, param_count in function_lengths(text, language):
             if length > max_function_lines:
                 issues.append(
                     Issue(
@@ -257,13 +270,30 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
                         message=(f"{name} has {length} lines; function/method limit is {max_function_lines}."),
                     )
                 )
+            if param_count > max_parameters:
+                issues.append(
+                    Issue(
+                        path=relative,
+                        line=start_line,
+                        kind="max_parameters",
+                        message=(f"Function '{name}' has {param_count} parameters; limit is {max_parameters}."),
+                    )
+                )
+
+        issues.extend(check_nesting_depth(relative, text, language, max_nesting_depth))
+        issues.extend(check_comment_blocks(relative, text, language, max_comment_lines))
+        issues.extend(check_types_per_file(relative, text, language, max_types_per_file))
     return issues
 
 
 def limits_for_language(config: dict, language: str) -> dict[str, int]:
     limits = {
-        "max_file_lines": int(config["max_file_lines"]),
-        "max_function_lines": int(config["max_function_lines"]),
+        "max_file_lines": int(config.get("max_file_lines", 300)),
+        "max_function_lines": int(config.get("max_function_lines", 50)),
+        "max_nesting_depth": int(config.get("max_nesting_depth", 4)),
+        "max_parameters": int(config.get("max_parameters", 5)),
+        "max_comment_lines": int(config.get("max_comment_lines", 5)),
+        "max_types_per_file": int(config.get("max_types_per_file", 2)),
     }
     override = config.get("language_overrides", {}).get(language, {})
     if isinstance(override, dict):
@@ -273,7 +303,7 @@ def limits_for_language(config: dict, language: str) -> dict[str, int]:
     return limits
 
 
-def function_lengths(text: str, language: str) -> list[tuple[str, int, int]]:
+def function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
     if language == "python":
         return python_function_lengths(text)
     if language == "ruby":
@@ -281,23 +311,29 @@ def function_lengths(text: str, language: str) -> list[tuple[str, int, int]]:
     return brace_function_lengths(text, language)
 
 
-def python_function_lengths(text: str) -> list[tuple[str, int, int]]:
+def python_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
     try:
         tree = ast.parse(text)
     except SyntaxError as exc:
         line = exc.lineno or 1
-        return [(f"Python syntax error near line {line}", line, len(text.splitlines()) - line + 1)]
+        return [(f"Python syntax error near line {line}", line, len(text.splitlines()) - line + 1, 0)]
 
     results = []
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             end_line = getattr(node, "end_lineno", node.lineno)
-            results.append((node.name, node.lineno, end_line - node.lineno + 1))
+            pcount = (
+                len(node.args.args)
+                + len(node.args.kwonlyargs)
+                + (1 if node.args.vararg else 0)
+                + (1 if node.args.kwarg else 0)
+            )
+            results.append((node.name, node.lineno, end_line - node.lineno + 1, pcount))
     return results
 
 
-def ruby_function_lengths(text: str) -> list[tuple[str, int, int]]:
-    stack: list[tuple[str, str, int]] = []
+def ruby_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
+    stack: list[tuple[str, str, int, int]] = []
     results = []
 
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
@@ -309,30 +345,31 @@ def ruby_function_lengths(text: str) -> list[tuple[str, int, int]]:
         def_match = re.match(r"\s*def\s+([A-Za-z_][A-Za-z0-9_!?=]*(?:\.[A-Za-z_][A-Za-z0-9_!?=]*)?)", line)
         if def_match:
             name = def_match.group(1)
+            pcount = count_params_in_signature(line)
             if re.search(r"\s=\s", line):
-                results.append((name, line_number, 1))
+                results.append((name, line_number, 1, pcount))
             else:
-                stack.append(("def", name, line_number))
+                stack.append(("def", name, line_number, pcount))
             continue
 
         if RUBY_BLOCK_START.search(line):
-            stack.append(("block", "", line_number))
+            stack.append(("block", "", line_number, 0))
 
         end_count = len(re.findall(r"(^|[^A-Za-z0-9_])end([^A-Za-z0-9_]|$)", line))
         for _ in range(end_count):
             if not stack:
                 break
-            kind, name, start_line = stack.pop()
+            kind, name, start_line, pcount = stack.pop()
             if kind == "def":
-                results.append((name, start_line, line_number - start_line + 1))
+                results.append((name, start_line, line_number - start_line + 1, pcount))
 
     return results
 
 
-def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int]]:
+def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
     results = []
     active: list[FunctionBlock] = []
-    pending: tuple[str, int] | None = None
+    pending: tuple[str, int, int] | None = None
     brace_depth = 0
     in_block_comment = False
 
@@ -344,14 +381,15 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
 
         detected = detect_brace_function(stripped, language)
         if detected:
-            pending = (detected, line_number)
+            pcount = count_params_in_signature(line)
+            pending = (detected, line_number, pcount)
 
         opens = clean.count("{")
         closes = clean.count("}")
 
         if pending and opens:
-            name, start_line = pending
-            active.append(FunctionBlock(name=name, start_line=start_line, parent_depth=depth_before))
+            name, start_line, pcount = pending
+            active.append(FunctionBlock(name=name, start_line=start_line, parent_depth=depth_before, param_count=pcount))
             pending = None
 
         if pending and stripped.endswith(";"):
@@ -362,9 +400,150 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
 
         while active and brace_depth <= active[-1].parent_depth:
             block = active.pop()
-            results.append((block.name, block.start_line, line_number - block.start_line + 1))
+            results.append((block.name, block.start_line, line_number - block.start_line + 1, block.param_count))
 
     return results
+
+
+def count_params_in_signature(signature_line: str) -> int:
+    start = signature_line.find("(")
+    end = signature_line.rfind(")")
+    if start == -1 or end == -1 or end <= start:
+        return 0
+    params_str = signature_line[start + 1:end].strip()
+    if not params_str:
+        return 0
+    depth = 0
+    count = 1
+    for char in params_str:
+        if char in "(<{":
+            depth += 1
+        elif char in ")>}":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            count += 1
+    return count
+
+
+def check_nesting_depth(relative: str, text: str, language: str, max_depth: int) -> list[Issue]:
+    issues: list[Issue] = []
+    if language == "python":
+        try:
+            tree = ast.parse(text)
+
+            def walk(node: ast.AST, depth: int) -> None:
+                for child in ast.iter_child_nodes(node):
+                    next_depth = depth
+                    if isinstance(child, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.With, ast.AsyncWith)):
+                        next_depth = depth + 1
+                        if next_depth > max_depth:
+                            issues.append(
+                                Issue(
+                                    path=relative,
+                                    line=getattr(child, "lineno", 1),
+                                    kind="nesting_depth",
+                                    message=f"Nesting depth is {next_depth}; limit is {max_depth}.",
+                                )
+                            )
+                    walk(child, next_depth)
+
+            walk(tree, 0)
+        except SyntaxError:
+            pass
+    else:
+        depth = 0
+        in_block = False
+        for line_no, raw_line in enumerate(text.splitlines(), start=1):
+            line, in_block = strip_c_style_comments(raw_line, in_block)
+            clean = strip_strings(line)
+            opens = clean.count("{")
+            closes = clean.count("}")
+
+            first_word = re.search(r"\b(if|for|foreach|while|switch|try|catch|guard|do)\b", clean)
+            if first_word and (opens > 0 or depth > 0):
+                current_depth = depth + (1 if opens > 0 else 0)
+                if current_depth > max_depth:
+                    issues.append(
+                        Issue(
+                            path=relative,
+                            line=line_no,
+                            kind="nesting_depth",
+                            message=f"Nesting depth is {current_depth}; limit is {max_depth}.",
+                        )
+                    )
+
+            depth += opens - closes
+            depth = max(depth, 0)
+    return issues
+
+
+def check_comment_blocks(relative: str, text: str, language: str, max_comment_lines: int) -> list[Issue]:
+    issues: list[Issue] = []
+    prefix = "#" if language in {"python", "ruby"} else "//"
+    current_start = None
+    count = 0
+    for line_no, raw_line in enumerate(text.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if stripped.startswith(prefix) and not stripped.startswith("#!"):
+            if count == 0:
+                current_start = line_no
+            count += 1
+        else:
+            if count > max_comment_lines and current_start is not None:
+                issues.append(
+                    Issue(
+                        path=relative,
+                        line=current_start,
+                        kind="comment_block",
+                        message=f"Comment block has {count} consecutive lines; limit is {max_comment_lines}.",
+                    )
+                )
+            count = 0
+            current_start = None
+    if count > max_comment_lines and current_start is not None:
+        issues.append(
+            Issue(
+                path=relative,
+                line=current_start,
+                kind="comment_block",
+                message=f"Comment block has {count} consecutive lines; limit is {max_comment_lines}.",
+            )
+        )
+    return issues
+
+
+def check_types_per_file(relative: str, text: str, language: str, max_types: int) -> list[Issue]:
+    issues: list[Issue] = []
+    types: list[tuple[str, int]] = []
+    if language == "python":
+        try:
+            tree = ast.parse(text)
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.ClassDef):
+                    types.append((node.name, node.lineno))
+        except SyntaxError:
+            pass
+    else:
+        in_block = False
+        for line_no, raw_line in enumerate(text.splitlines(), start=1):
+            line, in_block = strip_c_style_comments(raw_line, in_block)
+            clean = strip_strings(line)
+            match = re.search(r"\b(class|struct|interface|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)", clean)
+            if match:
+                types.append((match.group(2), line_no))
+
+    if len(types) > max_types:
+        first_violator = types[max_types]
+        type_names = ", ".join(t[0] for t in types)
+        issues.append(
+            Issue(
+                path=relative,
+                line=first_violator[1],
+                kind="types_per_file",
+                message=f"File defines {len(types)} types ({type_names}); limit is {max_types}.",
+            )
+        )
+    return issues
 
 
 def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0911, PLR0912 - per-language dispatch
