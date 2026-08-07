@@ -370,19 +370,26 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
     results = []
     active: list[FunctionBlock] = []
     pending: tuple[str, int, int] | None = None
+    pending_sig: list[str] = []
     brace_depth = 0
     in_block_comment = False
 
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
         line, in_block_comment = strip_c_style_comments(raw_line, in_block_comment)
-        clean = strip_strings(line)
+        clean = strip_strings(line, language)
         stripped = clean.strip()
         depth_before = brace_depth
 
         detected = detect_brace_function(stripped, language)
         if detected:
+            pending_sig = [line]
             pcount = count_params_in_signature(line)
             pending = (detected, line_number, pcount)
+        elif pending:
+            pending_sig.append(line)
+            full_sig = "\n".join(pending_sig)
+            pcount = count_params_in_signature(full_sig)
+            pending = (pending[0], pending[1], pcount)
 
         opens = clean.count("{")
         closes = clean.count("}")
@@ -391,9 +398,17 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
             name, start_line, pcount = pending
             active.append(FunctionBlock(name=name, start_line=start_line, parent_depth=depth_before, param_count=pcount))
             pending = None
+            pending_sig = []
+
+        if pending and opens == 0 and closes == 0 and ("=" in stripped or "=>" in stripped):
+            name, start_line, pcount = pending
+            results.append((name, start_line, 1, pcount))
+            pending = None
+            pending_sig = []
 
         if pending and stripped.endswith(";"):
             pending = None
+            pending_sig = []
 
         brace_depth += opens - closes
         brace_depth = max(brace_depth, 0)
@@ -407,8 +422,20 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
 
 def count_params_in_signature(signature_line: str) -> int:
     start = signature_line.find("(")
-    end = signature_line.rfind(")")
-    if start == -1 or end == -1 or end <= start:
+    if start == -1:
+        return 0
+    depth = 0
+    end = -1
+    for index in range(start, len(signature_line)):
+        char = signature_line[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+    if end <= start:
         return 0
     params_str = signature_line[start + 1:end].strip()
     if not params_str:
@@ -430,11 +457,12 @@ def check_nesting_depth(relative: str, text: str, language: str, max_depth: int)
     if language == "python":
         try:
             tree = ast.parse(text)
+            match_types = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.With, ast.AsyncWith, getattr(ast, "Match", type(None)))
 
             def walk(node: ast.AST, depth: int) -> None:
                 for child in ast.iter_child_nodes(node):
                     next_depth = depth
-                    if isinstance(child, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.With, ast.AsyncWith)):
+                    if isinstance(child, match_types):
                         next_depth = depth + 1
                         if next_depth > max_depth:
                             issues.append(
@@ -455,7 +483,7 @@ def check_nesting_depth(relative: str, text: str, language: str, max_depth: int)
         in_block = False
         for line_no, raw_line in enumerate(text.splitlines(), start=1):
             line, in_block = strip_c_style_comments(raw_line, in_block)
-            clean = strip_strings(line)
+            clean = strip_strings(line, language)
             opens = clean.count("{")
             closes = clean.count("}")
 
@@ -527,7 +555,7 @@ def check_types_per_file(relative: str, text: str, language: str, max_types: int
         in_block = False
         for line_no, raw_line in enumerate(text.splitlines(), start=1):
             line, in_block = strip_c_style_comments(raw_line, in_block)
-            clean = strip_strings(line)
+            clean = strip_strings(line, language)
             match = re.search(r"\b(class|struct|interface|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)", clean)
             if match:
                 types.append((match.group(2), line_no))
@@ -555,9 +583,9 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
         return None
 
     if language == "swift":
-        match = re.search(r"\bfunc\s+(`[^`]+`|[A-Za-z_][A-Za-z0-9_]*)\b", line)
+        match = re.search(r"\bfunc\s+(?:`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*))", line)
         if match:
-            return match.group(1).strip("`")
+            return (match.group(1) or match.group(2)).strip("`")
         if re.search(r"\binit\s*\(", line):
             return "init"
         if re.search(r"\bdeinit\b", line):
@@ -565,7 +593,7 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
         return None
 
     if language in {"kotlin"}:
-        match = re.search(r"\bfun\s+(?:[A-Za-z_][A-Za-z0-9_<>.]*\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
+        match = re.search(r"\bfun\s+(?:[A-Za-z_][A-Za-z0-9_<>.]*\.)?([A-Za-z_][A-Za-z0-9_]*)", line)
         if match:
             return match.group(1)
         if re.search(r"\bconstructor\s*\(", line):
@@ -640,10 +668,11 @@ def strip_c_style_comments(line: str, in_block_comment: bool) -> tuple[str, bool
     return "".join(output), in_block_comment
 
 
-def strip_strings(line: str) -> str:
+def strip_strings(line: str, language: str = "") -> str:
     output = []
     quote: str | None = None
     escaped = False
+    quotes = {'"', "'"} if language == "swift" else {'"', "'", "`"}
     for char in line:
         if quote:
             if escaped:
@@ -658,7 +687,7 @@ def strip_strings(line: str) -> str:
                 quote = None
             output.append(" ")
             continue
-        if char in {'"', "'", "`"}:
+        if char in quotes:
             quote = char
             output.append(" ")
         else:
