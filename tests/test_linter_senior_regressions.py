@@ -97,9 +97,12 @@ class SeniorLinterRegressionTests(unittest.TestCase):
     def test_14_go_named_types_count_as_types(self):
         self.assert_type_count("type Config struct{}\ntype Store interface{}", "go", 2)
 
-    def test_15_typescript_type_aliases_count_as_types(self):
+    def test_15_typescript_type_aliases_do_not_count_as_types(self):
+        # Aliases cost a reader nothing; classes/interfaces/enums still count.
+        source = "type UserId = string;\ntype RetryCount = number;"
+        self.assertEqual(linter.check_types_per_file("fixture", source, "typescript", 0), [])
         self.assert_type_count(
-            "type UserId = string;\ntype RetryCount = number;", "typescript", 2
+            "type UserId = string;\ninterface Store {}\nclass Client {}", "typescript", 2
         )
 
     def test_16_rust_traits_and_unions_count_as_types(self):

@@ -8,7 +8,7 @@ pushing to `main` in this repo updates every project instantly.
 
 | Workflow | What it checks |
 |---|---|
-| `readability.yml` | File length ≤ 300 lines, function length ≤ 50 lines (12+ languages). |
+| `readability.yml` | Code structure (12+ languages): file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, comment block ≤ 5 lines, top-level types per file ≤ 2. |
 | `swift-compile.yml` | Project compiles; fails on critical warnings (Swift 6 concurrency, Sendable, data races). |
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
@@ -50,7 +50,7 @@ jobs:
 ```
 
 Per-repo tuning stays in the project via config files:
-`.linter-checker-300-lines.json`, `.swift-compile-gate.json`,
+`.code-structure-linter.json`, `.swift-compile-gate.json`,
 `.swift-quality-gate.json`. See each script's `DEFAULT_CONFIG` in
 [scripts/](scripts/) for the available keys.
 

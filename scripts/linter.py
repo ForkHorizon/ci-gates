@@ -10,11 +10,13 @@ from __future__ import annotations
 import argparse
 import ast
 import fnmatch
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Iterable, Sequence
@@ -40,6 +42,7 @@ LANGUAGE_BY_EXTENSION = {
 }
 
 DEFAULT_IGNORE = [
+    ".ci-gates",
     ".git",
     ".svn",
     ".hg",
@@ -62,7 +65,6 @@ DEFAULT_IGNORE = [
     "out",
     "target",
     "vendor",
-    "linter.py",
     "*.designer.cs",
     "*.generated.*",
     "*.g.cs",
@@ -74,13 +76,17 @@ DEFAULT_IGNORE = [
     "*.snapshot",
 ]
 
-DEFAULT_CONFIG = {
+LIMIT_DEFAULTS = {
     "max_file_lines": 300,
     "max_function_lines": 50,
     "max_nesting_depth": 4,
     "max_parameters": 5,
     "max_comment_lines": 5,
     "max_types_per_file": 2,
+}
+
+DEFAULT_CONFIG = {
+    **LIMIT_DEFAULTS,
     "include_extensions": sorted(LANGUAGE_BY_EXTENSION),
     "ignore": DEFAULT_IGNORE,
     "language_overrides": {},
@@ -108,6 +114,20 @@ RUBY_BLOCK_START = re.compile(
     r"^\s*(class|module|if|unless|case|begin|for|while|until)\b|(^|[^A-Za-z0-9_])do\b"
 )
 
+# Keywords whose `{` adds a level of logical nesting. `else` is included so an
+# if/else chain keeps both branches at the same depth. Anchored at the start of
+# the statement (a leading `}` is allowed, for `} else {`) so the `try` in
+# `let x = try foo()` isn't read as opening a block.
+NESTING_KEYWORD = re.compile(
+    r"^\s*(?:\}\s*)*"
+    r"\b(?:if|else|for|foreach|while|switch|try|catch|guard|do|repeat|when)\b"
+)
+
+# `///`, `//!` and `/** */` document a symbol rather than being a wall of prose
+# or commented-out code, so they don't count toward the block limit. A plain
+# `/* */` block still does.
+DOC_LINE_PREFIXES = ("///", "//!")
+
 
 @dataclass(frozen=True)
 class Issue:
@@ -129,6 +149,14 @@ class FunctionBlock:
 class CStyleScanState:
     block_depth: int = 0
     quote: str | None = None
+
+
+@dataclass
+class BraceEvent:
+    kind: str  # "trigger", "open" or "close"
+    line: int
+    triggered: bool = False
+    match: re.Match[str] | None = None
 
 
 def main(argv: Sequence[str]) -> int:
@@ -182,24 +210,56 @@ def load_config(path: Path) -> dict:
         loaded_ignore = loaded.get("ignore")
         config.update(loaded)
         if loaded_ignore is not None:
-            merged = list(DEFAULT_IGNORE)
-            for item in loaded_ignore:
-                if item not in merged:
-                    merged.append(item)
-            config["ignore"] = merged
+            config["ignore"] = merge_ignore(loaded_ignore, path)
 
-    config["max_file_lines"] = int(config.get("max_file_lines", 300))
-    config["max_function_lines"] = int(config.get("max_function_lines", 50))
-    config["max_nesting_depth"] = int(config.get("max_nesting_depth", 4))
-    config["max_parameters"] = int(config.get("max_parameters", 5))
-    config["max_comment_lines"] = int(config.get("max_comment_lines", 5))
-    config["max_types_per_file"] = int(config.get("max_types_per_file", 2))
+    for key, fallback in LIMIT_DEFAULTS.items():
+        config[key] = config_int(config, key, fallback, path)
     config["include_extensions"] = [
         ext if ext.startswith(".") else f".{ext}"
-        for ext in config.get("include_extensions", LANGUAGE_BY_EXTENSION)
+        for ext in config_list(config, "include_extensions", LANGUAGE_BY_EXTENSION, path)
     ]
-    config["language_overrides"] = dict(config.get("language_overrides", {}))
+    overrides = config.get("language_overrides", {})
+    if not isinstance(overrides, dict):
+        config_error(path, "'language_overrides' must be a JSON object.")
+    config["language_overrides"] = dict(overrides)
     return config
+
+
+def config_error(path: Path, message: str) -> None:
+    print(f"::error file={github_path(path)}::{message}", file=sys.stderr)
+    sys.exit(2)
+
+
+def merge_ignore(loaded_ignore: object, path: Path) -> list[str]:
+    if not isinstance(loaded_ignore, list) or not all(
+        isinstance(item, str) for item in loaded_ignore
+    ):
+        config_error(path, "'ignore' must be a JSON array of strings.")
+    merged = list(DEFAULT_IGNORE)
+    for item in loaded_ignore:  # type: ignore[union-attr]
+        if item not in merged:
+            merged.append(item)
+    return merged
+
+
+def config_list(config: dict, key: str, fallback: Iterable[str], path: Path) -> list[str]:
+    value = config.get(key, fallback)
+    if isinstance(value, dict):
+        value = list(value)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        config_error(path, f"'{key}' must be a JSON array of strings.")
+    return list(value)  # type: ignore[arg-type]
+
+
+def config_int(config: dict, key: str, fallback: int, path: Path) -> int:
+    value = config.get(key, fallback)
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        config_error(path, f"'{key}' must be a number, got {value!r}.")
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        config_error(path, f"'{key}' must be a number, got {value!r}.")
+        raise  # unreachable, keeps type checkers happy
 
 
 def collect_paths(root: Path, config: dict, args: argparse.Namespace) -> list[Path]:
@@ -281,8 +341,6 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
         relative = to_relative(root, path)
         progress("lint", current=index, total=len(paths), detail=str(relative))
         language = LANGUAGE_BY_EXTENSION.get(path.suffix)
-        if language is None:
-            continue
 
         try:
             text = path.read_text(encoding="utf-8")
@@ -290,7 +348,7 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
             text = path.read_text(encoding="utf-8", errors="replace")
 
         lines = text.splitlines()
-        limits = limits_for_language(config, language)
+        limits = limits_for_language(config, language or "")
         max_file_lines = limits["max_file_lines"]
         max_function_lines = limits["max_function_lines"]
         max_nesting_depth = limits["max_nesting_depth"]
@@ -307,6 +365,11 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
                     message=f"File has {len(lines)} lines; limit is {max_file_lines}.",
                 )
             )
+
+        # Extensions the config opts into but this checker has no parser for still
+        # get the language-agnostic file-length check above, then stop.
+        if language is None:
+            continue
 
         for name, start_line, length, param_count in function_lengths(text, language):
             if length > max_function_lines:
@@ -342,12 +405,7 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
 
 def limits_for_language(config: dict, language: str) -> dict[str, int]:
     limits = {
-        "max_file_lines": int(config.get("max_file_lines", 300)),
-        "max_function_lines": int(config.get("max_function_lines", 50)),
-        "max_nesting_depth": int(config.get("max_nesting_depth", 4)),
-        "max_parameters": int(config.get("max_parameters", 5)),
-        "max_comment_lines": int(config.get("max_comment_lines", 5)),
-        "max_types_per_file": int(config.get("max_types_per_file", 2)),
+        key: int(config.get(key, fallback)) for key, fallback in LIMIT_DEFAULTS.items()
     }
     override = config.get("language_overrides", {}).get(language, {})
     if isinstance(override, dict):
@@ -411,8 +469,8 @@ def ruby_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
         )
         if def_match:
             name = def_match.group(1)
-            pcount = count_params_in_signature(line)
-            if re.search(r"\s=\s", line):
+            pcount = count_params_in_signature(line, name)
+            if is_endless_ruby_method(line[def_match.end() :]):
                 results.append((name, line_number, 1, pcount))
             else:
                 stack.append(("def", name, line_number, pcount))
@@ -432,6 +490,26 @@ def ruby_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
     return results
 
 
+def is_endless_ruby_method(after_name: str) -> bool:
+    """`def foo = 1` is a one-liner; `def foo(a = 1)` is not — the `=` in a
+    default argument sits inside the parameter list, so skip that first."""
+    rest = after_name.lstrip()
+    if rest.startswith("("):
+        depth = 0
+        for index, char in enumerate(rest):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    rest = rest[index + 1 :]
+                    break
+        else:
+            return False
+    rest = rest.lstrip()
+    return rest.startswith("=") and not rest.startswith(("==", "=~"))
+
+
 def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
     results = []
     active: list[FunctionBlock] = []
@@ -447,12 +525,12 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
         detected = detect_brace_function(stripped, language)
         if detected:
             pending_sig = [clean]
-            pcount = count_params_in_signature(clean)
+            pcount = count_params_in_signature(clean, detected, language)
             pending = (detected, line_number, pcount)
         elif pending:
             pending_sig.append(clean)
             full_sig = "\n".join(pending_sig)
-            pcount = count_params_in_signature(full_sig)
+            pcount = count_params_in_signature(full_sig, pending[0], language)
             pending = (pending[0], pending[1], pcount)
 
         opens = clean.count("{")
@@ -507,9 +585,22 @@ def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int
     return results
 
 
-def count_params_in_signature(signature_line: str) -> int:
-    signature_clean = strip_strings(signature_line)
-    start = signature_clean.find("(")
+def count_params_in_signature(
+    signature_line: str, name: str | None = None, language: str = ""
+) -> int:
+    signature_clean = strip_strings(signature_line, language)
+    start = -1
+    if name and name.isidentifier():
+        # Anchor on the paren that follows the function name so a Go receiver
+        # (`func (s *Server) Handle(a, b int)`) isn't mistaken for the parameters.
+        anchored = re.search(
+            r"\b" + re.escape(name) + r"\b\s*(?:<[^<>]*>|\[[^\[\]]*\])?\s*\(",
+            signature_clean,
+        )
+        if anchored:
+            start = anchored.end() - 1
+    if start == -1:
+        start = signature_clean.find("(")
     if start == -1:
         return 0
 
@@ -548,119 +639,263 @@ def count_params_in_signature(signature_line: str) -> int:
 def check_nesting_depth(
     relative: str, text: str, language: str, max_depth: int
 ) -> list[Issue]:
-    issues: list[Issue] = []
     if language == "python":
-        try:
-            tree = ast.parse(text)
-            match_types = (
-                ast.If,
-                ast.For,
-                ast.AsyncFor,
-                ast.While,
-                ast.Try,
-                ast.With,
-                ast.AsyncWith,
-                getattr(ast, "Match", type(None)),
-            )
+        return python_nesting_issues(relative, text, max_depth)
+    return c_style_nesting_issues(relative, text, language, max_depth)
 
-            def walk(node: ast.AST, depth: int, parent: ast.AST | None = None) -> None:
-                for child in ast.iter_child_nodes(node):
-                    next_depth = depth
-                    if isinstance(child, match_types):
-                        is_elif = (
-                            isinstance(child, ast.If)
-                            and isinstance(parent, ast.If)
-                            and any(child is o for o in parent.orelse)
+
+def nesting_issue(relative: str, line: int, depth: int, max_depth: int) -> Issue:
+    return Issue(
+        path=relative,
+        line=line,
+        kind="nesting_depth",
+        message=f"Nesting depth is {depth}; limit is {max_depth}.",
+    )
+
+
+def python_nesting_issues(relative: str, text: str, max_depth: int) -> list[Issue]:
+    issues: list[Issue] = []
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return issues
+
+    match_types = (
+        ast.If,
+        ast.For,
+        ast.AsyncFor,
+        ast.While,
+        ast.Try,
+        ast.With,
+        ast.AsyncWith,
+        getattr(ast, "Match", type(None)),
+    )
+
+    def walk(node: ast.AST, depth: int, parent: ast.AST | None = None) -> None:
+        for child in ast.iter_child_nodes(node):
+            next_depth = depth
+            if isinstance(child, match_types):
+                is_elif = (
+                    isinstance(child, ast.If)
+                    and isinstance(parent, ast.If)
+                    and any(child is other for other in parent.orelse)
+                )
+                if not is_elif:
+                    next_depth = depth + 1
+                    if next_depth > max_depth:
+                        issues.append(
+                            nesting_issue(
+                                relative,
+                                getattr(child, "lineno", 1),
+                                next_depth,
+                                max_depth,
+                            )
                         )
-                        if not is_elif:
-                            next_depth = depth + 1
-                            if next_depth > max_depth:
-                                issues.append(
-                                    Issue(
-                                        path=relative,
-                                        line=getattr(child, "lineno", 1),
-                                        kind="nesting_depth",
-                                        message=f"Nesting depth is {next_depth}; limit is {max_depth}.",
-                                    )
-                                )
-                    walk(child, next_depth, parent=child)
+            walk(child, next_depth, parent=child)
 
-            walk(tree, 0)
-        except SyntaxError:
-            pass
-    else:
-        depth = 0
-        for line_no, (_, clean, _) in enumerate(
-            scan_c_style_lines(text, language), start=1
-        ):
-            opens = clean.count("{")
-            closes = clean.count("}")
-
-            first_word = re.search(
-                r"\b(if|for|foreach|while|switch|try|catch|guard|do)\b", clean
-            )
-            if first_word and (opens > 0 or depth > 0):
-                current_depth = depth + (1 if opens > 0 else 0)
-                if current_depth > max_depth:
-                    issues.append(
-                        Issue(
-                            path=relative,
-                            line=line_no,
-                            kind="nesting_depth",
-                            message=f"Nesting depth is {current_depth}; limit is {max_depth}.",
-                        )
-                    )
-
-            depth += opens - closes
-            depth = max(depth, 0)
+    walk(tree, 0)
     return issues
+
+
+def brace_events(
+    text: str, language: str, trigger: re.Pattern[str]
+) -> Iterable[BraceEvent]:
+    """Walks `{`/`}` pairs, tagging each pair with whether `trigger` opened it.
+
+    The trigger may sit on an earlier line than its brace (Allman style), so a
+    match is carried forward until a brace, a statement-ending `;` outside
+    parentheses, or an assignment consumes it.
+    """
+    frames: list[bool] = []
+    pending: re.Match[str] | None = None
+    for line_no, (_, clean, _) in enumerate(
+        scan_c_style_lines(text, language), start=1
+    ):
+        match = trigger.search(clean)
+        if match:
+            pending = match
+            yield BraceEvent("trigger", line_no, match=match)
+        min_index = match.end() if match else (0 if pending else None)
+        parens = 0
+        assigned = False
+        for index, char in enumerate(clean):
+            live = min_index is not None and index >= min_index
+            if char == "(":
+                parens += 1
+            elif char == ")":
+                parens = max(0, parens - 1)
+            elif char == "=" and live and parens == 0:
+                assigned = True
+            elif char == "{":
+                triggered = pending is not None and live
+                frames.append(triggered)
+                yield BraceEvent("open", line_no, triggered, pending if triggered else None)
+                pending, min_index = None, None
+            elif char == "}":
+                yield BraceEvent("close", line_no, frames.pop() if frames else False)
+                if live:
+                    pending, min_index = None, None
+            elif char == ";" and live and parens == 0:
+                pending, min_index = None, None
+        if assigned and pending is not None:
+            # `type Alias = string` / `let x = y` completed without a block.
+            pending = None
+
+
+def c_style_nesting_issues(
+    relative: str, text: str, language: str, max_depth: int
+) -> list[Issue]:
+    """Counts only braces a control-flow keyword opened.
+
+    Counting every `{` made a type declaration, a method and each enclosing
+    closure eat a level, so an ordinary `if` inside a SwiftUI body reported
+    depth 7. Only `if`/`for`/`while`/... blocks are nesting a reader has to
+    track, so those are the only frames that raise the depth.
+    """
+    issues: list[Issue] = []
+    depth = 0
+    for event in brace_events(text, language, NESTING_KEYWORD):
+        if not event.triggered:
+            continue
+        if event.kind == "open":
+            depth += 1
+            if depth > max_depth:
+                issues.append(nesting_issue(relative, event.line, depth, max_depth))
+        elif event.kind == "close":
+            depth -= 1
+    return issues
+
+
+def python_comment_flags(text: str) -> list[bool]:
+    """Real comment lines, via tokenize — a `#` opening a line inside a triple
+    quoted string is string data, not a comment, and used to be counted."""
+    lines = text.splitlines()
+    comment_rows: set[int] = set()
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        for token in tokens:
+            row, column = token.start
+            if token.type != tokenize.COMMENT or row > len(lines):
+                continue
+            if lines[row - 1][:column].strip():
+                continue  # trailing comment after code
+            if row == 1 and token.string.startswith("#!"):
+                continue
+            comment_rows.add(row)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        # Unparseable file: fall back to the prefix scan rather than reporting nothing.
+        return [
+            line.strip().startswith("#") and not (index == 0 and line.strip().startswith("#!"))
+            for index, line in enumerate(lines)
+        ]
+    return [row in comment_rows for row in range(1, len(lines) + 1)]
+
+
+def comment_line_flags(text: str, language: str) -> list[bool]:
+    """Which lines are prose-only comments.
+
+    Doc comments (`///`, `//!`, `/** */`, `#:`) describe the API rather than
+    being an essay or commented-out code, so they don't count — the rule is
+    aimed at walls of prose, not at documenting a public symbol.
+    """
+    if language == "python":
+        return python_comment_flags(text)
+
+    if language == "ruby":
+        flags = []
+        for index, line in enumerate(text.splitlines()):
+            stripped = line.strip()
+            is_shebang = index == 0 and stripped.startswith("#!")
+            flags.append(stripped.startswith("#") and not is_shebang)
+        return flags
+
+    flags = []
+    in_doc_block = False
+    for raw, _, is_comment in scan_c_style_lines(text, language):
+        stripped = raw.strip()
+        if in_doc_block:
+            is_doc = True
+            in_doc_block = "*/" not in stripped
+        elif stripped.startswith("/**"):
+            is_doc = True
+            in_doc_block = "*/" not in stripped[3:]
+        else:
+            is_doc = stripped.startswith(DOC_LINE_PREFIXES)
+        flags.append(is_comment and not is_doc)
+    return flags
 
 
 def check_comment_blocks(
     relative: str, text: str, language: str, max_comment_lines: int
 ) -> list[Issue]:
     issues: list[Issue] = []
-    prefix = "#" if language in {"python", "ruby"} else "//"
-    current_start = None
+    current_start: int | None = None
     count = 0
-    if language in {"python", "ruby"}:
-        comment_lines = [
-            line.strip().startswith(prefix) and not line.strip().startswith("#!")
-            for line in text.splitlines()
-        ]
-    else:
-        comment_lines = [
-            is_comment for _, _, is_comment in scan_c_style_lines(text, language)
-        ]
 
-    for line_no, is_comment in enumerate(comment_lines, start=1):
+    def flush() -> None:
+        # A block starting on line 1 is the file header / licence banner.
+        if count > max_comment_lines and current_start not in (None, 1):
+            issues.append(
+                Issue(
+                    path=relative,
+                    line=current_start or 1,
+                    kind="comment_block",
+                    message=f"Comment block has {count} consecutive lines; limit is {max_comment_lines}.",
+                )
+            )
+
+    for line_no, is_comment in enumerate(
+        comment_line_flags(text, language), start=1
+    ):
         if is_comment:
             if count == 0:
                 current_start = line_no
             count += 1
-        else:
-            if count > max_comment_lines and current_start is not None:
-                issues.append(
-                    Issue(
-                        path=relative,
-                        line=current_start,
-                        kind="comment_block",
-                        message=f"Comment block has {count} consecutive lines; limit is {max_comment_lines}.",
-                    )
-                )
-            count = 0
-            current_start = None
+            continue
+        flush()
+        count = 0
+        current_start = None
 
-    if count > max_comment_lines and current_start is not None:
-        issues.append(
-            Issue(
-                path=relative,
-                line=current_start,
-                kind="comment_block",
-                message=f"Comment block has {count} consecutive lines; limit is {max_comment_lines}.",
-            )
-        )
+    flush()
     return issues
+
+
+TYPE_PATTERNS = {
+    "csharp": r"\b(?:class|struct|interface|enum|record(?:\s+(?:class|struct))?)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "swift": r"\b(?:class|struct|enum|actor|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "go": r"\btype\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+    # Bare `type X = …` aliases are omitted on purpose: they cost a reader
+    # nothing, and three of them in a file is normal, not a structure problem.
+    "typescript": r"\b(?:class|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+    "javascript": r"\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+    "rust": r"\b(?:struct|enum|trait|union)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "php": r"\b(?:class|interface|enum|trait)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "kotlin": r"\b(?:class|interface|object|enum\s+class|typealias)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "java": r"\b(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)",
+}
+
+FALLBACK_TYPE_PATTERN = (
+    r"\b(?:class|struct|interface|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)"
+)
+
+
+def brace_type_declarations(text: str, language: str) -> list[tuple[str, int]]:
+    """Top-level type declarations only.
+
+    A helper struct or enum nested inside the type it serves is one unit of
+    reading, not two, so it doesn't count. Namespace/extension wrappers aren't
+    type declarations either, so C# and Swift files still get counted properly.
+    """
+    pattern = re.compile(TYPE_PATTERNS.get(language, FALLBACK_TYPE_PATTERN))
+    types: list[tuple[str, int]] = []
+    inside_type = 0
+    for event in brace_events(text, language, pattern):
+        if event.kind == "trigger":
+            if inside_type == 0 and event.match is not None:
+                types.append((event.match.group(1), event.line))
+        elif event.triggered:
+            inside_type += 1 if event.kind == "open" else -1
+    return types
 
 
 def check_types_per_file(
@@ -671,33 +906,16 @@ def check_types_per_file(
     if language == "python":
         try:
             tree = ast.parse(text)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    types.append((node.name, node.lineno))
         except SyntaxError:
-            pass
+            tree = None
+        if tree is not None:
+            types = [
+                (node.name, node.lineno)
+                for node in tree.body
+                if isinstance(node, ast.ClassDef)
+            ]
     else:
-        type_patterns = {
-            "csharp": r"\b(?:class|struct|interface|enum|record(?:\s+(?:class|struct))?)\s+([A-Za-z_][A-Za-z0-9_]*)",
-            "swift": r"\b(?:class|struct|enum|actor|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)",
-            "go": r"\btype\s+([A-Za-z_][A-Za-z0-9_]*)\b",
-            "typescript": r"\b(?:class|interface|enum|type)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
-            "javascript": r"\bclass\s+([A-Za-z_$][A-Za-z0-9_$]*)",
-            "rust": r"\b(?:struct|enum|trait|union)\s+([A-Za-z_][A-Za-z0-9_]*)",
-            "php": r"\b(?:class|interface|enum|trait)\s+([A-Za-z_][A-Za-z0-9_]*)",
-            "kotlin": r"\b(?:class|interface|object|enum\s+class|typealias)\s+([A-Za-z_][A-Za-z0-9_]*)",
-            "java": r"\b(?:class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)",
-        }
-        pattern = type_patterns.get(
-            language,
-            r"\b(?:class|struct|interface|enum|actor)\s+([A-Za-z_][A-Za-z0-9_]*)",
-        )
-        for line_no, (_, clean, _) in enumerate(
-            scan_c_style_lines(text, language), start=1
-        ):
-            match = re.search(pattern, clean)
-            if match:
-                types.append((match.group(1), line_no))
+        types = brace_type_declarations(text, language)
 
     if len(types) > max_types:
         first_violator = types[max_types]
@@ -809,51 +1027,16 @@ def detect_brace_function(line: str, language: str) -> str | None:  # noqa: PLR0
     return None
 
 
-def strip_c_style_comments(line: str, in_block_comment: bool) -> tuple[str, bool]:
-    output = []
-    index = 0
-    quote: str | None = None
-    escaped = False
-
-    while index < len(line):
-        if in_block_comment:
-            end = line.find("*/", index)
-            if end == -1:
-                return "".join(output), True
-            index = end + 2
-            in_block_comment = False
-            continue
-
-        char = line[index]
-        if quote:
-            output.append(char)
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-
-        if char in {'"', "'", "`"}:
-            quote = char
-            output.append(char)
-            index += 1
-            continue
-
-        if line.startswith("//", index):
-            break
-
-        if line.startswith("/*", index):
-            index += 2
-            in_block_comment = True
-            continue
-
-        output.append(char)
-        index += 1
-
-    return "".join(output), in_block_comment
+def is_rust_lifetime(line: str, index: int, language: str) -> bool:
+    """`'a` in `fn f<'a>(x: &'a str)` is a lifetime, not an unterminated char
+    literal — without this the rest of the line is swallowed as a string and
+    the brace counts go wrong."""
+    if language != "rust" or index + 1 >= len(line):
+        return False
+    following = line[index + 1]
+    if not (following.isalpha() or following == "_"):
+        return False
+    return not (index + 2 < len(line) and line[index + 2] == "'")
 
 
 def scan_c_style_lines(text: str, language: str) -> list[tuple[str, str, bool]]:
@@ -925,6 +1108,10 @@ def scan_c_style_line(
             index += 2
             continue
         char = line[index]
+        if char == "'" and is_rust_lifetime(line, index, language):
+            output.append(char)
+            index += 1
+            continue
         if char in {'"', "'"}:
             quote = char
             index += 1
@@ -973,16 +1160,10 @@ def strip_strings(line: str, language: str = "") -> str:
             continue
 
         if char in quotes:
-            if (
-                char == "'"
-                and language == "rust"
-                and index + 1 < len(line)
-                and (line[index + 1].isalpha() or line[index + 1] == "_")
-            ):
-                if not (index + 2 < len(line) and line[index + 2] == "'"):
-                    output.append(char)
-                    index += 1
-                    continue
+            if is_rust_lifetime(line, index, language):
+                output.append(char)
+                index += 1
+                continue
             quote = char
             output.append(" ")
         else:
@@ -1069,7 +1250,12 @@ def escape_github_message(message: str) -> str:
 
 
 def to_relative(root: Path, path: Path) -> str:
-    return path.resolve().relative_to(root).as_posix()
+    try:
+        return path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        # A symlink pointing outside the repo resolves out of `root`; report it
+        # under the path git gave us rather than crashing the whole gate.
+        return os.path.relpath(path, root).replace(os.sep, "/")
 
 
 def github_path(path: Path) -> str:

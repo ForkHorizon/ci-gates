@@ -14,6 +14,11 @@ sys.modules["linter_checker"] = linter_checker
 spec.loader.exec_module(linter_checker)
 
 
+def scanned_line(code, language):
+    """Code left on a single line once comments and string bodies are removed."""
+    return linter_checker.scan_c_style_lines(code, language)[0][1]
+
+
 class LinterCheckerRulesTests(unittest.TestCase):
     def setUp(self):
         self.config = {
@@ -221,8 +226,8 @@ class Outer {
     enum Inner3 {}
 }
 """
-        issues = linter_checker.check_types_per_file("Types.swift", swift_code, "swift", 2)
-        self.assertEqual(len(issues), 1, "Should count inner classes/structs/enums toward types per file")
+        issues = linter_checker.check_types_per_file("Types.swift", swift_code, "swift", 1)
+        self.assertEqual(len(issues), 0, "Types nested inside Outer are one unit of reading, not four")
 
     # 7. Swift backticked identifiers and initializers
     def test_swift_backticked_identifiers_and_initializers(self):
@@ -444,7 +449,7 @@ class SeniorDevEdgeCaseTests(unittest.TestCase):
     # 21. URL in string literal destroyed by comment stripper
     def test_url_in_string_literal_not_truncated_by_comment_stripper(self):
         code = 'let url = "https://example.com/api"; let x = 1;'
-        line, in_block = linter_checker.strip_c_style_comments(code, False)
+        line = scanned_line(code, "swift")
         self.assertIn("x", line, "URL slashes '//' inside string literal must not truncate the line")
 
     # 22. Python flat elif chain false positive in nesting depth
@@ -606,7 +611,7 @@ class Third:
     pass
 """
         issues = linter_checker.check_types_per_file("test.py", code, "python", 2)
-        self.assertEqual(len(issues), 1, "Nested Python classes must count towards types_per_file limit")
+        self.assertEqual(len(issues), 0, "Nested Python classes do not count towards types_per_file")
 
     # 35. C# generic constraint 'where T : class' false positive
     def test_csharp_where_generic_constraint_class_not_type_definition(self):
@@ -689,17 +694,17 @@ class FixedProblemsComprehensiveTestSuite(unittest.TestCase):
     # -------------------------------------------------------------------------
     def test_problem1_1_https_url_in_string_not_truncated(self):
         code = 'let url = "https://domain.com/path"; let x = 1;'
-        line, _ = linter_checker.strip_c_style_comments(code, False)
+        line = scanned_line(code, "swift")
         self.assertIn("x", line, "URL slashes '//' inside string literal must not truncate the line")
 
     def test_problem1_2_http_url_with_query_params(self):
         code = 'const ep = "http://api.internal:8080/v1?a=1//2"; const active = true;'
-        line, _ = linter_checker.strip_c_style_comments(code, False)
+        line = scanned_line(code, "typescript")
         self.assertIn("active", line)
 
     def test_problem1_3_block_comment_slashes_inside_string(self):
         code = 'let s = "/* fake block comment */"; let y = 2;'
-        line, _ = linter_checker.strip_c_style_comments(code, False)
+        line = scanned_line(code, "swift")
         self.assertIn("y", line)
 
     def test_problem1_4_rust_lifetime_annotation_with_types(self):
@@ -710,7 +715,7 @@ class FixedProblemsComprehensiveTestSuite(unittest.TestCase):
 
     def test_problem1_5_swift_string_interpolation_unquoted(self):
         swift_code = 'let msg = "Count is \\(items.count)"; let done = true;'
-        line, _ = linter_checker.strip_c_style_comments(swift_code, False)
+        line = scanned_line(swift_code, "swift")
         self.assertIn("done", line)
 
     # -------------------------------------------------------------------------
@@ -858,7 +863,7 @@ async def run_async(stream):
     # Problem 6: Multi-line Block Comments /* ... */ (5 tests)
     # -------------------------------------------------------------------------
     def test_problem6_1_csharp_block_comment_over_limit(self):
-        code = "/*\n" + "\n".join([f" * Line {i}" for i in range(7)]) + "\n */\nvoid foo() {}"
+        code = "int seed = 0;\n/*\n" + "\n".join([f" * Line {i}" for i in range(7)]) + "\n */\nvoid foo() {}"
         issues = linter_checker.check_comment_blocks("test.cs", code, "csharp", 5)
         self.assertGreater(len(issues), 0)
 
@@ -868,7 +873,7 @@ async def run_async(stream):
         self.assertEqual(len(issues), 0)
 
     def test_problem6_3_ts_block_comment_over_limit(self):
-        code = "/*\n" + "\n".join([f" * Line {i}" for i in range(8)]) + "\n */\nfunction foo() {}"
+        code = "const seed = 0;\n/*\n" + "\n".join([f" * Line {i}" for i in range(8)]) + "\n */\nfunction foo() {}"
         issues = linter_checker.check_comment_blocks("test.ts", code, "typescript", 5)
         self.assertGreater(len(issues), 0)
 
@@ -878,37 +883,45 @@ async def run_async(stream):
         self.assertEqual(len(issues), 0)
 
     def test_problem6_5_php_block_comment_over_limit(self):
-        code = "/*\n" + "\n".join([f" * Line {i}" for i in range(7)]) + "\n */\nfunction foo() {}"
+        code = "$seed = 0;\n/*\n" + "\n".join([f" * Line {i}" for i in range(7)]) + "\n */\nfunction foo() {}"
         issues = linter_checker.check_comment_blocks("test.php", code, "php", 5)
         self.assertGreater(len(issues), 0)
 
     # -------------------------------------------------------------------------
     # Problem 7: Python Nested Class Detection (5 tests)
     # -------------------------------------------------------------------------
+    # types_per_file counts top-level types only: a helper nested inside the type
+    # it serves is one unit of reading, not two.
     def test_problem7_1_python_nested_class_in_class(self):
         code = "class Outer:\n    class Inner:\n        pass"
         issues = linter_checker.check_types_per_file("test.py", code, "python", 1)
-        self.assertGreater(len(issues), 0)
+        self.assertEqual(len(issues), 0)
 
     def test_problem7_2_python_class_in_function(self):
         code = "def foo():\n    class Dynamic:\n        pass"
         issues = linter_checker.check_types_per_file("test.py", code, "python", 0)
-        self.assertGreater(len(issues), 0)
+        self.assertEqual(len(issues), 0)
 
     def test_problem7_3_python_class_in_if_block(self):
         code = "if True:\n    class Conditional:\n        pass"
         issues = linter_checker.check_types_per_file("test.py", code, "python", 0)
-        self.assertGreater(len(issues), 0)
+        self.assertEqual(len(issues), 0)
 
     def test_problem7_4_python_multiple_nested_classes_exceeds(self):
         code = "class A:\n    class B:\n        pass\nclass C:\n    pass"
-        issues = linter_checker.check_types_per_file("test.py", code, "python", 2)
-        self.assertGreater(len(issues), 0)
+        self.assertEqual(
+            len(linter_checker.check_types_per_file("test.py", code, "python", 2)), 0
+        )
+        issues = linter_checker.check_types_per_file("test.py", code, "python", 1)
+        self.assertEqual(len(issues), 1)
+        self.assertIn("A, C", issues[0].message)
+        self.assertNotIn("B", issues[0].message)
 
     def test_problem7_5_python_top_level_and_nested_classes(self):
         code = "class Base:\n    pass\nclass Derived(Base):\n    class Config:\n        pass"
-        issues = linter_checker.check_types_per_file("test.py", code, "python", 2)
-        self.assertGreater(len(issues), 0)
+        issues = linter_checker.check_types_per_file("test.py", code, "python", 1)
+        self.assertEqual(len(issues), 1)
+        self.assertIn("File defines 2 types (Base, Derived)", issues[0].message)
 
     # -------------------------------------------------------------------------
     # Problem 8: C#/Java Method Calls & Generic Constraints (5 tests)
