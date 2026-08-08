@@ -17,134 +17,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
 
 from _progress import progress
-
-CACHE_DIR = Path.home() / "Library/Caches/ci-gates"
-
-DEFAULT_CONFIG = {
-    "include_extensions": [
-        ".py",
-        ".swift",
-        ".ts",
-        ".tsx",
-        ".js",
-        ".jsx",
-        ".cs",
-        ".go",
-        ".rs",
-        ".rb",
-        ".java",
-        ".kt",
-    ],
-    "exclude_paths": [
-        "node_modules/",
-        "dist/",
-        "build/",
-        ".build/",
-        "vendor/",
-        "Pods/",
-        "Assets/Plugins/",
-        "Assets/Libs/",
-        "Assets/TextMesh Pro/",
-    ],
-    "categories": [
-        "swallowed-error",
-        "speculative-abstraction",
-        "misleading-name",
-        "noise-comment",
-        "fake-test",
-        "dead-end-code",
-        "insecure-pattern",
-    ],
-    "max_findings": 8,
-    "max_candidates": 15,
-    "max_file_diff_lines": 400,
-    "refute_votes": 3,
-}
-
-SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
-
-FIND_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "findings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "line": {"type": "integer"},
-                    "category": {"type": "string"},
-                    "severity": {"type": "string", "enum": ["low", "medium", "high"]},
-                    "problem": {"type": "string"},
-                },
-                "required": ["line", "category", "severity", "problem"],
-            },
-        }
-    },
-    "required": ["findings"],
-}
-
-REFUTE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "is_real": {"type": "boolean"},
-        "reason": {"type": "string"},
-    },
-    "required": ["is_real", "reason"],
-}
-
-FIND_PROMPT = """You are a strict senior reviewer looking ONLY for AI-generated "slop"
-in the added lines of this diff. Report at most {max} of the MOST serious issues.
-
-Flag only these categories: {categories}
-Definitions:
-- swallowed-error: an exception/error caught and ignored, logged-and-continued, or a
-  success value returned when the operation actually failed.
-- speculative-abstraction: an interface/factory/config/wrapper with a single use that
-  adds no behavior; indirection for its own sake (YAGNI).
-- misleading-name: a name that claims behavior the code does not perform.
-- noise-comment: a comment that only restates what the next line already says.
-- fake-test: a test that asserts a mock/constant, or exercises nothing real.
-- dead-end-code: unreachable branches, unused "just in case" parameters, no-op paths.
-- insecure-pattern: secret literals, or SQL/shell/HTML built by string concatenation.
-
-Rules:
-- Consider ONLY lines marked with '+'. Report the exact shown line number.
-- Do NOT report style, formatting, or anything a linter already catches.
-- If nothing qualifies, return an empty list. Be conservative; precision over recall.
-
-File: {path}
-```
-{diff}
-```"""
-
-REFUTE_PROMPT = """A first reviewer flagged the issue below. You are a second, skeptical
-reviewer. Decide whether it is a REAL problem worth showing the author.
-
-Set is_real=true if a competent engineer would agree the flagged code is a genuine
-instance of the category. Set is_real=false ONLY if the claim is factually wrong,
-purely stylistic/nitpicky, or a clear false positive.
-
-Judge the code exactly as shown. For security, assume external inputs may be untrusted
-(string-built SQL/shell IS injectable regardless of the caller). But REJECT findings that
-depend on hypothetical misuse not present in the diff ("if this were ever logged",
-"if called wrongly"), normal control flow described as a bug (an early-return guard is not
-a swallowed error), errors that are propagated via `throws`/`throw`/`return err`, and
-intentional defaults (`?? ""`) unless the masking is clearly harmful.
-
-Category: {category}
-Claim (line {line}): {problem}
-
-File: {path}
-```
-{diff}
-```"""
+from slop_review_output import git, report, write_journal
+from slop_review_policy import (
+    DEFAULT_CONFIG,
+    FIND_PROMPT,
+    FIND_SCHEMA,
+    REFUTE_PROMPT,
+    REFUTE_SCHEMA,
+    SEVERITY_RANK,
+)
 
 
 def main(argv: Sequence[str]) -> int:
@@ -296,7 +183,7 @@ def llm_json(args: argparse.Namespace, prompt: str, schema: dict, temperature: f
     return ollama_json(args, prompt, schema, temperature)
 
 
-def deepseek_json(args: argparse.Namespace, prompt: str, schema: dict, temperature: float = 0.1) -> dict:
+def deepseek_json(args: argparse.Namespace, prompt: str, _schema: dict, temperature: float = 0.1) -> dict:
     model = args.model if args.model and not args.model.startswith("qwen") else "deepseek-chat"
     payload = json.dumps(
         {
@@ -354,69 +241,6 @@ def dedupe(candidates: list[dict]) -> list[dict]:
             seen.add(key)
             unique.append(finding)
     return unique
-
-
-def report(findings: list[dict], file_count: int, candidate_count: int) -> None:
-    for finding in findings:
-        message = f"[{finding['category']}] {finding['problem']}"
-        print(f"::warning file={finding['path']},line={finding['line']},title=slop::{escape(message)}")
-
-    if not findings:
-        print(f"Slop review: no issues survived refutation across {file_count} file(s).")
-    else:
-        print(f"Slop review: {len(findings)} advisory finding(s) across {file_count} file(s).")
-    write_summary(findings, file_count, candidate_count)
-
-
-def write_summary(findings: list[dict], file_count: int, candidate_count: int) -> None:
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if not summary_path:
-        return
-    rows = [
-        "## Slop review (advisory)",
-        "",
-        f"{file_count} file(s) reviewed, {candidate_count} candidate(s), {len(findings)} after refutation.",
-        "",
-    ]
-    if findings:
-        rows += ["| Severity | File:line | Category | Problem |", "|---|---|---|---|"]
-        rows += [
-            f"| {f['severity']} | `{f['path']}:{f['line']}` | {f['category']} | {escape_cell(f['problem'])} |"
-            for f in findings
-        ]
-    else:
-        rows.append("No issues survived the adversarial pass.")
-    rows.append("\n_Advisory only — does not affect the merge decision._\n")
-    with open(summary_path, "a", encoding="utf-8") as handle:
-        handle.write("\n".join(rows) + "\n")
-
-
-def write_journal(args: argparse.Namespace, findings: list[dict]) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    record = {
-        "repo": os.environ.get("GITHUB_REPOSITORY", ""),
-        "pr": os.environ.get("GITHUB_REF_NAME", ""),
-        "sha": os.environ.get("GITHUB_SHA", ""),
-        "model": args.model,
-        "findings": [{k: f[k] for k in ("path", "line", "category", "severity", "problem")} for f in findings],
-    }
-    with open(CACHE_DIR / "slop-review-journal.jsonl", "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record) + "\n")
-
-
-def git(args: list[str]) -> str:
-    result = subprocess.run(["git", *args], text=True, capture_output=True, check=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
-    return result.stdout
-
-
-def escape(message: str) -> str:
-    return message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-
-
-def escape_cell(message: str) -> str:
-    return message.replace("|", "\\|").replace("\n", " ")
 
 
 if __name__ == "__main__":

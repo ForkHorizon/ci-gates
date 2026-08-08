@@ -56,17 +56,13 @@ class ProgressScriptTests(unittest.TestCase):
             root = Path(directory)
             (root / ".code-linter.json").write_text("{}\n", encoding="utf-8")
             for index in range(10):
-                (root / f"File{index}.swift").write_text(
-                    "func f() {}\n", encoding="utf-8"
-                )
+                (root / f"File{index}.swift").write_text("func f() {}\n", encoding="utf-8")
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             subprocess.run(["git", "add", "."], cwd=root, check=True)
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                self.assertEqual(
-                    code_linter.main(["--root", str(root), "--mode", "all"]), 0
-                )
+                self.assertEqual(code_linter.main(["--root", str(root), "--mode", "all"]), 0)
 
         markers = [
             json.loads(line.split(" ", maxsplit=1)[1])

@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+import json
+import sys
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+
+LANGUAGE_BY_EXTENSION = {
+    ".swift": "swift",
+    ".cs": "csharp",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".py": "python",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".go": "go",
+    ".rs": "rust",
+    ".php": "php",
+    ".rb": "ruby",
+}
+
+DEFAULT_IGNORE = [
+    ".ci-gates",
+    ".git",
+    ".svn",
+    ".hg",
+    ".build",
+    ".dart_tool",
+    ".gradle",
+    ".next",
+    ".nuxt",
+    ".pytest_cache",
+    ".tox",
+    ".venv",
+    "DerivedData",
+    "Pods",
+    "bin",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "obj",
+    "out",
+    "target",
+    "vendor",
+]
+
+LIMIT_DEFAULTS = {
+    "max_file_lines": 300,
+    "max_function_lines": 50,
+    "max_nesting_depth": 4,
+    "max_parameters": 5,
+    "max_comment_lines": 5,
+    "max_doc_comment_lines": 50,
+    "max_types_per_file": 2,
+}
+LIMIT_MAXIMUMS = {
+    "max_file_lines": 2_000,
+    "max_function_lines": 500,
+    "max_nesting_depth": 20,
+    "max_parameters": 50,
+    "max_comment_lines": 200,
+    "max_doc_comment_lines": 500,
+    "max_types_per_file": 50,
+}
+
+MAX_FILE_BYTES = 1_000_000
+
+DEFAULT_CONFIG = {
+    **LIMIT_DEFAULTS,
+    "include_extensions": sorted(LANGUAGE_BY_EXTENSION),
+    "ignore": DEFAULT_IGNORE,
+    "language_overrides": {},
+}
+
+
+def initial_config() -> dict:
+    config = dict(DEFAULT_CONFIG)
+    config["ignore"] = list(DEFAULT_IGNORE)
+    config["include_extensions"] = list(DEFAULT_CONFIG["include_extensions"])
+    config["language_overrides"] = {}
+    return config
+
+
+def read_config(path: Path) -> dict:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        config_error(path, f"Invalid JSON config: {exc}")
+    if not isinstance(loaded, dict):
+        config_error(path, "Code Linter config must be a JSON object")
+    unknown = sorted(set(loaded) - set(DEFAULT_CONFIG))
+    if unknown:
+        config_error(path, f"Unknown config key(s): {', '.join(unknown)}.")
+    return loaded
+
+
+def validate_extensions(config: dict, path: Path) -> list[str]:
+    extensions = [
+        (ext if ext.startswith(".") else f".{ext}").lower()
+        for ext in config_list(config, "include_extensions", LANGUAGE_BY_EXTENSION, path)
+    ]
+    unsupported = sorted(set(extensions) - set(LANGUAGE_BY_EXTENSION))
+    if unsupported:
+        config_error(path, f"Unsupported source extension(s): {', '.join(unsupported)}.")
+    if not extensions:
+        config_error(path, "'include_extensions' must not be empty.")
+    return extensions
+
+
+def validate_overrides(config: dict, path: Path) -> dict:
+    overrides = config.get("language_overrides", {})
+    if not isinstance(overrides, dict):
+        config_error(path, "'language_overrides' must be a JSON object.")
+    valid_languages = set(LANGUAGE_BY_EXTENSION.values())
+    validated_overrides = {}
+    for language, values in overrides.items():
+        if language not in valid_languages:
+            config_error(path, f"Unknown language override: {language!r}.")
+        if not isinstance(values, dict):
+            config_error(path, f"Override for {language!r} must be a JSON object.")
+        unknown = sorted(set(values) - set(LIMIT_DEFAULTS))
+        if unknown:
+            config_error(
+                path,
+                f"Unknown {language!r} override key(s): {', '.join(unknown)}.",
+            )
+        validated_overrides[language] = {key: config_int(values, key, LIMIT_DEFAULTS[key], path) for key in values}
+    return validated_overrides
+
+
+def load_config(path: Path) -> dict:
+    config = initial_config()
+    loaded = read_config(path) if path.exists() else {}
+    config.update(loaded)
+    if "ignore" in loaded:
+        config["ignore"] = merge_ignore(loaded["ignore"], path)
+        reject_blanket_ignores(config["ignore"], path)
+    for key, fallback in LIMIT_DEFAULTS.items():
+        config[key] = config_int(config, key, fallback, path)
+    config["include_extensions"] = validate_extensions(config, path)
+    config["language_overrides"] = validate_overrides(config, path)
+    return config
+
+
+def config_error(path: Path, message: str) -> None:
+    print(f"::error file={github_path(path)}::{message}", file=sys.stderr)
+    sys.exit(2)
+
+
+def merge_ignore(loaded_ignore: object, path: Path) -> list[str]:
+    if not isinstance(loaded_ignore, list) or not all(isinstance(item, str) for item in loaded_ignore):
+        config_error(path, "'ignore' must be a JSON array of strings.")
+    merged = list(DEFAULT_IGNORE)
+    for item in loaded_ignore:  # type: ignore[union-attr]
+        if item not in merged:
+            merged.append(item)
+    return merged
+
+
+def reject_blanket_ignores(patterns: Sequence[str], path: Path) -> None:
+    forbidden = {"*", "**", "**/*"}
+    for extension in LANGUAGE_BY_EXTENSION:
+        forbidden.update({f"*{extension}", f"**{extension}", f"**/*{extension}"})
+    invalid = []
+    for pattern in patterns:
+        normalized = pattern.strip().replace("\\", "/").removeprefix("./").removeprefix("/")
+        if normalized in forbidden:
+            invalid.append(pattern)
+    if invalid:
+        config_error(
+            path,
+            f"Blanket source ignore pattern(s) are not allowed: {', '.join(invalid)}.",
+        )
+
+
+def config_list(config: dict, key: str, fallback: Iterable[str], path: Path) -> list[str]:
+    value = config.get(key, fallback)
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        config_error(path, f"'{key}' must be a JSON array of strings.")
+    return list(value)  # type: ignore[arg-type]
+
+
+def config_int(config: dict, key: str, fallback: int, path: Path) -> int:
+    value = config.get(key, fallback)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        config_error(path, f"'{key}' must be a positive integer, got {value!r}.")
+    if value > LIMIT_MAXIMUMS[key]:
+        config_error(path, f"'{key}' must not exceed {LIMIT_MAXIMUMS[key]}, got {value}.")
+    return value
+
+
+def github_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()

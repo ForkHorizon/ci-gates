@@ -8,17 +8,23 @@ copied into Swift repositories without requiring package-manager setup.
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import re
-import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from re import Pattern
 from collections.abc import Sequence
 
-from _progress import progress
+from swift_compile_common import (
+    as_string_list,
+    emit_error,
+    emit_file_error,
+    github_path,
+    truncate,
+)
+from swift_compile_output import annotate_critical_warnings, run_and_collect
+from swift_compile_project import detect_project, xcodebuild_base_command
+from swift_compile_result import WarningPolicy
 
 
 DEFAULT_IGNORE = [
@@ -69,43 +75,6 @@ DEFAULT_CONFIG = {
     "critical_warning_patterns": DEFAULT_CRITICAL_WARNING_PATTERNS,
     "critical_warning_exclude_patterns": [],
 }
-
-
-@dataclass(frozen=True)
-class SwiftProject:
-    kind: str
-    project_path: str | None = None
-    scheme: str | None = None
-    destination: str = ""
-    configuration: str = "Debug"
-
-
-@dataclass(frozen=True)
-class WarningRecord:
-    raw_line: str
-    path: str | None
-    line: int | None
-    message: str
-
-    def summary(self) -> str:
-        if self.path and self.line:
-            return f"{self.path}:{self.line}: {self.message}"
-        if self.path:
-            return f"{self.path}: {self.message}"
-        return self.message or self.raw_line.strip()
-
-
-@dataclass(frozen=True)
-class WarningPolicy:
-    fail_on_any_warning: bool
-    include_patterns: list[Pattern[str]]
-    exclude_patterns: list[Pattern[str]]
-
-
-@dataclass(frozen=True)
-class BuildResult:
-    exit_code: int
-    critical_warnings: list[WarningRecord]
 
 
 def main(argv: Sequence[str]) -> int:
@@ -206,281 +175,6 @@ def build_command(root: Path, config: dict) -> list[str]:
     command.extend(config["xcodebuild_arguments"])
     command.append("build")
     return command
-
-
-def detect_project(root: Path, config: dict) -> SwiftProject:
-    configuration = str(config.get("xcode_configuration") or "Debug")
-    destination = str(config.get("xcode_destination") or "")
-    scheme = stripped(config.get("xcode_scheme"))
-    workspace = stripped(config.get("xcode_workspace"))
-    project = stripped(config.get("xcode_project"))
-
-    if workspace:
-        require_path(root / workspace, "xcode_workspace")
-        return SwiftProject(
-            "xcode-workspace",
-            workspace,
-            scheme or detect_scheme(root, "-workspace", workspace),
-            destination,
-            configuration,
-        )
-
-    if project:
-        require_path(root / project, "xcode_project")
-        return SwiftProject(
-            "xcode-project",
-            project,
-            scheme or detect_scheme(root, "-project", project),
-            destination,
-            configuration,
-        )
-
-    workspaces = sorted(path for path in root.glob("*.xcworkspace") if path.is_dir())
-    projects = sorted(path for path in root.glob("*.xcodeproj") if path.is_dir())
-
-    if len(workspaces) == 1:
-        relative = workspaces[0].relative_to(root).as_posix()
-        return SwiftProject(
-            "xcode-workspace",
-            relative,
-            scheme or detect_scheme(root, "-workspace", relative),
-            destination,
-            configuration,
-        )
-    if len(projects) == 1:
-        relative = projects[0].relative_to(root).as_posix()
-        return SwiftProject(
-            "xcode-project", relative, scheme or detect_scheme(root, "-project", relative), destination, configuration
-        )
-    if not workspaces and not projects and (root / "Package.swift").exists():
-        return SwiftProject("spm")
-
-    if len(workspaces) + len(projects) > 1:
-        fail(
-            "Multiple Xcode projects/workspaces found. Set xcode_workspace or xcode_project in .swift-compile-gate.json."
-        )
-    fail("No SwiftPM package or root Xcode project/workspace found.")
-
-
-def detect_scheme(root: Path, flag: str, project_path: str) -> str:
-    result = subprocess.run(
-        ["xcodebuild", "-list", "-json", flag, project_path],
-        cwd=root,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        fail(trimmed_error(result.stdout + result.stderr, f"Unable to inspect schemes for {project_path}."))
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        fail(f"Unable to parse xcodebuild scheme list for {project_path}.")
-
-    container_key = "workspace" if flag == "-workspace" else "project"
-    schemes = payload.get(container_key, {}).get("schemes", [])
-    if len(schemes) == 1:
-        return str(schemes[0])
-    if not schemes:
-        fail(f"No shared schemes found for {project_path}. Set xcode_scheme in .swift-compile-gate.json.")
-    fail(
-        f"Multiple schemes found for {project_path}: {', '.join(map(str, schemes))}. Set xcode_scheme in .swift-compile-gate.json."
-    )
-
-
-def xcodebuild_base_command(project: SwiftProject, config: dict) -> list[str]:
-    command = ["xcodebuild"]
-    if project.kind == "xcode-workspace":
-        command.extend(["-workspace", project.project_path or ""])
-    else:
-        command.extend(["-project", project.project_path or ""])
-    command.extend(["-scheme", project.scheme or ""])
-    if project.configuration:
-        command.extend(["-configuration", project.configuration])
-    if project.destination:
-        command.extend(["-destination", project.destination])
-    if not bool(config.get("xcode_code_signing_allowed", False)):
-        command.append("CODE_SIGNING_ALLOWED=NO")
-    return command
-
-
-def run_and_collect(command: Sequence[str], root: Path, config: dict, policy: WarningPolicy) -> BuildResult:
-    print("$ " + " ".join(shell_display(part) for part in command), flush=True)
-    try:
-        process = subprocess.Popen(
-            command,
-            cwd=root,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-        )
-    except FileNotFoundError as exc:
-        fail(f"Unable to run compile command: {exc}")
-
-    critical_warnings = []
-    assert process.stdout is not None
-    progress("compiling", detail="Starting build")
-    last_progress_detail = None
-    for line in process.stdout:
-        print(line, end="", flush=True)
-        detail = compiling_file(line)
-        if detail and detail != last_progress_detail:
-            progress("compiling", detail=detail)
-            last_progress_detail = detail
-        warning = parse_warning_line(line)
-        if warning and is_critical_warning(root, warning, config, policy):
-            critical_warnings.append(warning)
-
-    return BuildResult(process.wait(), critical_warnings)
-
-
-def compiling_file(line: str) -> str | None:
-    match = re.search(r"(?:CompileSwift|Compiling).*?([^\s,]+\.swift)\b", line)
-    if not match:
-        return None
-    return match.group(1)
-
-
-def parse_warning_line(line: str) -> WarningRecord | None:
-    text = line.strip()
-    if "warning:" not in text.lower():
-        return None
-
-    for pattern in (
-        r"^(?P<path>.*?):(?P<line>\d+):(?P<column>\d+):\s*warning:\s*(?P<message>.*)$",
-        r"^(?P<path>.*?):(?P<line>\d+):\s*warning:\s*(?P<message>.*)$",
-    ):
-        match = re.match(pattern, text, flags=re.IGNORECASE)
-        if match:
-            return WarningRecord(
-                raw_line=text,
-                path=match.group("path"),
-                line=int(match.group("line")),
-                message=match.group("message").strip(),
-            )
-
-    match = re.search(r"warning:\s*(?P<message>.*)$", text, flags=re.IGNORECASE)
-    if match:
-        return WarningRecord(raw_line=text, path=None, line=None, message=match.group("message").strip())
-    return None
-
-
-def is_critical_warning(root: Path, warning: WarningRecord, config: dict, policy: WarningPolicy) -> bool:
-    if warning.path and should_ignore(normalized_warning_path(root, warning.path), config["ignore"]):
-        return False
-
-    searchable = "\n".join(value for value in [warning.raw_line, warning.path or "", warning.message] if value)
-    if any(pattern.search(searchable) for pattern in policy.exclude_patterns):
-        return False
-    if policy.fail_on_any_warning:
-        return True
-    return any(pattern.search(searchable) for pattern in policy.include_patterns)
-
-
-def normalized_warning_path(root: Path, warning_path: str) -> str:
-    clean_path = warning_path.removeprefix("file://")
-    path = Path(clean_path)
-    if path.is_absolute():
-        try:
-            return path.resolve().relative_to(root).as_posix()
-        except ValueError:
-            return path.as_posix().lstrip("/")
-    return path.as_posix().lstrip("./")
-
-
-def should_ignore(relative_path: str, patterns: Sequence[str]) -> bool:
-    parts = relative_path.split("/")
-    basename = parts[-1]
-    for pattern in patterns:
-        normalized = str(pattern).strip().replace("\\", "/")
-        if not normalized:
-            continue
-        if "/" not in normalized:
-            if any(part == normalized for part in parts):
-                return True
-            if fnmatch.fnmatch(basename, normalized):
-                return True
-            continue
-        if fnmatch.fnmatch(relative_path, normalized):
-            return True
-        if fnmatch.fnmatch(relative_path, f"**/{normalized}"):
-            return True
-    return False
-
-
-def annotate_critical_warnings(root: Path, warnings: Sequence[WarningRecord]) -> None:
-    for warning in warnings[:10]:
-        message = escape_github_message(truncate(warning.message or warning.raw_line.strip(), 400))
-        if warning.path:
-            path = normalized_warning_path(root, warning.path)
-            line = f",line={warning.line}" if warning.line else ""
-            print(f"::error file={path}{line},title=critical_warning::{message}")
-        else:
-            print(f"::error title=critical_warning::{message}")
-    if len(warnings) > 10:
-        print(f"::notice::Swift Compile Gate suppressed {len(warnings) - 10} additional critical warning annotations.")
-
-
-def require_path(path: Path, key: str) -> None:
-    if not path.exists():
-        fail(f"{key} points to a missing path: {path}")
-
-
-def fail(message: str) -> None:
-    emit_error(message)
-    sys.exit(2)
-
-
-def emit_error(message: str) -> None:
-    print(f"::error::{escape_github_message(message)}", file=sys.stderr)
-
-
-def emit_file_error(path: str, line: int, title: str, message: str) -> None:
-    print(f"::error file={path},line={line},title={title}::{escape_github_message(message)}", file=sys.stderr)
-
-
-def as_string_list(value: object) -> list[str]:
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    if value is None:
-        return []
-    return [str(value)]
-
-
-def stripped(value: object) -> str:
-    return str(value or "").strip()
-
-
-def trimmed_error(message: str, fallback: str) -> str:
-    text = message.strip()
-    return text if text else fallback
-
-
-def shell_display(value: str) -> str:
-    if re.fullmatch(r"[A-Za-z0-9_@%+=:,./-]+", value):
-        return value
-    return "'" + value.replace("'", "'\\''") + "'"
-
-
-def escape_github_message(message: str) -> str:
-    return message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-
-
-def truncate(value: str, limit: int) -> str:
-    text = value.strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "..."
-
-
-def github_path(path: Path) -> str:
-    try:
-        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
 
 
 if __name__ == "__main__":
