@@ -2,13 +2,13 @@ import sys
 import unittest
 from pathlib import Path
 
-# Add scripts directory to path to import linter.py
+# Add scripts directory to path to import code-linter.py
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import importlib.util
 
-spec = importlib.util.spec_from_file_location("linter_checker", SCRIPTS_DIR / "linter.py")
+spec = importlib.util.spec_from_file_location("linter_checker", SCRIPTS_DIR / "code-linter.py")
 linter_checker = importlib.util.module_from_spec(spec)
 sys.modules["linter_checker"] = linter_checker
 spec.loader.exec_module(linter_checker)
