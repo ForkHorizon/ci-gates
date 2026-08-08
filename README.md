@@ -8,7 +8,7 @@ pushing to `main` in this repo updates every project instantly.
 
 | Workflow | What it checks |
 |---|---|
-| `readability.yml` | Code structure (12+ languages): file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, comment block ≤ 5 lines, top-level types per file ≤ 2. |
+| `code-linter.yml` | Code structure (12+ languages): file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, comment block ≤ 5 lines, top-level types per file ≤ 2. |
 | `swift-compile.yml` | Project compiles; fails on critical warnings (Swift 6 concurrency, Sendable, data races). |
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
@@ -37,8 +37,8 @@ permissions:
   contents: read
 
 jobs:
-  readability:
-    uses: ForkHorizon/ci-gates/.github/workflows/readability.yml@main
+  code-linter:
+    uses: ForkHorizon/ci-gates/.github/workflows/code-linter.yml@main
 
   swift-compile:
     uses: ForkHorizon/ci-gates/.github/workflows/swift-compile.yml@main
@@ -58,7 +58,7 @@ Per-repo tuning stays in the project via config files:
 
 Common to all workflows:
 
-- `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope` for readability, `ci-scope-broker` for Swift gates).
+- `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope` for the Code Linter, `ci-scope-broker` for Swift gates).
 - `config` — path to the gate's JSON config in the calling repo.
 - `gates-ref` — which ref of this repo to fetch scripts from (default `main`).
 
@@ -69,7 +69,7 @@ summary to the local Ollama on the runner and writes a "Why this failed"
 analysis to the job summary. Advisory only — it never changes the gate
 verdict, and it silently skips if Ollama is unreachable.
 
-`readability.yml` and `swift-quality.yml` also take `mode`
+`code-linter.yml` and `swift-quality.yml` also take `mode`
 (`auto`/`all`/`changed`; `auto` scans changed files on `pull_request` and
 `merge_group`, everything otherwise). `swift-quality.yml` takes `run-build`
 to skip its build stage when the compile gate already builds the project.

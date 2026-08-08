@@ -1,4 +1,8 @@
-name: Readability Gate
+# DEPRECATED — renamed to code-linter.yml. Kept as a forwarder so callers that
+# still point at readability.yml keep working while they migrate; the defaults
+# below must stay identical to code-linter.yml's. Delete once no repo in the
+# org references this file.
+name: Code Linter (deprecated alias)
 
 on:
   workflow_call:
@@ -12,10 +16,7 @@ on:
         type: string
         default: auto
       config:
-        description: >-
-          Path to the readability config in the calling repo. Pass this
-          explicitly; the default is the pre-2026-08 filename, kept so callers
-          that predate the "Code Structure Linter" rename keep their limits.
+        description: Path to the Code Linter config in the calling repo.
         type: string
         default: .linter-checker-300-lines.json
       gates-ref:
@@ -28,81 +29,11 @@ on:
         default: qwen3-coder:30b-a3b-q4_K_M
 
 jobs:
-  readability:
-    name: Readability Gate
-    runs-on: ${{ fromJSON(inputs['runs-on']) }}
-
-    steps:
-      - name: Checkout project
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Checkout ci-gates
-        uses: actions/checkout@v6
-        with:
-          repository: ForkHorizon/ci-gates
-          ref: ${{ inputs.gates-ref }}
-          path: .ci-gates
-
-      - name: Select scan mode
-        id: scan
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mode="${{ inputs.mode }}"
-          base="origin/${{ github.event.repository.default_branch }}"
-          head="HEAD"
-
-          if [ "$mode" = "auto" ] || [ -z "$mode" ]; then
-            case "${{ github.event_name }}" in
-              pull_request) mode=changed ;;
-              merge_group)  mode=changed ;;
-              *)            mode=all ;;
-            esac
-          fi
-
-          case "${{ github.event_name }}" in
-            pull_request)
-              base="${{ github.event.pull_request.base.sha }}"
-              head="${{ github.sha }}"
-              ;;
-            merge_group)
-              base="${{ github.event.merge_group.base_sha }}"
-              head="${{ github.sha }}"
-              ;;
-          esac
-
-          {
-            echo "mode=$mode"
-            echo "base=$base"
-            echo "head=$head"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Run readability gate
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ "${{ steps.scan.outputs.mode }}" = "changed" ]; then
-            python3 .ci-gates/scripts/linter.py \
-              --config "${{ inputs.config }}" \
-              --mode changed \
-              --base "${{ steps.scan.outputs.base }}" \
-              --head "${{ steps.scan.outputs.head }}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
-          else
-            python3 .ci-gates/scripts/linter.py \
-              --config "${{ inputs.config }}" \
-              --mode all 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
-          fi
-
-      - name: Explain failure
-        if: ${{ failure() && inputs.explain-model != '' }}
-        shell: bash
-        run: |
-          python3 .ci-gates/scripts/explain-failure.py \
-            --log "$RUNNER_TEMP/ci-gate.log" \
-            --gate "Readability Gate" \
-            --model "${{ inputs.explain-model }}" \
-            --base "${{ steps.scan.outputs.base }}"
+  code-linter:
+    uses: ForkHorizon/ci-gates/.github/workflows/code-linter.yml@main
+    with:
+      runs-on: ${{ inputs['runs-on'] }}
+      mode: ${{ inputs.mode }}
+      config: ${{ inputs.config }}
+      gates-ref: ${{ inputs['gates-ref'] }}
+      explain-model: ${{ inputs['explain-model'] }}

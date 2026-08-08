@@ -1,0 +1,108 @@
+name: Code Linter
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: JSON array of runner labels to target.
+        type: string
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+      mode:
+        description: "Files to scan: auto (derive from event), all, or changed."
+        type: string
+        default: auto
+      config:
+        description: >-
+          Path to the Code Linter config in the calling repo. Pass this
+          explicitly; the default is the pre-2026-08 filename, kept so callers
+          that predate the Code Linter rename keep their limits.
+        type: string
+        default: .linter-checker-300-lines.json
+      gates-ref:
+        description: ci-gates ref to fetch scripts from.
+        type: string
+        default: main
+      explain-model:
+        description: Ollama model that explains failures; empty string disables.
+        type: string
+        default: qwen3-coder:30b-a3b-q4_K_M
+
+jobs:
+  code-linter:
+    name: Code Linter
+    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Checkout ci-gates
+        uses: actions/checkout@v6
+        with:
+          repository: ForkHorizon/ci-gates
+          ref: ${{ inputs.gates-ref }}
+          path: .ci-gates
+
+      - name: Select scan mode
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mode="${{ inputs.mode }}"
+          base="origin/${{ github.event.repository.default_branch }}"
+          head="HEAD"
+
+          if [ "$mode" = "auto" ] || [ -z "$mode" ]; then
+            case "${{ github.event_name }}" in
+              pull_request) mode=changed ;;
+              merge_group)  mode=changed ;;
+              *)            mode=all ;;
+            esac
+          fi
+
+          case "${{ github.event_name }}" in
+            pull_request)
+              base="${{ github.event.pull_request.base.sha }}"
+              head="${{ github.sha }}"
+              ;;
+            merge_group)
+              base="${{ github.event.merge_group.base_sha }}"
+              head="${{ github.sha }}"
+              ;;
+          esac
+
+          {
+            echo "mode=$mode"
+            echo "base=$base"
+            echo "head=$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Code Linter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ steps.scan.outputs.mode }}" = "changed" ]; then
+            python3 .ci-gates/scripts/linter.py \
+              --config "${{ inputs.config }}" \
+              --mode changed \
+              --base "${{ steps.scan.outputs.base }}" \
+              --head "${{ steps.scan.outputs.head }}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
+          else
+            python3 .ci-gates/scripts/linter.py \
+              --config "${{ inputs.config }}" \
+              --mode all 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
+          fi
+
+      - name: Explain failure
+        if: ${{ failure() && inputs.explain-model != '' }}
+        shell: bash
+        run: |
+          python3 .ci-gates/scripts/explain-failure.py \
+            --log "$RUNNER_TEMP/ci-gate.log" \
+            --gate "Code Linter" \
+            --model "${{ inputs.explain-model }}" \
+            --base "${{ steps.scan.outputs.base }}"
