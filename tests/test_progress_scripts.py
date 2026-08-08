@@ -36,8 +36,8 @@ class ProgressScriptTests(unittest.TestCase):
         self.assertEqual(prefix, "::ci-scope-progress::")
         self.assertEqual(json.loads(payload), {"step": "lint", "current": 3, "total": 10, "detail": "Sources/Foo.swift"})
 
-    def test_readability_reports_each_of_ten_files(self):
-        readability = load_script("linter.py")
+    def test_code_linter_reports_each_of_ten_files(self):
+        code_linter = load_script("linter.py")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for index in range(10):
@@ -47,7 +47,7 @@ class ProgressScriptTests(unittest.TestCase):
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                self.assertEqual(readability.main(["--root", str(root), "--mode", "all"]), 0)
+                self.assertEqual(code_linter.main(["--root", str(root), "--mode", "all"]), 0)
 
         markers = [
             json.loads(line.split(" ", maxsplit=1)[1])

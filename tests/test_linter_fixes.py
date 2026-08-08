@@ -94,7 +94,7 @@ class PathTests(unittest.TestCase):
 class ConfigTests(unittest.TestCase):
     def write_config(self, body):
         root = Path(tempfile.mkdtemp()).resolve()
-        path = root / ".ai-readability.json"
+        path = root / ".code-linter.json"
         path.write_text(body)
         return path
 
@@ -124,13 +124,13 @@ class ConfigTests(unittest.TestCase):
 class UnsupportedExtensionTests(unittest.TestCase):
     def test_opted_in_extension_still_gets_the_file_length_check(self):
         root = Path(tempfile.mkdtemp()).resolve()
-        (root / ".ai-readability.json").write_text(
+        (root / ".code-linter.json").write_text(
             '{"include_extensions": [".cpp"], "max_file_lines": 10}'
         )
         (root / "big.cpp").write_text("\n".join(f"int x{i};" for i in range(50)))
-        config = linter.load_config(root / ".ai-readability.json")
+        config = linter.load_config(root / ".code-linter.json")
         args = argparse.Namespace(
-            mode="all", base="", head="", config=".ai-readability.json", root=str(root)
+            mode="all", base="", head="", config=".code-linter.json", root=str(root)
         )
         paths = linter.collect_paths(root, config, args)
         issues = linter.check_paths(root, paths, config)
