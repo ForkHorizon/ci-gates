@@ -65,6 +65,7 @@ def track_signature(state: FunctionScanState, clean: str, line_number: int, lang
             language in {"javascript", "typescript"}
             and "=>" not in clean
             and re.search(r"\b(?:const|let|var)\s+\w+\s*=", clean)
+            and not re.search(r"=\s*\{", clean)
         )
         state.pending_signature = [clean]
         params = count_params_in_signature(clean, detected, language)

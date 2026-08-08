@@ -77,11 +77,30 @@ class SyntaxAndParserTests(unittest.TestCase):
             ("subscript(a: Int, b: Int) -> Int { a }", "swift", "subscript", 2),
             ("fun `when`(a: Int, b: Int) { }", "kotlin", "when", 2),
             ("def [](a, b)\n nil\nend\n", "ruby", "[]", 2),
+            ("function* run(a, b, c, d, e, f) { return a; }", "javascript", "run", 6),
+            (
+                "const object = { run(a, b, c, d, e, f) {\n  return a;\n} };",
+                "javascript",
+                "run",
+                6,
+            ),
         ]
         for source, language, name, parameters in cases:
             with self.subTest(language=language, name=name):
                 functions = linter.function_lengths(source, language)
                 self.assertEqual((functions[0][0], functions[0][3]), (name, parameters))
+
+    def test_javascript_generator_and_object_methods_enforce_limits(self):
+        sources = [
+            "function* run(a, b, c, d, e, f) {\n" + "  work();\n" * 51 + "}\n",
+            "const object = { run(a, b, c, d, e, f) {\n" + "  work();\n" * 51 + "} };\n",
+        ]
+        for source in sources:
+            with self.subTest(source=source[:20]):
+                self.assertEqual(
+                    linter.brace_function_lengths(source, "javascript")[0][2:],
+                    (53, 6),
+                )
 
     def test_bodyless_declaration_parameters_are_measured(self):
         source = "public abstract void Run(int a, int b, int c, int d, int e, int f);"
