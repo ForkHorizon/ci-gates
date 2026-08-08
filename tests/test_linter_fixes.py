@@ -4,7 +4,6 @@ Each test names the behaviour that was wrong before, so a future rewrite that
 reintroduces it fails here instead of in someone's pull request.
 """
 
-import argparse
 import importlib.util
 import os
 import sys
@@ -15,7 +14,9 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-spec = importlib.util.spec_from_file_location("linter_fixes", SCRIPTS_DIR / "code-linter.py")
+spec = importlib.util.spec_from_file_location(
+    "linter_fixes", SCRIPTS_DIR / "code-linter.py"
+)
 linter = importlib.util.module_from_spec(spec)
 sys.modules["linter_fixes"] = linter
 spec.loader.exec_module(linter)
@@ -71,11 +72,15 @@ class RubyTests(unittest.TestCase):
 
 class IgnoreTests(unittest.TestCase):
     def test_a_project_file_called_code_linter_py_is_not_skipped(self):
-        self.assertFalse(linter.should_ignore("src/code-linter.py", linter.DEFAULT_IGNORE))
+        self.assertFalse(
+            linter.should_ignore("src/code-linter.py", linter.DEFAULT_IGNORE)
+        )
 
     def test_checked_out_gates_copy_is_skipped(self):
         self.assertTrue(
-            linter.should_ignore(".ci-gates/scripts/code-linter.py", linter.DEFAULT_IGNORE)
+            linter.should_ignore(
+                ".ci-gates/scripts/code-linter.py", linter.DEFAULT_IGNORE
+            )
         )
 
 
@@ -122,19 +127,14 @@ class ConfigTests(unittest.TestCase):
 
 
 class UnsupportedExtensionTests(unittest.TestCase):
-    def test_opted_in_extension_still_gets_the_file_length_check(self):
+    def test_unsupported_extension_is_rejected(self):
         root = Path(tempfile.mkdtemp()).resolve()
         (root / ".code-linter.json").write_text(
             '{"include_extensions": [".cpp"], "max_file_lines": 10}'
         )
-        (root / "big.cpp").write_text("\n".join(f"int x{i};" for i in range(50)))
-        config = linter.load_config(root / ".code-linter.json")
-        args = argparse.Namespace(
-            mode="all", base="", head="", config=".code-linter.json", root=str(root)
-        )
-        paths = linter.collect_paths(root, config, args)
-        issues = linter.check_paths(root, paths, config)
-        self.assertEqual([issue.kind for issue in issues], ["file_length"])
+        with self.assertRaises(SystemExit) as raised:
+            linter.load_config(root / ".code-linter.json")
+        self.assertEqual(raised.exception.code, 2)
 
 
 class NestingDepthTests(unittest.TestCase):
@@ -226,7 +226,9 @@ class TypesPerFileTests(unittest.TestCase):
         self.assertEqual(self.types(source, "csharp"), ["Outer"])
 
     def test_go_alias_does_not_swallow_the_next_declaration(self):
-        source = "type UserID = string\n\nfunc Handle() {\n}\n\ntype Store struct {\n}\n"
+        source = (
+            "type UserID = string\n\nfunc Handle() {\n}\n\ntype Store struct {\n}\n"
+        )
         self.assertEqual(self.types(source, "go"), ["UserID", "Store"])
 
 
@@ -256,8 +258,14 @@ class CommentBlockTests(unittest.TestCase):
         source += "func run() {}\n"
         self.assertEqual(len(self.blocks(source, "swift")), 1)
 
-    def test_file_header_banner_is_exempt(self):
+    def test_generic_file_header_is_not_exempt(self):
         source = "".join(f"//  line {i}\n" for i in range(10)) + "\nfunc run() {}\n"
+        self.assertEqual(len(self.blocks(source, "swift")), 1)
+
+    def test_license_file_header_is_exempt(self):
+        source = "// Copyright 2026\n" + "".join(
+            f"// license line {i}\n" for i in range(10)
+        )
         self.assertEqual(self.blocks(source, "swift"), [])
 
     def test_shebang_only_exempt_on_the_first_line(self):

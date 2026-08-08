@@ -1,3 +1,4 @@
+import importlib.util
 import sys
 import unittest
 from pathlib import Path
@@ -6,9 +7,9 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-import importlib.util
-
-spec = importlib.util.spec_from_file_location("linter_checker", SCRIPTS_DIR / "code-linter.py")
+spec = importlib.util.spec_from_file_location(
+    "linter_checker", SCRIPTS_DIR / "code-linter.py"
+)
 linter_checker = importlib.util.module_from_spec(spec)
 sys.modules["linter_checker"] = linter_checker
 spec.loader.exec_module(linter_checker)
@@ -153,7 +154,11 @@ func process<T: Equatable, U: Collection>(
         lengths = linter_checker.brace_function_lengths(swift_code, "swift")
         self.assertEqual(len(lengths), 1)
         name, start, length, pcount = lengths[0]
-        self.assertEqual(pcount, 6, "Should accurately count 6 parameters across multi-line signature")
+        self.assertEqual(
+            pcount,
+            6,
+            "Should accurately count 6 parameters across multi-line signature",
+        )
 
     # 2. Escaped quotes and braces inside string literals
     def test_escaped_quotes_and_braces_in_strings(self):
@@ -165,7 +170,11 @@ func realFunc() {
 """
         lengths = linter_checker.brace_function_lengths(swift_code, "swift")
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][0], "realFunc", "Should ignore fake functions and braces inside strings")
+        self.assertEqual(
+            lengths[0][0],
+            "realFunc",
+            "Should ignore fake functions and braces inside strings",
+        )
 
     # 3. Python async decorators, varargs, and kwargs
     def test_python_async_decorators_varargs_kwargs(self):
@@ -176,7 +185,11 @@ async def complex_fn(a, b, *args, c=1, d=2, **kwargs):
 """
         lengths = linter_checker.python_function_lengths(code)
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][3], 6, "Should count positional, kwonly, varargs and kwargs (total 6)")
+        self.assertEqual(
+            lengths[0][3],
+            6,
+            "Should count positional, kwonly, varargs and kwargs (total 6)",
+        )
 
     # 4. Shebangs, docstrings, and C-style block comments vs single line comments
     def test_comments_with_shebang_and_docstrings(self):
@@ -195,7 +208,11 @@ def foo():
     pass
 """
         issues = linter_checker.check_comment_blocks("test.py", code, "python", 5)
-        self.assertEqual(len(issues), 0, "Docstrings and shebangs should not count as consecutive # comment blocks")
+        self.assertEqual(
+            len(issues),
+            0,
+            "Docstrings and shebangs should not count as consecutive # comment blocks",
+        )
 
     # 5. Deeply nested control flow with ternaries
     def test_deep_nested_control_flow_with_ternaries(self):
@@ -226,8 +243,14 @@ class Outer {
     enum Inner3 {}
 }
 """
-        issues = linter_checker.check_types_per_file("Types.swift", swift_code, "swift", 1)
-        self.assertEqual(len(issues), 0, "Types nested inside Outer are one unit of reading, not four")
+        issues = linter_checker.check_types_per_file(
+            "Types.swift", swift_code, "swift", 1
+        )
+        self.assertEqual(
+            len(issues),
+            0,
+            "Types nested inside Outer are one unit of reading, not four",
+        )
 
     # 7. Swift backticked identifiers and initializers
     def test_swift_backticked_identifiers_and_initializers(self):
@@ -250,7 +273,11 @@ def handler(cb: Callable[[int, str, Dict[str, Any]], bool], data: dict):
 """
         lengths = linter_checker.python_function_lengths(code)
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][3], 2, "Should count 2 params despite commas in Callable[[...]] type hint")
+        self.assertEqual(
+            lengths[0][3],
+            2,
+            "Should count 2 params despite commas in Callable[[...]] type hint",
+        )
 
     # 9. Go function signature with multiple return values
     def test_go_function_signature_with_multiple_return_values(self):
@@ -261,7 +288,11 @@ func Compute(a, b, c int, d string, e float64, f bool) (res1 int, res2 string, e
 """
         lengths = linter_checker.brace_function_lengths(go_code, "go")
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][3], 6, "Should count 6 input parameters and ignore return parameter list")
+        self.assertEqual(
+            lengths[0][3],
+            6,
+            "Should count 6 input parameters and ignore return parameter list",
+        )
 
     # 10. Comments interspersed with blank lines
     def test_comments_interspersed_with_blank_lines(self):
@@ -275,7 +306,11 @@ func Compute(a, b, c int, d string, e float64, f bool) (res1 int, res2 string, e
 # Line 6
 """
         issues = linter_checker.check_comment_blocks("test.py", code, "python", 5)
-        self.assertEqual(len(issues), 0, "Blank line should reset consecutive comment line count")
+        self.assertEqual(
+            len(issues),
+            1,
+            "Blank lines must not let adjacent comment blocks evade the limit",
+        )
 
     # 11. Switch case sibling nesting depth
     def test_switch_case_sibling_nesting_depth(self):
@@ -291,8 +326,12 @@ func check(val: Int) {
     }
 }
 """
-        issues = linter_checker.check_nesting_depth("check.swift", swift_code, "swift", 4)
-        self.assertEqual(len(issues), 0, "Sibling cases should not accumulate nesting depth")
+        issues = linter_checker.check_nesting_depth(
+            "check.swift", swift_code, "swift", 4
+        )
+        self.assertEqual(
+            len(issues), 0, "Sibling cases should not accumulate nesting depth"
+        )
 
     # 12. Rust impl blocks and trait definitions
     def test_rust_impl_blocks_and_trait_definitions(self):
@@ -302,7 +341,11 @@ trait MyTrait {}
 impl MyTrait for MyStruct {}
 """
         issues = linter_checker.check_types_per_file("lib.rs", rust_code, "rust", 2)
-        self.assertEqual(len(issues), 0, "Should count struct and trait (2) and not count impl as type definition")
+        self.assertEqual(
+            len(issues),
+            0,
+            "Should count struct and trait (2) and not count impl as type definition",
+        )
 
     # 13. C# attributes and generic return types
     def test_csharp_attributes_and_generic_return_types(self):
@@ -315,14 +358,20 @@ public async Task<List<Item>> GetItems(int a, int b, int c, int d, int e, int f)
 """
         lengths = linter_checker.brace_function_lengths(cs_code, "csharp")
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][3], 6, "Attributes and generic return types should not disrupt parameter counting")
+        self.assertEqual(
+            lengths[0][3],
+            6,
+            "Attributes and generic return types should not disrupt parameter counting",
+        )
 
     # 14. Single line expression functions
     def test_single_line_expression_functions(self):
         kt_code = """fun add(a: Int, b: Int) = a + b"""
         lengths = linter_checker.brace_function_lengths(kt_code, "kotlin")
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][2], 1, "Single line function should be reported as length 1")
+        self.assertEqual(
+            lengths[0][2], 1, "Single line function should be reported as length 1"
+        )
 
     # 15. Closures and lambdas inside functions
     def test_closures_and_lambdas_inside_functions(self):
@@ -350,7 +399,9 @@ def parse(data):
                             print(x)
 """
         issues = linter_checker.check_nesting_depth("parse.py", code, "python", 4)
-        self.assertGreater(len(issues), 0, "Python match/case blocks should count toward nesting depth")
+        self.assertGreater(
+            len(issues), 0, "Python match/case blocks should count toward nesting depth"
+        )
 
     # 17. Multi-line raw string literals
     def test_multiline_raw_string_literals(self):
@@ -369,16 +420,18 @@ def test_fn():
     \"\"\"
 """
         issues = linter_checker.check_types_per_file("test.py", code, "python", 2)
-        self.assertEqual(len(issues), 0, "Class inside string literal should not be counted as top-level type")
+        self.assertEqual(
+            len(issues),
+            0,
+            "Class inside string literal should not be counted as top-level type",
+        )
 
     # 18. Language overrides config
     def test_language_overrides_config(self):
         config = {
             "max_file_lines": 300,
             "max_function_lines": 50,
-            "language_overrides": {
-                "swift": {"max_function_lines": 10}
-            }
+            "language_overrides": {"swift": {"max_function_lines": 10}},
         }
         swift_limits = linter_checker.limits_for_language(config, "swift")
         py_limits = linter_checker.limits_for_language(config, "python")
@@ -388,9 +441,17 @@ def test_fn():
     # 19. Glob pattern ignore matcher
     def test_glob_pattern_ignore_matcher(self):
         ignore_patterns = ["DerivedData", "*.gen.swift", "**/vendor/*"]
-        self.assertTrue(linter_checker.should_ignore("App/DerivedData/Build/Cache.swift", ignore_patterns))
-        self.assertTrue(linter_checker.should_ignore("App/Sources/Model.gen.swift", ignore_patterns))
-        self.assertFalse(linter_checker.should_ignore("App/Sources/Model.swift", ignore_patterns))
+        self.assertTrue(
+            linter_checker.should_ignore(
+                "App/DerivedData/Build/Cache.swift", ignore_patterns
+            )
+        )
+        self.assertTrue(
+            linter_checker.should_ignore("App/Sources/Model.gen.swift", ignore_patterns)
+        )
+        self.assertFalse(
+            linter_checker.should_ignore("App/Sources/Model.swift", ignore_patterns)
+        )
 
     # 20. Comprehensive full-file stress test with all six rules combined
     def test_full_file_all_six_rules_stress_test(self):
@@ -428,6 +489,7 @@ class Type3:
         }
         # Mock Path and check_paths
         from unittest.mock import MagicMock
+
         mock_path = MagicMock()
         mock_path.suffix = ".py"
         mock_path.read_text.return_value = python_code
@@ -450,7 +512,11 @@ class SeniorDevEdgeCaseTests(unittest.TestCase):
     def test_url_in_string_literal_not_truncated_by_comment_stripper(self):
         code = 'let url = "https://example.com/api"; let x = 1;'
         line = scanned_line(code, "swift")
-        self.assertIn("x", line, "URL slashes '//' inside string literal must not truncate the line")
+        self.assertIn(
+            "x",
+            line,
+            "URL slashes '//' inside string literal must not truncate the line",
+        )
 
     # 22. Python flat elif chain false positive in nesting depth
     def test_python_elif_chain_not_flagged_as_deep_nesting(self):
@@ -468,7 +534,11 @@ def check_val(x):
         pass
 """
         issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
-        self.assertEqual(len(issues), 0, "Flat if/elif/elif/elif/elif chain should NOT be flagged as deep nesting")
+        self.assertEqual(
+            len(issues),
+            0,
+            "Flat if/elif/elif/elif/elif chain should NOT be flagged as deep nesting",
+        )
 
     # 23. Multi-line signature with default parameter '=' cleared prematurely
     def test_multiline_signature_with_default_equals_value(self):
@@ -483,7 +553,11 @@ func createView(
         lengths = linter_checker.brace_function_lengths(swift_code, "swift")
         self.assertEqual(len(lengths), 1)
         self.assertEqual(lengths[0][0], "createView")
-        self.assertEqual(lengths[0][2], 6, "Multi-line signature with '=' must not treat function as a 1-line expression")
+        self.assertEqual(
+            lengths[0][2],
+            6,
+            "Multi-line signature with '=' must not treat function as a 1-line expression",
+        )
 
     # 24. Closure parameter with tuple in signature
     def test_closure_or_tuple_first_parameter_in_swift(self):
@@ -495,7 +569,11 @@ func execute(action: (Int, String) -> Void, count: Int) {
         lengths = linter_checker.brace_function_lengths(swift_code, "swift")
         self.assertEqual(len(lengths), 1)
         self.assertEqual(lengths[0][0], "execute")
-        self.assertEqual(lengths[0][3], 2, "Should count 2 parameters for execute, not parse closure tuple")
+        self.assertEqual(
+            lengths[0][3],
+            2,
+            "Should count 2 parameters for execute, not parse closure tuple",
+        )
 
     # 25. Default array parameter with internal commas
     def test_default_array_parameter_comma_counting(self):
@@ -505,7 +583,11 @@ def process(items=[1, 2, 3, 4, 5, 6], factor=2):
 """
         lengths = linter_checker.python_function_lengths(code)
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][3], 2, "Default list [1,2,3,4,5,6] commas must not be counted as function parameters")
+        self.assertEqual(
+            lengths[0][3],
+            2,
+            "Default list [1,2,3,4,5,6] commas must not be counted as function parameters",
+        )
 
     # 26. Default string parameter containing commas
     def test_default_string_parameter_with_commas(self):
@@ -515,7 +597,11 @@ def format_text(template="hello, beautiful, world", flag=True):
 """
         lengths = linter_checker.python_function_lengths(code)
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][3], 2, "Commas inside string default arguments must not increase parameter count")
+        self.assertEqual(
+            lengths[0][3],
+            2,
+            "Commas inside string default arguments must not increase parameter count",
+        )
 
     # 27. Multi-line string literals (JS template literal / Python docstring)
     def test_multiline_string_literals_in_js_template_strings(self):
@@ -566,12 +652,18 @@ void Main() {
 """
         lengths = linter_checker.brace_function_lengths(cs_code, "csharp")
         names = [item[0] for item in lengths]
-        self.assertNotIn("CalculateTotal", names, "Method invocation at line start must not be detected as function")
+        self.assertNotIn(
+            "CalculateTotal",
+            names,
+            "Method invocation at line start must not be detected as function",
+        )
 
     # 31. Ignore pattern with leading dot-slash
     def test_ignore_pattern_with_leading_dot_slash(self):
         patterns = ["./DerivedData", "./build"]
-        self.assertTrue(linter_checker.should_ignore("DerivedData/Build/Cache.swift", patterns))
+        self.assertTrue(
+            linter_checker.should_ignore("DerivedData/Build/Cache.swift", patterns)
+        )
 
     # 32. Multi-line block comments count towards comment limit
     def test_block_comments_in_c_style_languages_count_towards_comment_limit(self):
@@ -588,7 +680,11 @@ def foo():
     pass
 """
         issues = linter_checker.check_comment_blocks("test.cs", code, "csharp", 5)
-        self.assertGreater(len(issues), 0, "Multi-line block comment exceeding line limit must produce issue")
+        self.assertGreater(
+            len(issues),
+            0,
+            "Multi-line block comment exceeding line limit must produce issue",
+        )
 
     # 33. Swift string interpolation containing braces
     def test_swift_string_interpolation_with_braces(self):
@@ -611,7 +707,9 @@ class Third:
     pass
 """
         issues = linter_checker.check_types_per_file("test.py", code, "python", 2)
-        self.assertEqual(len(issues), 0, "Nested Python classes do not count towards types_per_file")
+        self.assertEqual(
+            len(issues), 0, "Nested Python classes do not count towards types_per_file"
+        )
 
     # 35. C# generic constraint 'where T : class' false positive
     def test_csharp_where_generic_constraint_class_not_type_definition(self):
@@ -622,7 +720,11 @@ public class Service {
 }
 """
         issues = linter_checker.check_types_per_file("Service.cs", cs_code, "csharp", 2)
-        self.assertEqual(len(issues), 0, "C# 'where T : class' constraint must not be counted as type definition")
+        self.assertEqual(
+            len(issues),
+            0,
+            "C# 'where T : class' constraint must not be counted as type definition",
+        )
 
     # 36. Allman style vs K&R style brace nesting consistency
     def test_allman_style_braces_nesting_depth_consistency(self):
@@ -648,7 +750,9 @@ void Foo()
 }
 """
         issues = linter_checker.check_nesting_depth("Foo.cs", allman, "csharp", 4)
-        self.assertGreater(len(issues), 0, "Allman style braces exceeding depth limit must be flagged")
+        self.assertGreater(
+            len(issues), 0, "Allman style braces exceeding depth limit must be flagged"
+        )
 
     # 37. Go multi-line receiver function definition
     def test_go_multiline_receiver_function(self):
@@ -661,7 +765,11 @@ func (
 """
         lengths = linter_checker.brace_function_lengths(go_code, "go")
         self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][0], "Process", "Go multiline receiver function signature should be detected")
+        self.assertEqual(
+            lengths[0][0],
+            "Process",
+            "Go multiline receiver function signature should be detected",
+        )
 
     # 38. Config ignore override preserves defaults or extends them cleanly
     def test_config_ignore_override_preserves_or_merges(self):
@@ -680,7 +788,11 @@ class Handler {};
 class Controller {};
 """
         issues = linter_checker.check_types_per_file("main.cpp", cpp_code, "csharp", 2)
-        self.assertEqual(len(issues), 1, "enum class Status + 2 classes = 3 types, should exceed limit 2")
+        self.assertEqual(
+            len(issues),
+            1,
+            "enum class Status + 2 classes = 3 types, should exceed limit 2",
+        )
 
     # 40. GitHub Actions error message relative path formatting
     def test_github_path_formatting_for_error_annotation(self):
@@ -695,7 +807,11 @@ class FixedProblemsComprehensiveTestSuite(unittest.TestCase):
     def test_problem1_1_https_url_in_string_not_truncated(self):
         code = 'let url = "https://domain.com/path"; let x = 1;'
         line = scanned_line(code, "swift")
-        self.assertIn("x", line, "URL slashes '//' inside string literal must not truncate the line")
+        self.assertIn(
+            "x",
+            line,
+            "URL slashes '//' inside string literal must not truncate the line",
+        )
 
     def test_problem1_2_http_url_with_query_params(self):
         code = 'const ep = "http://api.internal:8080/v1?a=1//2"; const active = true;'
@@ -736,12 +852,21 @@ def check_val(x):
         pass
 """
         issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
-        self.assertEqual(len(issues), 0, "Flat 5-branch if/elif chain must not trigger nesting error")
+        self.assertEqual(
+            len(issues), 0, "Flat 5-branch if/elif chain must not trigger nesting error"
+        )
 
     def test_problem2_2_flat_elif_chain_10_branches(self):
-        code = "\n".join(["def handle(x):", "    if x == 0: pass"] + [f"    elif x == {i}: pass" for i in range(1, 10)])
+        code = "\n".join(
+            ["def handle(x):", "    if x == 0: pass"]
+            + [f"    elif x == {i}: pass" for i in range(1, 10)]
+        )
         issues = linter_checker.check_nesting_depth("test.py", code, "python", 4)
-        self.assertEqual(len(issues), 0, "Flat 10-branch if/elif chain must not trigger nesting error")
+        self.assertEqual(
+            len(issues),
+            0,
+            "Flat 10-branch if/elif chain must not trigger nesting error",
+        )
 
     def test_problem2_3_nested_if_inside_elif_correct_depth(self):
         code = """
@@ -800,7 +925,9 @@ async def run_async(stream):
         self.assertEqual(lengths[0][3], 2)
 
     def test_problem3_4_closure_parameter_in_swift(self):
-        swift_code = "func exec(action: (Int, String) -> Void, x: Int) {\n    print(x)\n}"
+        swift_code = (
+            "func exec(action: (Int, String) -> Void, x: Int) {\n    print(x)\n}"
+        )
         lengths = linter_checker.brace_function_lengths(swift_code, "swift")
         self.assertEqual(lengths[0][3], 2)
 
@@ -835,7 +962,7 @@ async def run_async(stream):
         self.assertEqual(lengths[0][0], "Init")
 
     def test_problem4_5_kotlin_multiline_default_param(self):
-        kt_code = "fun create(\n    name: String = \"default\",\n    count: Int = 0\n) {\n    val a = 1\n}"
+        kt_code = 'fun create(\n    name: String = "default",\n    count: Int = 0\n) {\n    val a = 1\n}'
         lengths = linter_checker.brace_function_lengths(kt_code, "kotlin")
         self.assertEqual(lengths[0][0], "create")
 
@@ -857,13 +984,19 @@ async def run_async(stream):
         self.assertIn("node_modules", config["ignore"])
 
     def test_problem5_5_nested_glob_ignore_pattern(self):
-        self.assertTrue(linter_checker.should_ignore("src/vendor/lib.js", ["**/vendor/*"]))
+        self.assertTrue(
+            linter_checker.should_ignore("src/vendor/lib.js", ["**/vendor/*"])
+        )
 
     # -------------------------------------------------------------------------
     # Problem 6: Multi-line Block Comments /* ... */ (5 tests)
     # -------------------------------------------------------------------------
     def test_problem6_1_csharp_block_comment_over_limit(self):
-        code = "int seed = 0;\n/*\n" + "\n".join([f" * Line {i}" for i in range(7)]) + "\n */\nvoid foo() {}"
+        code = (
+            "int seed = 0;\n/*\n"
+            + "\n".join([f" * Line {i}" for i in range(7)])
+            + "\n */\nvoid foo() {}"
+        )
         issues = linter_checker.check_comment_blocks("test.cs", code, "csharp", 5)
         self.assertGreater(len(issues), 0)
 
@@ -873,7 +1006,11 @@ async def run_async(stream):
         self.assertEqual(len(issues), 0)
 
     def test_problem6_3_ts_block_comment_over_limit(self):
-        code = "const seed = 0;\n/*\n" + "\n".join([f" * Line {i}" for i in range(8)]) + "\n */\nfunction foo() {}"
+        code = (
+            "const seed = 0;\n/*\n"
+            + "\n".join([f" * Line {i}" for i in range(8)])
+            + "\n */\nfunction foo() {}"
+        )
         issues = linter_checker.check_comment_blocks("test.ts", code, "typescript", 5)
         self.assertGreater(len(issues), 0)
 
@@ -883,7 +1020,11 @@ async def run_async(stream):
         self.assertEqual(len(issues), 0)
 
     def test_problem6_5_php_block_comment_over_limit(self):
-        code = "$seed = 0;\n/*\n" + "\n".join([f" * Line {i}" for i in range(7)]) + "\n */\nfunction foo() {}"
+        code = (
+            "$seed = 0;\n/*\n"
+            + "\n".join([f" * Line {i}" for i in range(7)])
+            + "\n */\nfunction foo() {}"
+        )
         issues = linter_checker.check_comment_blocks("test.php", code, "php", 5)
         self.assertGreater(len(issues), 0)
 
@@ -933,23 +1074,29 @@ async def run_async(stream):
         self.assertNotIn("CalculateTotal", names)
 
     def test_problem8_2_java_method_call_at_line_start(self):
-        java_code = "void main() {\n    System.out.println(\"msg\");\n}"
+        java_code = 'void main() {\n    System.out.println("msg");\n}'
         lengths = linter_checker.brace_function_lengths(java_code, "java")
         names = [item[0] for item in lengths]
         self.assertNotIn("System", names)
 
     def test_problem8_3_csharp_where_class_constraint(self):
-        cs_code = "public class Service {\n    public void Save<T>() where T : class {}\n}"
+        cs_code = (
+            "public class Service {\n    public void Save<T>() where T : class {}\n}"
+        )
         issues = linter_checker.check_types_per_file("Service.cs", cs_code, "csharp", 2)
         self.assertEqual(len(issues), 0)
 
     def test_problem8_4_csharp_where_struct_constraint(self):
-        cs_code = "public class Data {\n    public void Load<T>() where T : struct {}\n}"
+        cs_code = (
+            "public class Data {\n    public void Load<T>() where T : struct {}\n}"
+        )
         issues = linter_checker.check_types_per_file("Data.cs", cs_code, "csharp", 2)
         self.assertEqual(len(issues), 0)
 
     def test_problem8_5_csharp_where_new_constraint(self):
-        cs_code = "public class Factory {\n    public void Create<T>() where T : new() {}\n}"
+        cs_code = (
+            "public class Factory {\n    public void Create<T>() where T : new() {}\n}"
+        )
         issues = linter_checker.check_types_per_file("Factory.cs", cs_code, "csharp", 2)
         self.assertEqual(len(issues), 0)
 
@@ -1007,5 +1154,3 @@ async def run_async(stream):
 
 if __name__ == "__main__":
     unittest.main()
-
-

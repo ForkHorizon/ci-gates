@@ -8,7 +8,7 @@ pushing to `main` in this repo updates every project instantly.
 
 | Workflow | What it checks |
 |---|---|
-| `code-linter.yml` | Code structure (12+ languages): file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, comment block ≤ 5 lines, top-level types per file ≤ 2. |
+| `code-linter.yml` | Dependency-free structure checks for 13 languages: file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, prose comment block ≤ 5 lines, doc-comment block ≤ 50 lines, top-level types per file ≤ 2, plus Python syntax and lexical block-balance checks. |
 | `swift-compile.yml` | Project compiles; fails on critical warnings (Swift 6 concurrency, Sendable, data races). |
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
@@ -50,17 +50,28 @@ jobs:
 ```
 
 Per-repo tuning stays in the project via config files:
-`.code-structure-linter.json`, `.swift-compile-gate.json`,
+`.code-linter.json`, `.swift-compile-gate.json`,
 `.swift-quality-gate.json`. See each script's `DEFAULT_CONFIG` in
 [scripts/](scripts/) for the available keys.
+
+The Code Linter uses `.code-linter.json` by default and fails if that file is
+missing. Its config is strictly validated. Unsupported
+extensions, unknown keys, empty extension lists, non-positive limits, and
+malformed language overrides fail the job. Limits are bounded and blanket
+source ignores such as `*.py` are rejected. Changing the config or a caller
+workflow forces an all-files structure scan. The gate does not replace a
+compiler, type checker, security scanner, or tests; use the language-specific
+quality workflows alongside it.
 
 ## Inputs
 
 Common to all workflows:
 
 - `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope` for the Code Linter, `ci-scope-broker` for Swift gates).
-- `config` — path to the gate's JSON config in the calling repo.
-- `gates-ref` — which ref of this repo to fetch scripts from (default `main`).
+- `config` — path to the gate's JSON config in the calling repo; the Code
+  Linter defaults to `.code-linter.json`.
+- `gates-ref` — which ref of this repo to fetch scripts from where supported.
+  The Code Linter deliberately always fetches `main`.
 
 - `explain-model` — Ollama model used by the failure explainer (default `qwen3-coder:30b-a3b-q4_K_M`); set to `''` to disable.
 

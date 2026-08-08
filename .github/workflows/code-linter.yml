@@ -12,15 +12,9 @@ on:
         type: string
         default: auto
       config:
-        description: >-
-          Path to the Code Linter config in the calling repo. Pass this
-          explicitly — every caller in the org does.
+        description: Path to the Code Linter config in the calling repo.
         type: string
         default: .code-linter.json
-      gates-ref:
-        description: ci-gates ref to fetch scripts from.
-        type: string
-        default: main
       explain-model:
         description: Ollama model that explains failures; empty string disables.
         type: string
@@ -30,46 +24,63 @@ jobs:
   code-linter:
     name: Code Linter
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout project
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Checkout ci-gates
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: ForkHorizon/ci-gates
-          ref: ${{ inputs.gates-ref }}
+          ref: main
           path: .ci-gates
+          persist-credentials: false
 
       - name: Select scan mode
         id: scan
         shell: bash
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          mode="${{ inputs.mode }}"
-          base="origin/${{ github.event.repository.default_branch }}"
+          mode="$INPUT_MODE"
+          base="origin/$DEFAULT_BRANCH"
           head="HEAD"
 
           if [ "$mode" = "auto" ] || [ -z "$mode" ]; then
-            case "${{ github.event_name }}" in
+            case "$EVENT_NAME" in
               pull_request) mode=changed ;;
               merge_group)  mode=changed ;;
               *)            mode=all ;;
             esac
           fi
 
-          case "${{ github.event_name }}" in
+          case "$mode" in
+            all|changed) ;;
+            *) echo "Invalid scan mode: $mode" >&2; exit 2 ;;
+          esac
+
+          case "$EVENT_NAME" in
             pull_request)
-              base="${{ github.event.pull_request.base.sha }}"
-              head="${{ github.sha }}"
+              base="$PR_BASE_SHA"
+              head="$EVENT_SHA"
               ;;
             merge_group)
-              base="${{ github.event.merge_group.base_sha }}"
-              head="${{ github.sha }}"
+              base="$MERGE_BASE_SHA"
+              head="$EVENT_SHA"
               ;;
           esac
 
@@ -81,27 +92,35 @@ jobs:
 
       - name: Run Code Linter
         shell: bash
+        env:
+          CONFIG_PATH: ${{ inputs.config }}
+          SCAN_MODE: ${{ steps.scan.outputs.mode }}
+          BASE_SHA: ${{ steps.scan.outputs.base }}
+          HEAD_SHA: ${{ steps.scan.outputs.head }}
         run: |
           set -euo pipefail
 
-          if [ "${{ steps.scan.outputs.mode }}" = "changed" ]; then
+          if [ "$SCAN_MODE" = "changed" ]; then
             python3 .ci-gates/scripts/code-linter.py \
-              --config "${{ inputs.config }}" \
+              --config "$CONFIG_PATH" \
               --mode changed \
-              --base "${{ steps.scan.outputs.base }}" \
-              --head "${{ steps.scan.outputs.head }}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
+              --base "$BASE_SHA" \
+              --head "$HEAD_SHA" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
           else
             python3 .ci-gates/scripts/code-linter.py \
-              --config "${{ inputs.config }}" \
+              --config "$CONFIG_PATH" \
               --mode all 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
           fi
 
       - name: Explain failure
         if: ${{ failure() && inputs.explain-model != '' }}
         shell: bash
+        env:
+          EXPLAIN_MODEL: ${{ inputs.explain-model }}
+          BASE_SHA: ${{ steps.scan.outputs.base }}
         run: |
           python3 .ci-gates/scripts/explain-failure.py \
             --log "$RUNNER_TEMP/ci-gate.log" \
             --gate "Code Linter" \
-            --model "${{ inputs.explain-model }}" \
-            --base "${{ steps.scan.outputs.base }}"
+            --model "$EXPLAIN_MODEL" \
+            --base "$BASE_SHA"
