@@ -63,6 +63,13 @@ workflow forces an all-files structure scan. The gate does not replace a
 compiler, type checker, security scanner, or tests; use the language-specific
 quality workflows alongside it.
 
+This repository also checks itself on every pull request, merge-queue run, and
+push to `main`. The self-check executes the scripts from the exact revision
+being reviewed, runs the full unit-test suite, applies the default Code Linter
+policy, checks Ruff lint/format, and validates all workflow files. The public
+`scripts/code-linter.py` entry point remains stable; its implementation is split
+across the small modules in `scripts/code_linter/`.
+
 ## Inputs
 
 Common to all workflows:
