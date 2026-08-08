@@ -14,10 +14,9 @@ on:
       config:
         description: >-
           Path to the Code Linter config in the calling repo. Pass this
-          explicitly; the default is the pre-2026-08 filename, kept so callers
-          that predate the Code Linter rename keep their limits.
+          explicitly — every caller in the org does.
         type: string
-        default: .linter-checker-300-lines.json
+        default: .code-linter.json
       gates-ref:
         description: ci-gates ref to fetch scripts from.
         type: string

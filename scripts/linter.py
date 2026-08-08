@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Portable readability gate for humans and AI coding agents.
+"""Portable Code Linter for humans and AI coding agents.
 
 The checker intentionally uses only Python's standard library so this file can
 be copied between repositories and run from GitHub Actions without setup.
@@ -174,14 +174,14 @@ def main(argv: Sequence[str]) -> int:
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Check source file and function length for AI-readable code."
+        description="Check code structure: file and function length, nesting, parameters, comments, types."
     )
     parser.add_argument("--mode", choices=("all", "changed"), default="all")
     parser.add_argument(
         "--base", default="origin/main", help="Base ref for changed mode."
     )
     parser.add_argument("--head", default="HEAD", help="Head ref for changed mode.")
-    parser.add_argument("--config", default=".ai-readability.json")
+    parser.add_argument("--config", default=".code-linter.json")
     parser.add_argument("--root", default=".")
     return parser.parse_args(argv)
 
@@ -203,7 +203,7 @@ def load_config(path: Path) -> dict:
             sys.exit(2)
         if not isinstance(loaded, dict):
             print(
-                f"::error file={github_path(path)}::.ai-readability config must be a JSON object",
+                f"::error file={github_path(path)}::Code Linter config must be a JSON object",
                 file=sys.stderr,
             )
             sys.exit(2)
@@ -1231,7 +1231,7 @@ def should_ignore(relative_path: str, patterns: Sequence[str]) -> bool:
 def print_report(issues: Sequence[Issue], checked_count: int, mode: str) -> None:
     if not issues:
         print(
-            f"AI readability check passed: scanned {checked_count} file(s) in {mode} mode."
+            f"Code Linter passed: scanned {checked_count} file(s) in {mode} mode."
         )
         return
 
@@ -1241,7 +1241,7 @@ def print_report(issues: Sequence[Issue], checked_count: int, mode: str) -> None
         )
 
     print(
-        f"AI readability check failed: {len(issues)} issue(s) across {checked_count} scanned file(s) in {mode} mode."
+        f"Code Linter failed: {len(issues)} issue(s) across {checked_count} scanned file(s) in {mode} mode."
     )
 
 
