@@ -117,7 +117,7 @@ def detect_go(line: str) -> str | None:
 
 def detect_javascript(line: str) -> str | None:
     patterns = (
-        r"\bfunction\s+\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*<[^>]+>)?\s*\(",
+        r"\bfunction\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*<[^>]+>)?\s*\(",
         r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=.*=>",
         r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?\(?\s*$",
         r"(?:static\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?.*=>",
@@ -128,6 +128,13 @@ def detect_javascript(line: str) -> str | None:
         match = re.search(pattern, line) if index < 3 else re.match(pattern, line)
         if match and match.group(1) not in CONTROL_WORDS:
             return match.group(1)
+    object_method = re.search(
+        r"\{\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?\*?\s*"
+        r"([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{",
+        line,
+    )
+    if object_method and object_method.group(1) not in CONTROL_WORDS:
+        return object_method.group(1)
     anonymous = re.search(
         r"(?:\([^()]*(?:\([^()]*\)[^()]*)*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>",
         line,

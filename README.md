@@ -63,6 +63,10 @@ workflow forces an all-files structure scan. The gate does not replace a
 compiler, type checker, security scanner, or tests; use the language-specific
 quality workflows alongside it.
 
+Function detection is dependency-free and best-effort lexical analysis, not a
+full parser for every supported language. Keep language-specific quality gates
+enabled when complete grammar coverage is required.
+
 This repository also checks itself on every pull request, merge-queue run, and
 push to `main`. The self-check executes the scripts from the exact revision
 being reviewed, runs the full unit-test suite, applies the default Code Linter
