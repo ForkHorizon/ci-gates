@@ -7,7 +7,7 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 spec = importlib.util.spec_from_file_location(
-    "linter_under_test", SCRIPTS_DIR / "linter.py"
+    "linter_under_test", SCRIPTS_DIR / "code-linter.py"
 )
 linter = importlib.util.module_from_spec(spec)
 sys.modules["linter_under_test"] = linter

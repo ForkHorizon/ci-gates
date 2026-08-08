@@ -15,7 +15,7 @@ from pathlib import Path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-spec = importlib.util.spec_from_file_location("linter_fixes", SCRIPTS_DIR / "linter.py")
+spec = importlib.util.spec_from_file_location("linter_fixes", SCRIPTS_DIR / "code-linter.py")
 linter = importlib.util.module_from_spec(spec)
 sys.modules["linter_fixes"] = linter
 spec.loader.exec_module(linter)
@@ -70,12 +70,12 @@ class RubyTests(unittest.TestCase):
 
 
 class IgnoreTests(unittest.TestCase):
-    def test_a_project_file_called_linter_py_is_not_skipped(self):
-        self.assertFalse(linter.should_ignore("src/linter.py", linter.DEFAULT_IGNORE))
+    def test_a_project_file_called_code_linter_py_is_not_skipped(self):
+        self.assertFalse(linter.should_ignore("src/code-linter.py", linter.DEFAULT_IGNORE))
 
     def test_checked_out_gates_copy_is_skipped(self):
         self.assertTrue(
-            linter.should_ignore(".ci-gates/scripts/linter.py", linter.DEFAULT_IGNORE)
+            linter.should_ignore(".ci-gates/scripts/code-linter.py", linter.DEFAULT_IGNORE)
         )
 
 
