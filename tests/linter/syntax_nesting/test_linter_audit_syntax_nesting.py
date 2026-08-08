@@ -93,9 +93,7 @@ class SyntaxAndParserTests(unittest.TestCase):
     def test_javascript_generator_and_object_methods_enforce_limits(self):
         sources = [
             "function* run(a, b, c, d, e, f) {\n" + "  work();\n" * 51 + "}\n",
-            "const object = { run(a, b, c, d, e, f) {\n"
-            + "  work();\n" * 51
-            + "} };\n",
+            "const object = { run(a, b, c, d, e, f) {\n" + "  work();\n" * 51 + "} };\n",
         ]
         for source in sources:
             with self.subTest(source=source[:20]):
