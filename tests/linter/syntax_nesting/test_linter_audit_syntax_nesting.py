@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 spec = importlib.util.spec_from_file_location("audit_fixes_linter", SCRIPTS / "code-linter.py")
@@ -44,6 +44,22 @@ class SyntaxAndParserTests(unittest.TestCase):
         source += "  work\n" * 50 + "end\n"
         self.assertEqual(linter.ruby_function_lengths(source)[0][2], 56)
         self.assertEqual(linter.check_syntax("x.rb", "items << CONSTANT\n", "ruby"), [])
+
+    def test_ruby_lowercase_heredoc_does_not_close_a_method(self):
+        source = (
+            "def build_query\n"
+            "  sql = <<~sql\n"
+            "    SELECT * FROM users\n"
+            "    -- this query does not end here\n"
+            "  sql\n"
+            "  query\n"
+            "end\n"
+        )
+        self.assertEqual(
+            linter.ruby_function_lengths(source),
+            [("build_query", 1, 7, 0)],
+        )
+        self.assertEqual(linter.check_syntax("x.rb", source, "ruby"), [])
 
     def test_javascript_regex_brace_does_not_close_a_function(self):
         source = "function longMethod() {\n  const matcher = /}/;\n" + "  work();\n" * 50 + "}\n"

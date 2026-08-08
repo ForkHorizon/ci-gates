@@ -22,7 +22,7 @@ def ruby_code_lines(text: str) -> list[tuple[int, str]]:
                 heredoc_end = None
             lines.append((line_number, ""))
             continue
-        match = re.search(r"<<[-~]?(?:['\"])?([A-Z][A-Za-z0-9_]*)", raw_line)
+        match = re.search(r"<<[-~]?(?:['\"])?([A-Za-z_][A-Za-z0-9_]*)", raw_line)
         if match:
             heredoc_end = match.group(1)
         lines.append((line_number, strip_ruby_comment(raw_line)))

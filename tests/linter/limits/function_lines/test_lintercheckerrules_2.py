@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 # Add scripts directory to path to import code-linter.py
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parents[4] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 spec = importlib.util.spec_from_file_location("linter_checker", SCRIPTS_DIR / "code-linter.py")
