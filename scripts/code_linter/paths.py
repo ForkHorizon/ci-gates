@@ -54,13 +54,13 @@ def candidate_paths(root: Path, args: argparse.Namespace) -> list[Path]:
 
 
 def coverage_gap_for(root: Path, path: Path, config: dict, include_extensions: set[str]) -> CoverageGap | None:
+    if path.is_symlink():
+        config_error(path, "Repository symlinks are not allowed.")
     extension = path.suffix.lower()
     language = language_for_path(path)
     surface = unsupported_surface(path)
     unknown = unknown_text_surface(path) if path.is_file() and language is None and surface is None else None
     source_like = language is not None or surface is not None or unknown is not None
-    if path.is_symlink() and source_like:
-        config_error(path, "Source symlinks are not allowed.")
     relative = to_relative(root, path)
     if relative == config.get("_policy_path", ".code-linter.json") or not path.is_file():
         return None
