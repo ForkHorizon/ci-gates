@@ -97,6 +97,29 @@ def is_license_header(lines: Sequence[str]) -> bool:
     )
 
 
+def comment_block_issue(
+    relative: str,
+    lines: list[str],
+    block: tuple[int | None, str | None, int],
+    limits: tuple[int, int],
+) -> Issue | None:
+    current_start, current_kind, count = block
+    if current_start is None or current_kind is None:
+        return None
+    limit = limits[1] if current_kind == "doc" else limits[0]
+    header_lines = lines[current_start - 1 : current_start - 1 + LICENSE_HEADER_SCAN_LINES]
+    is_bounded_license = current_start == 1 and is_license_header(header_lines)
+    allowed_limit = max(limit, LICENSE_HEADER_MAX_LINES) if is_bounded_license else limit
+    if count <= allowed_limit:
+        return None
+    return Issue(
+        path=relative,
+        line=current_start,
+        kind="doc_comment_block" if current_kind == "doc" else "comment_block",
+        message=f"{current_kind.title()} comment block has {count} lines; limit is {allowed_limit}.",
+    )
+
+
 def check_comment_blocks(
     relative: str,
     text: str,
@@ -114,23 +137,7 @@ def check_comment_blocks(
     current_kind: str | None = None
     count = 0
     lines = text.splitlines()
-
-    def flush() -> None:
-        if current_start is None or current_kind is None:
-            return
-        limit = max_doc_comment_lines if current_kind == "doc" else max_comment_lines
-        header_lines = lines[current_start - 1 : current_start - 1 + LICENSE_HEADER_SCAN_LINES]
-        is_bounded_license = current_start == 1 and is_license_header(header_lines)
-        allowed_limit = max(limit, LICENSE_HEADER_MAX_LINES) if is_bounded_license else limit
-        if count > allowed_limit:
-            issues.append(
-                Issue(
-                    path=relative,
-                    line=current_start or 1,
-                    kind="doc_comment_block" if current_kind == "doc" else "comment_block",
-                    message=f"{current_kind.title()} comment block has {count} lines; limit is {allowed_limit}.",
-                )
-            )
+    limits = (max_comment_lines, max_doc_comment_lines)
 
     for line_no, kind in enumerate(comment_line_kinds(text, language), start=1):
         if kind:
@@ -143,12 +150,16 @@ def check_comment_blocks(
             continue
         if current_kind and not lines[line_no - 1].strip():
             continue
-        flush()
+        issue = comment_block_issue(relative, lines, (current_start, current_kind, count), limits)
+        if issue is not None:
+            issues.append(issue)
         count = 0
         current_start = None
         current_kind = None
 
-    flush()
+    issue = comment_block_issue(relative, lines, (current_start, current_kind, count), limits)
+    if issue is not None:
+        issues.append(issue)
     return issues
 
 
