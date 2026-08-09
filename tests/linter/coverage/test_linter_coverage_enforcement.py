@@ -107,6 +107,30 @@ class CoverageEnforcementTests(CoverageEnforcementTestCase):
             issues = linter.check_paths(root, self.inventory(root).selected, config)
             self.assertEqual({issue.kind for issue in issues}, {"syntax_error"})
 
+    def test_yaml_workflows_receive_dependency_free_syntax_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(
+                root,
+                {
+                    ".github/workflows/check.yml": "name: check\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n",
+                    ".github/workflows/bad.yml": "name: [broken\n",
+                },
+            )
+            config = linter.load_config(root / ".code-linter.json")
+            issues = linter.check_paths(root, self.inventory(root).selected, config)
+            self.assertEqual(
+                [(issue.path, issue.kind) for issue in issues], [(".github/workflows/bad.yml", "syntax_error")]
+            )
+
+    def test_gitignore_policy_receives_syntax_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root, {".gitignore": "build/\n!\n"})
+            config = linter.load_config(root / ".code-linter.json")
+            issues = linter.check_paths(root, self.inventory(root).selected, config)
+            self.assertEqual([(issue.path, issue.kind) for issue in issues], [(".gitignore", "syntax_error")])
+
     def test_coverage_exception_approves_only_matching_residual_gap(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

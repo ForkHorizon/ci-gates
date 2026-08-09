@@ -49,17 +49,19 @@ class CoverageInventoryTestCase(unittest.TestCase):
 class CoverageInventoryTests(CoverageInventoryTestCase):
     def test_structural_families_are_mapped_and_residual_surfaces_catalogued(self):
         mapped = {".c", ".cpp", ".h", ".m", ".mm", ".dart", ".scala", ".gradle"}
-        residual = {".zsh", ".sql", ".yaml", ".jsonc", ".html", ".proto", ".lua", ".fs"}
+        residual = {".zsh", ".sql", ".jsonc", ".html", ".proto", ".lua", ".fs"}
         self.assertTrue(mapped.issubset(linter.LANGUAGE_BY_EXTENSION))
         self.assertTrue(residual.issubset(linter.UNSUPPORTED_SURFACE_BY_EXTENSION))
         self.assertIn(".sh", linter.LANGUAGE_BY_EXTENSION)
         self.assertIn(".bash", linter.LANGUAGE_BY_EXTENSION)
         self.assertIn(".json", linter.LANGUAGE_BY_EXTENSION)
+        self.assertIn(".yaml", linter.LANGUAGE_BY_EXTENSION)
         self.assertIn(".toml", linter.LANGUAGE_BY_EXTENSION)
+        self.assertEqual(linter.LANGUAGE_BY_FILENAME[".gitignore"], "gitignore")
 
     def test_surface_matching_is_case_insensitive_and_handles_build_names(self):
         self.assertIsNone(linter.unsupported_surface(Path("native.CPP")))
-        self.assertEqual(linter.unsupported_surface(Path("workflow.YAML")), ("YAML/config", ".yaml"))
+        self.assertIsNone(linter.unsupported_surface(Path("workflow.YAML")))
         self.assertEqual(linter.unsupported_surface(Path("Dockerfile")), ("Docker build", "dockerfile"))
         self.assertEqual(linter.unsupported_surface(Path("Makefile")), ("Make build", "makefile"))
 
@@ -97,10 +99,9 @@ class CoverageInventoryTests(CoverageInventoryTestCase):
             )
             inventory = self.inventory(root)
             selected = {path.relative_to(root).as_posix() for path in inventory.selected}
-            self.assertEqual(selected, {"src/Main.py", "src/native.cpp"})
+            self.assertEqual(selected, {"src/Main.py", "src/native.cpp", ".github/workflows/check.yml"})
             self.assertEqual(
-                {gap.category for gap in inventory.gaps if gap.path != ".code-linter.json"},
-                {"unsupported_surface", "ignored_source"},
+                {gap.category for gap in inventory.gaps if gap.path != ".code-linter.json"}, {"ignored_source"}
             )
 
     def test_generated_patterns_and_ignored_sources_are_reported(self):

@@ -8,7 +8,7 @@ pushing to `main` in this repo updates every project instantly.
 
 | Workflow | What it checks |
 |---|---|
-| `code-linter.yml` | Dependency-free structure checks for 20 mapped language/config families: file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, prose comment block ≤ 5 lines, doc-comment block ≤ 50 lines, top-level types per file ≤ 2, plus syntax and lexical block-balance checks. Blank lines inside a comment run do not reset its limit; recognized SPDX/license headers have a bounded allowance of 30 lines under the default policy. |
+| `code-linter.yml` | Dependency-free structure checks for 21 mapped language/config families plus `.gitignore`: file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, prose comment block ≤ 5 lines, doc-comment block ≤ 50 lines, top-level types per file ≤ 2, plus syntax and lexical block-balance checks. YAML and `.gitignore` receive syntax-only policy checks. Blank lines inside a comment run do not reset its limit; recognized SPDX/license headers have a bounded allowance of 30 lines under the default policy. |
 | `swift-compile.yml` | Project compiles; fails on critical warnings (Swift 6 concurrency, Sendable, data races). |
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
@@ -91,10 +91,11 @@ The coverage inventory recognizes common C/C++, Objective-C, Dart, Scala,
 shell, SQL, build, web, serialization, and workflow/configuration surfaces.
 C/C++, Objective-C, Dart, Scala, and Groovy/Gradle now use the existing
 brace-based structural checks; JSON and TOML use standard-library syntax
-parsers, and Bash-compatible shell files use native `bash -n` plus structural
-checks. Other recognized surfaces remain explicit gaps,
-and unknown UTF-8 text files are reported too; binary files and clearly
-documentary files such as Markdown are excluded from that inventory.
+parsers, Bash-compatible shell files use native `bash -n` plus structural
+checks, and YAML workflows/configuration use dependency-free lexical checks.
+`.gitignore` receives policy-pattern checks. Other recognized surfaces remain
+explicit gaps, and unknown UTF-8 text files are reported too; binary files and
+clearly documentary files such as Markdown are excluded from that inventory.
 Strict mode never approves an ignored or excluded extension that already has
 structural support; this prevents a self-declared generated/vendor exception
 from hiding handwritten code. Such files must be scanned or removed from the

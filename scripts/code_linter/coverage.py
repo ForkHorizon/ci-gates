@@ -41,8 +41,6 @@ UNSUPPORTED_SURFACE_BY_EXTENSION = {
     ".less": "Less",
     ".xml": "XML/config",
     ".jsonc": "JSONC/config",
-    ".yaml": "YAML/config",
-    ".yml": "YAML/config",
     ".ini": "INI/config",
     ".cfg": "config",
     ".conf": "config",
