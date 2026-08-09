@@ -94,6 +94,22 @@ LIMIT_MAXIMUMS = {
 
 MAX_FILE_BYTES = 1_000_000
 
+
+class DuplicateJSONKeyError(ValueError):
+    def __init__(self, key: str) -> None:
+        super().__init__(key)
+        self.key = key
+
+
+def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    values: dict[str, object] = {}
+    for key, value in pairs:
+        if key in values:
+            raise DuplicateJSONKeyError(key)
+        values[key] = value
+    return values
+
+
 DEFAULT_CONFIG = {
     **LIMIT_DEFAULTS,
     "include_extensions": sorted(LANGUAGE_BY_EXTENSION),
@@ -119,7 +135,9 @@ def language_for_path(path: Path) -> str | None:
 
 def read_config(path: Path) -> dict:
     try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
+        loaded = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_json_keys)
+    except DuplicateJSONKeyError as exc:
+        config_error(path, f"Duplicate JSON key {exc.key!r}.")
     except json.JSONDecodeError as exc:
         config_error(path, f"Invalid JSON config: {exc}")
     if not isinstance(loaded, dict):
