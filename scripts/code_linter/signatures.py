@@ -8,6 +8,7 @@ from .declaration_helpers import (
     detect_with_context,
 )
 from .literals import strip_strings
+from .swift_syntax import detect_swift
 
 
 def _javascript_parameter_start(signature: str) -> tuple[int, int]:
@@ -25,10 +26,16 @@ def _javascript_parameter_start(signature: str) -> tuple[int, int]:
 
 
 def _swift_parameter_start(signature: str) -> tuple[int, int]:
-    typed = re.search(r"(?:\[[^\]]*\]\s*)?(\([^()]*\))\s*in\b", signature)
-    if typed:
-        return typed.start(1), 0
-    untyped = re.search(r"\{\s*(?:\[[^\]]*\]\s*)?([^{}\n]+?)\s+in\b", signature)
+    marker = re.search(r"\bin\b", signature)
+    if marker:
+        close = marker.start() - 1
+        while close >= 0 and signature[close].isspace():
+            close -= 1
+        if close >= 0 and signature[close] == ")":
+            start = _matching_open_paren(signature, close)
+            if start >= 0:
+                return start, 0
+    untyped = re.search(r"\{\s*(?:\[[^\]]*\]\s*)?([^{}]+?)\s+in\b", signature)
     if untyped:
         return -1, top_level_parameter_count(untyped.group(1))
     return signature.find("("), 0
@@ -120,24 +127,6 @@ def pending_body_braces(
         return (0, 0), True
     body = signature[parameter_end + 1 :]
     return (body.count("{"), body.count("}")), True
-
-
-def detect_swift(line: str) -> str | None:
-    match = re.search(r"\bfunc\s+(?:`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*)|([^\s<(]+))", line)
-    if match:
-        return (match.group(1) or match.group(2) or match.group(3)).strip("`")
-    for pattern, name in (
-        (r"\bsubscript\s*[<(]", "subscript"),
-        (r"\binit\s*\(", "init"),
-        (r"\bdeinit\b", "deinit"),
-    ):
-        if re.search(pattern, line):
-            return name
-    # Only treat a brace as a closure when its header has Swift's `in` marker.
-    # This deliberately does not classify ordinary call-like/control blocks.
-    if re.search(r"\{(?:[^{}]|\([^()]*\))*\s+in\b", line):
-        return "<anonymous>"
-    return None
 
 
 def detect_kotlin(line: str) -> str | None:
