@@ -8,7 +8,11 @@ from .model import FunctionBlock
 from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
-from .signatures import count_params_in_signature, detect_brace_function, pending_body_braces
+from .signatures import (
+    count_params_in_signature,
+    detect_brace_function,
+    pending_body_braces,
+)
 
 
 FunctionResult = tuple[str, int, int, int]
@@ -22,6 +26,8 @@ class FunctionScanState:
     pending: PendingFunction | None = None
     pending_signature: list[str] = field(default_factory=list)
     brace_depth: int = 0
+    type_scopes: list[tuple[int, str]] = field(default_factory=list)
+    method_scopes: list[int] = field(default_factory=list)
 
 
 def function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
@@ -61,8 +67,44 @@ def clear_pending(state: FunctionScanState) -> None:
     state.pending_signature = []
 
 
-def track_signature(state: FunctionScanState, clean: str, line_number: int, language: str) -> None:
-    detected = detect_brace_function(clean.strip(), language)
+def track_declaration_context(state: FunctionScanState, clean: str, language: str) -> None:
+    state.type_scopes = [scope for scope in state.type_scopes if scope[0] <= state.brace_depth]
+    state.method_scopes = [depth for depth in state.method_scopes if depth <= state.brace_depth]
+    if language in {
+        "c",
+        "cpp",
+        "csharp",
+        "java",
+        "dart",
+        "groovy",
+        "objective_c",
+        "scala",
+    }:
+        type_pattern = r"\b(?:class|struct|interface|record)\s+([A-Za-z_][A-Za-z0-9_]*)[^{}]*\{"
+        for match in re.finditer(type_pattern, clean):
+            depth = state.brace_depth + clean[: match.end()].count("{")
+            state.type_scopes.append((depth, match.group(1)))
+    if language in {"javascript", "typescript"}:
+        class_pattern = r"\bclass(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
+        object_pattern = r"(?:\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)\{"
+        if re.search(class_pattern, clean) or re.search(object_pattern, clean):
+            state.method_scopes.append(state.brace_depth + clean.count("{"))
+
+
+def track_signature(
+    state: FunctionScanState,
+    clean: str,
+    line_number: int,
+    language: str,
+) -> None:
+    enclosing_types = frozenset(name for _, name in state.type_scopes)
+    allow_method_fallback = language in {"javascript", "typescript"} and bool(state.method_scopes)
+    detected = detect_brace_function(
+        clean.strip(),
+        language,
+        enclosing_types,
+        allow_method_fallback,
+    )
     if detected:
         arrow = bool(
             language in {"javascript", "typescript"}
@@ -133,6 +175,7 @@ def close_functions(state: FunctionScanState, line_number: int) -> None:
 def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
     state = FunctionScanState()
     for line_number, (_, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
+        track_declaration_context(state, clean, language)
         track_signature(state, clean, line_number, language)
         opens, closes = clean.count("{"), clean.count("}")
         finish_pending_line(state, clean.strip(), line_number, language, (opens, closes))
