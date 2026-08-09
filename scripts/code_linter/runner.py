@@ -18,7 +18,7 @@ from .config import (
 )
 from .coverage import CoverageGap, PathInventory
 from .functions import function_lengths
-from .github import escape_github_data, escape_github_property
+from .github import escape_github_data, format_github_command
 from .model import Issue
 from .nesting import check_nesting_depth
 from .paths import collect_path_inventory, matches_ignore_pattern, to_relative
@@ -221,15 +221,15 @@ def print_coverage_report(inventory: PathInventory, config: dict, coverage_mode:
         return
     for gap in gaps[:50]:
         print(
-            "::warning "
-            f"file={escape_github_property(gap.path)},"
-            f"line={escape_github_property('1')},"
-            f"title={escape_github_property('coverage_gap')}"
-            f"::{escape_github_data(gap.message)}"
+            format_github_command(
+                "warning",
+                properties=(("file", gap.path), ("line", "1"), ("title", "coverage_gap")),
+                data=gap.message,
+            )
         )
     if len(gaps) > 50:
         message = f"Code Linter suppressed {len(gaps) - 50} additional coverage gap annotation(s)."
-        print(f"::notice::{escape_github_data(message)}")
+        print(format_github_command("notice", data=message))
 
 
 def print_report(
@@ -248,11 +248,15 @@ def print_report(
 
     for issue in issues:
         print(
-            "::error "
-            f"file={escape_github_property(str(issue.path))},"
-            f"line={escape_github_property(str(issue.line))},"
-            f"title={escape_github_property(str(issue.kind))}"
-            f"::{escape_github_data(issue.message)}"
+            format_github_command(
+                "error",
+                properties=(
+                    ("file", issue.path),
+                    ("line", issue.line),
+                    ("title", issue.kind),
+                ),
+                data=issue.message,
+            )
         )
 
     print(f"Code Linter failed: {len(issues)} issue(s) across {checked_count} scanned file(s) in {mode} mode.")
