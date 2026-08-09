@@ -23,6 +23,7 @@ from .functions import (
     function_lengths,
     python_function_lengths,
 )
+from .github import escape_github_data, escape_github_property
 from .literals import strip_strings
 from .nesting import check_nesting_depth
 from .paths import (
@@ -83,7 +84,9 @@ __all__ = [
     "config_error",
     "count_params_in_signature",
     "detect_brace_function",
+    "escape_github_data",
     "escape_github_message",
+    "escape_github_property",
     "function_lengths",
     "github_path",
     "language_for_path",

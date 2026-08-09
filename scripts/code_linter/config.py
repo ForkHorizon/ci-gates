@@ -6,6 +6,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from .coverage import COVERAGE_MODES, DEFAULT_COVERAGE_EXCEPTIONS
+from .github import escape_github_data, escape_github_property
 
 LANGUAGE_BY_EXTENSION = {
     ".c": "c",
@@ -180,7 +181,10 @@ def load_config(path: Path) -> dict:
 
 
 def config_error(path: Path, message: str) -> None:
-    print(f"::error file={github_path(path)}::{message}", file=sys.stderr)
+    print(
+        f"::error file={escape_github_property(github_path(path))}::{escape_github_data(message)}",
+        file=sys.stderr,
+    )
     sys.exit(2)
 
 

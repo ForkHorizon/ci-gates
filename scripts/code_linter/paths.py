@@ -16,6 +16,7 @@ from .coverage import (
     PathInventory,
     unknown_text_surface,
 )
+from .github import escape_github_data
 
 
 def collect_paths(root: Path, config: dict, args: argparse.Namespace) -> list[Path]:
@@ -123,7 +124,8 @@ def changed_paths(root: Path, base: str, head: str) -> list[Path]:
         result = subprocess.run(diff_args, cwd=root, text=True, capture_output=True, check=False)
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
-        print(f"::error::Unable to collect changed files: {stderr}", file=sys.stderr)
+        message = f"Unable to collect changed files: {stderr}"
+        print(f"::error::{escape_github_data(message)}", file=sys.stderr)
         sys.exit(2)
     return [root / path for path in result.stdout.split("\0") if path]
 
