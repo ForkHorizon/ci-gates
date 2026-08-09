@@ -1,8 +1,8 @@
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
 
 # Add scripts directory to path to import code-linter.py
 SCRIPTS_DIR = Path(__file__).resolve().parents[4] / "scripts"
@@ -209,13 +209,11 @@ class Type3:
             "max_comment_lines": 5,
             "max_types_per_file": 2,
         }
-        mock_path = MagicMock()
-        mock_path.suffix = ".py"
-        mock_path.read_text.return_value = python_code
-        mock_path.resolve.return_value = Path("/tmp/StressTest.py")
-
-        mock_root = Path("/tmp")
-        issues = linter_checker.check_paths(mock_root, [mock_path], config)
+        with tempfile.TemporaryDirectory() as directory:
+            mock_root = Path(directory)
+            source = mock_root / "StressTest.py"
+            source.write_text(python_code, encoding="utf-8")
+            issues = linter_checker.check_paths(mock_root, [source], config)
 
         issue_kinds = {issue.kind for issue in issues}
         self.assertIn("file_length", issue_kinds)

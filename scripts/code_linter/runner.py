@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import stat
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
@@ -65,18 +67,41 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def read_source(path: Path, relative: Path) -> tuple[str | None, Issue | None]:
     try:
-        size = path.stat().st_size
+        metadata = path.lstat()
     except OSError as exc:
         return None, Issue(relative, 1, "file_read", f"Unable to stat file: {exc}.")
-    if isinstance(size, int) and size > MAX_FILE_BYTES:
-        message = f"File is {size} bytes; safety limit is {MAX_FILE_BYTES}."
+    if stat.S_ISLNK(metadata.st_mode):
+        return None, Issue(relative, 1, "file_symlink", "Repository symlinks are not allowed.")
+    if isinstance(metadata.st_size, int) and metadata.st_size > MAX_FILE_BYTES:
+        message = f"File is {metadata.st_size} bytes; safety limit is {MAX_FILE_BYTES}."
         return None, Issue(relative, 1, "file_size", message)
     try:
-        return path.read_text(encoding="utf-8"), None
-    except UnicodeDecodeError:
-        return path.read_text(encoding="utf-8", errors="replace"), None
+        raw = _read_limited_bytes(path)
     except OSError as exc:
         return None, Issue(relative, 1, "file_read", f"Unable to read file: {exc}.")
+    if len(raw) > MAX_FILE_BYTES:
+        return None, Issue(relative, 1, "file_size", f"File exceeds safety limit of {MAX_FILE_BYTES} bytes.")
+    try:
+        return raw.decode("utf-8"), None
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace"), None
+
+
+def _read_limited_bytes(path: Path) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        chunks = []
+        remaining = MAX_FILE_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, min(65_536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
 
 
 def function_issues(relative: Path, text: str, language: str | None, limits: dict[str, int]) -> list[Issue]:

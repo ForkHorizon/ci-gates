@@ -4,12 +4,15 @@ Each test names the behaviour that was wrong before, so a future rewrite that
 reintroduces it fails here instead of in someone's pull request.
 """
 
+import argparse
 import importlib.util
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[3] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
@@ -30,6 +33,31 @@ class PathTests(unittest.TestCase):
         os.symlink(outside, root / "linked.py")
         # Reported under the in-repo path git gave us, rather than crashing.
         self.assertEqual(linter.to_relative(root, root / "linked.py"), "linked.py")
+
+    def test_unknown_symlink_is_rejected_before_content_probe(self):
+        base = Path(tempfile.mkdtemp()).resolve()
+        outside = base / "outside.data"
+        outside.write_text("secret\n", encoding="utf-8")
+        root = base / "repo"
+        root.mkdir()
+        (root / ".code-linter.json").write_text("{}\n", encoding="utf-8")
+        os.symlink(outside, root / "linked.data")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        args = argparse.Namespace(mode="all", base="", head="", config=".code-linter.json")
+        with patch("code_linter.paths.unknown_text_surface", side_effect=AssertionError("symlink was probed")):
+            with self.assertRaises(SystemExit):
+                linter.collect_paths(root, linter.load_config(root / ".code-linter.json"), args)
+
+    def test_direct_source_read_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / "outside.py"
+            outside.write_text("value = 1\n", encoding="utf-8")
+            linked = root / "linked.py"
+            os.symlink(outside, linked)
+            issues = linter.check_paths(root, [linked], linter.DEFAULT_CONFIG)
+            self.assertEqual([issue.kind for issue in issues], ["file_symlink"])
 
 
 class ConfigTests(unittest.TestCase):
