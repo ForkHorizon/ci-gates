@@ -5,6 +5,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
 
 
@@ -50,6 +52,96 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, self.assertRaises(SystemExit) as raised:
             linter.main(["--root", directory, "--config", "missing.json"])
         self.assertEqual(raised.exception.code, 2)
+
+    def test_duplicate_top_level_key_is_rejected_when_first_value_is_effective(self):
+        self.assert_rejected('{"max_file_lines": 1, "max_file_lines": 100}')
+
+    def test_duplicate_top_level_key_is_rejected_when_last_value_would_win(self):
+        self.assert_rejected('{"max_file_lines": 100, "max_file_lines": 1}')
+
+    def test_duplicate_language_override_key_is_rejected(self):
+        body = '{"language_overrides": {"python": {"max_file_lines": 10, "max_file_lines": 20}}}'
+        self.assert_rejected(body)
+
+    def test_duplicate_language_override_name_is_rejected(self):
+        body = '{"language_overrides": {"python": {"max_file_lines": 10}, "python": {"max_file_lines": 20}}}'
+        self.assert_rejected(body)
+
+    def test_duplicate_exception_object_key_is_rejected(self):
+        body = '{"coverage_exceptions": [{"pattern": "generated.py", "reason": "vendor", "reason": "generated"}]}'
+        self.assert_rejected(body)
+
+    def test_duplicate_policy_object_key_inside_array_is_rejected(self):
+        body = '{"coverage_exceptions": [{"pattern": "one.py", "reason": "generated"}, {"pattern": "two.py", "pattern": "other.py", "reason": "vendor"}]}'
+        self.assert_rejected(body)
+
+    def test_duplicate_keys_at_different_nesting_levels_are_rejected(self):
+        body = '{"max_file_lines": 100, "language_overrides": {"python": {"max_file_lines": 10, "max_file_lines": 20}}, "max_file_lines": 200}'
+        self.assert_rejected(body)
+
+    def test_unicode_escaped_key_colliding_with_literal_key_is_rejected(self):
+        body = '{"max_file_lines": 100, "\\u006dax_file_lines": 200}'
+        self.assert_rejected(body)
+
+    def test_duplicate_unicode_key_is_rejected_inside_nested_object(self):
+        body = '{"language_overrides": {"python": {"max_file_lines": 10, "\\u006dax_file_lines": 20}}}'
+        self.assert_rejected(body)
+
+    def test_distinct_nested_keys_remain_valid(self):
+        body = '{"max_file_lines": 100, "language_overrides": {"python": {"max_file_lines": 10, "max_parameters": 3}}, "coverage_exceptions": [{"pattern": "generated.py", "reason": "vendor"}]}'
+        self.assertEqual(self.load_body(body)["language_overrides"]["python"]["max_parameters"], 3)
+
+    def test_duplicate_config_error_reports_path_key_and_stable_exit_code(self):
+        body = '{"max_file_lines": 100, "max_file_lines": 200}'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".code-linter.json"
+            path.write_text(body, encoding="utf-8")
+            stderr = StringIO()
+            with self.assertRaises(SystemExit) as raised, redirect_stderr(stderr):
+                linter.load_config(path)
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("::error", stderr.getvalue())
+            self.assertIn(f"file={path}", stderr.getvalue())
+            self.assertIn("Duplicate JSON key 'max_file_lines'", stderr.getvalue())
+
+    def test_public_cli_rejects_duplicate_config_with_exit_code_two(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = root / "duplicate.json"
+            config_path.write_text('{"max_file_lines": 1, "max_file_lines": 2}\n', encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "code-linter.py"), "--root", str(root), "--config", str(config_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("Duplicate JSON key 'max_file_lines'", result.stderr)
+
+    def test_duplicate_key_cannot_change_enforced_file_line_policy(self):
+        body = '{"max_file_lines": 1, "max_file_lines": 100}'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = root / ".code-linter.json"
+            source = root / "too_long.py"
+            config_path.write_text(body, encoding="utf-8")
+            source.write_text("value = 1\\n" * 10, encoding="utf-8")
+            with self.assertRaises(SystemExit) as raised:
+                linter.load_config(config_path)
+            self.assertEqual(raised.exception.code, 2)
+
+    def test_duplicate_key_in_array_object_cannot_change_exception_policy(self):
+        body = '{"coverage_exceptions": [{"pattern": "generated.py", "pattern": "other.py", "reason": "vendor"}]}'
+        self.assert_rejected(body)
+
+    def test_duplicate_key_with_other_valid_nested_objects_fails_before_validation(self):
+        body = '{"language_overrides": {"python": {"max_file_lines": 10, "max_file_lines": 20}}, "coverage_exceptions": [{"pattern": "generated.py", "reason": "vendor"}], "max_file_lines": 100}'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "policy.json"
+            path.write_text(body, encoding="utf-8")
+            with self.assertRaises(SystemExit) as raised:
+                linter.load_config(path)
+            self.assertEqual(raised.exception.code, 2)
 
     def test_uppercase_supported_extension_is_scanned(self):
         with tempfile.TemporaryDirectory() as directory:
