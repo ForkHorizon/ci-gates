@@ -13,11 +13,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from code_linter.json_safety import MAX_JSON_DEPTH  # noqa: E402
+from code_linter.json_safety import MAX_JSON_DEPTH
+from code_linter.syntax import tomllib
 
-spec = importlib.util.spec_from_file_location(
-    "json_recursion_linter", SCRIPTS / "code-linter.py"
-)
+spec = importlib.util.spec_from_file_location("json_recursion_linter", SCRIPTS / "code-linter.py")
 linter = importlib.util.module_from_spec(spec)
 sys.modules["json_recursion_linter"] = linter
 spec.loader.exec_module(linter)
@@ -47,9 +46,7 @@ def deeply_nested_policy(depth: int) -> str:
 class SourceJSONRecursionTests(unittest.TestCase):
     def test_shallow_json_object_remains_valid(self):
         self.assertEqual(
-            linter.check_syntax(
-                "config.json", '{"name": "ci", "enabled": true}', "json"
-            ),
+            linter.check_syntax("config.json", '{"name": "ci", "enabled": true}', "json"),
             [],
         )
 
@@ -58,9 +55,7 @@ class SourceJSONRecursionTests(unittest.TestCase):
         self.assertEqual(linter.check_syntax("data.json", source, "json"), [])
 
     def test_deep_but_valid_json_at_safe_boundary_remains_valid(self):
-        self.assertEqual(
-            linter.check_syntax("nested.json", nested_json(MAX_JSON_DEPTH), "json"), []
-        )
+        self.assertEqual(linter.check_syntax("nested.json", nested_json(MAX_JSON_DEPTH), "json"), [])
 
     def test_source_json_exceeding_python_recursion_is_structured(self):
         issues = linter.check_syntax(
@@ -88,9 +83,7 @@ class SourceJSONRecursionTests(unittest.TestCase):
         self.assertEqual(linter.check_syntax("brackets.json", source, "json"), [])
 
     def test_large_flat_json_within_file_limit_remains_valid(self):
-        source = (
-            "{" + ",".join(f'"key{index}": {index}' for index in range(20_000)) + "}"
-        )
+        source = "{" + ",".join(f'"key{index}": {index}' for index in range(20_000)) + "}"
         self.assertLess(len(source.encode("utf-8")), linter.MAX_FILE_BYTES)
         self.assertEqual(linter.check_syntax("large.json", source, "json"), [])
 
@@ -159,15 +152,11 @@ class PolicyJSONRecursionTests(unittest.TestCase):
         self.assertNotIn("RecursionError", output)
 
     def test_malformed_policy_json_keeps_structured_config_error(self):
-        output = self.assert_config_rejected(
-            '{"max_file_lines": }', "Invalid JSON config:"
-        )
+        output = self.assert_config_rejected('{"max_file_lines": }', "Invalid JSON config:")
         self.assertNotIn("Traceback", output)
 
     def test_shallow_duplicate_policy_key_is_rejected(self):
-        self.assert_config_rejected(
-            '{"max_file_lines": 10, "max_file_lines": 20}', "Duplicate JSON key"
-        )
+        self.assert_config_rejected('{"max_file_lines": 10, "max_file_lines": 20}', "Duplicate JSON key")
 
     def test_deep_duplicate_policy_key_is_rejected(self):
         body = '{"language_overrides": {"python": {"max_file_lines": 10, "max_file_lines": 20}}}'
@@ -197,9 +186,7 @@ class PolicyJSONRecursionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = root / ".code-linter.json"
-            config.write_text(
-                deeply_nested_policy(sys.getrecursionlimit() * 2), encoding="utf-8"
-            )
+            config.write_text(deeply_nested_policy(sys.getrecursionlimit() * 2), encoding="utf-8")
             result = subprocess.run(
                 [
                     sys.executable,
@@ -219,12 +206,10 @@ class PolicyJSONRecursionTests(unittest.TestCase):
             self.assertNotIn("RecursionError", result.stderr)
 
     def test_toml_and_yaml_syntax_paths_are_unaffected(self):
-        if sys.version_info < (3, 11):
+        if tomllib is None:
             self.skipTest("TOML validation requires Python 3.11+")
         self.assertEqual(
-            linter.check_syntax(
-                "settings.toml", 'name = "ci"\nitems = [1, 2]\n', "toml"
-            ),
+            linter.check_syntax("settings.toml", 'name = "ci"\nitems = [1, 2]\n', "toml"),
             [],
         )
         self.assertEqual(
