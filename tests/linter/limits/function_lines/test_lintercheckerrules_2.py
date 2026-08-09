@@ -183,6 +183,72 @@ def test_fn():
         self.assertTrue(linter_checker.should_ignore("App/Sources/Model.gen.swift", ignore_patterns))
         self.assertFalse(linter_checker.should_ignore("App/Sources/Model.swift", ignore_patterns))
 
+    # fmt: off
+    def _csharp_functions(self, source):
+        return linter_checker.brace_function_lengths(source, "csharp")
+
+    def test_csharp_destructor_over_limit_is_named_and_counted(self):
+        self.assertEqual(self._csharp_functions("class C {\n    ~C() {\n        x();\n        y();\n        z();\n    }\n}\n"), [("~C", 2, 5, 0)])
+
+    def test_csharp_destructor_at_limit_is_still_measured(self):
+        self.assertEqual(self._csharp_functions("class C {\n    ~C() {\n        x();\n    }\n}\n"), [("~C", 2, 3, 0)])
+
+    def test_csharp_destructor_multiline_parentheses_and_whitespace(self):
+        self.assertEqual(self._csharp_functions("class C {\n    ~C (\n    )\n    {\n        x();\n    }\n}\n"), [("~C", 2, 5, 0)])
+
+    def test_csharp_destructor_nested_braces_counts_outer_body(self):
+        self.assertEqual(self._csharp_functions("class C {\n    ~C() {\n        if (ready) {\n            x();\n        }\n        y();\n    }\n}\n"), [("~C", 2, 6, 0)])
+
+    def test_csharp_destructor_ignores_comment_and_string_fake_declarations(self):
+        source = 'class C {\n    // ~Fake() { fake(); }\n    string text = "~AlsoFake() { nope(); }";\n    ~C() {\n        x();\n    }\n}\n'
+        self.assertEqual(self._csharp_functions(source), [("~C", 4, 3, 0)])
+
+    def test_csharp_multiple_classes_and_destructors_are_all_tracked(self):
+        source = "class First {\n    ~First() {\n        first();\n    }\n}\nclass Second {\n    ~Second() {\n        second();\n        more();\n    }\n}\n"
+        self.assertEqual(self._csharp_functions(source), [("~First", 2, 3, 0), ("~Second", 7, 4, 0)])
+
+    def test_csharp_constructor_and_destructor_keep_distinct_names(self):
+        source = "class C {\n    C() {\n        construct();\n    }\n    ~C() {\n        dispose();\n    }\n}\n"
+        functions = self._csharp_functions(source)
+        self.assertEqual([item[0] for item in functions], ["C", "~C"])
+        self.assertEqual([item[1] for item in functions], [2, 5])
+
+    def test_csharp_method_and_destructor_coexist(self):
+        source = "class C {\n    public void Run() {\n        work();\n    }\n    ~C() {\n        cleanup();\n        more();\n    }\n}\n"
+        self.assertEqual(self._csharp_functions(source), [("Run", 2, 3, 0), ("~C", 5, 4, 0)])
+
+    def test_csharp_attribute_context_does_not_hide_destructor(self):
+        self.assertEqual(self._csharp_functions("class C {\n    [Obsolete]\n    ~C() {\n        x();\n        y();\n    }\n}\n"), [("~C", 3, 4, 0)])
+
+    def test_csharp_destructor_public_reporting_enforces_configured_limit(self):
+        source = "class C {\n    ~C() {\n        x();\n        y();\n        z();\n    }\n}\n"
+        config = {
+            "max_file_lines": 100,
+            "max_function_lines": 3,
+            "max_nesting_depth": 4,
+            "max_parameters": 5,
+            "max_comment_lines": 5,
+            "max_types_per_file": 2,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Destructor.cs"
+            path.write_text(source, encoding="utf-8")
+            issues = linter_checker.check_paths(path.parent, [path], config)
+        self.assertEqual([(issue.kind, issue.line) for issue in issues], [("function_length", 2)])
+        self.assertIn("C has 5 lines", issues[0].message)
+
+    def test_csharp_call_like_text_and_lambda_are_not_destructors(self):
+        source = "class C {\n    void Run() {\n        Log(~Name());\n        var callback = () => {\n            work();\n        };\n    }\n}\n"
+        names = [item[0] for item in self._csharp_functions(source)]
+        self.assertIn("Run", names)
+        self.assertNotIn("~Name", names)
+
+    def test_csharp_destructor_body_lines_and_name_are_stable_with_nested_class(self):
+        source = "class Outer {\n    class Inner {\n        ~Inner() {\n            release();\n            if (pending) {\n                retry();\n            }\n        }\n    }\n}\n"
+        self.assertEqual(self._csharp_functions(source), [("~Inner", 3, 6, 0)])
+
+    # fmt: on
+
     def test_full_file_all_six_rules_stress_test(self):
         python_code = """
 # Comment 1
