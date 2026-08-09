@@ -35,11 +35,11 @@ def _swift_parameter_start(signature: str) -> tuple[int, int]:
 
 
 def _csharp_parameter_start(signature: str) -> tuple[int, int]:
-    arrow = re.search(r"\(([^()]*)\)\s*=>", signature)
-    if arrow:
-        return arrow.start(), 0
-    bare = re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\s*=>", signature)
-    return -1, 1 if bare else 0
+    match = csharp_lambda_match(signature)
+    if match:
+        start, _, _, bare = match
+        return (-1, 1) if bare else (start, 0)
+    return -1, 0
 
 
 ANONYMOUS_PARAMETER_START = {
@@ -199,18 +199,49 @@ def detect_javascript(line: str, allow_method_fallback: bool = False) -> str | N
     return "<anonymous>" if anonymous else None
 
 
-def detect_csharp_lambda(line: str) -> str | None:
-    if "=>" not in line:
-        return None
-    parenthesized = re.search(r"\(([^()]*)\)\s*=>", line)
-    if parenthesized:
-        prefix = line[: parenthesized.start()].rstrip()
-        if prefix.endswith(("=", "(", ",", ":")):
-            return "<anonymous>"
-    bare = re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\s*=>", line)
-    if bare and line[: bare.start()].rstrip().endswith(("=", "(", ",", ":")):
-        return "<anonymous>"
+def _matching_open_paren(signature: str, close: int) -> int:
+    depth = 0
+    for index in range(close, -1, -1):
+        if signature[index] == ")":
+            depth += 1
+        elif signature[index] == "(":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def _csharp_lambda_context(prefix: str) -> bool:
+    prefix = prefix.rstrip()
+    return not prefix or bool(
+        re.search(
+            r"(?:=|\(|,|:|\?|=>|\b(?:async|await|case|return|throw|yield\s+return))\s*$",
+            prefix,
+        )
+    )
+
+
+def csharp_lambda_match(signature: str) -> tuple[int, int, int, bool] | None:
+    """Return parameter bounds and arrow position for a contextual C# lambda."""
+    for arrow in re.finditer(r"=>", signature):
+        before = signature[: arrow.start()].rstrip()
+        if before.endswith(")"):
+            parameter_end = len(before) - 1
+            parameter_start = _matching_open_paren(before, parameter_end)
+            if parameter_start < 0:
+                continue
+            prefix = before[:parameter_start]
+            if _csharp_lambda_context(prefix):
+                return parameter_start, parameter_end, arrow.start(), False
+        else:
+            bare = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*$", before)
+            if bare and _csharp_lambda_context(before[: bare.start()]):
+                return bare.start(1), bare.end(1), arrow.start(), True
     return None
+
+
+def detect_csharp_lambda(line: str) -> str | None:
+    return "<anonymous>" if csharp_lambda_match(line) else None
 
 
 def detect_csharp(
