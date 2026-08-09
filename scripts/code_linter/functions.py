@@ -8,7 +8,7 @@ from .model import FunctionBlock
 from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
-from .signatures import count_params_in_signature, detect_brace_function
+from .signatures import count_params_in_signature, detect_brace_function, pending_body_braces
 
 
 FunctionResult = tuple[str, int, int, int]
@@ -66,6 +66,7 @@ def track_signature(state: FunctionScanState, clean: str, line_number: int, lang
     if detected:
         arrow = bool(
             language in {"javascript", "typescript"}
+            and detected != "<anonymous>"
             and "=>" not in clean
             and re.search(r"\b(?:const|let|var)\s+\w+\s*=", clean)
             and not re.search(r"=\s*\{", clean)
@@ -92,11 +93,19 @@ def finish_pending_line(
     signature = "\n".join(state.pending_signature)
     confirmed = not state.pending[3] or "=>" in signature
     name, start, params, _ = state.pending
-    opens, closes = braces
+    (opens, closes), waiting_for_function_body = pending_body_braces(signature, name, language, braces)
     if confirmed and opens:
         state.active.append(FunctionBlock(name, start, state.brace_depth, params))
         clear_pending(state)
-    elif confirmed and not opens and not closes and ("=" in stripped or "=>" in stripped):
+    elif (
+        confirmed
+        and not waiting_for_function_body
+        and not opens
+        and not closes
+        and ("=" in stripped or "=>" in stripped)
+    ):
+        # Expression-bodied anonymous functions are intentionally one line;
+        # call-like blocks are not classified as functions here.
         incomplete = stripped.endswith(",") or (len(state.pending_signature) > 1 and not stripped.endswith(";"))
         if not incomplete:
             state.results.append((name, start, 1, params))
