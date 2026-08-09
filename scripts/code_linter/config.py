@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
-import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from . import config_io as _config_io
+from .config_io import config_error, read_config_text
 from .coverage import COVERAGE_MODES, DEFAULT_COVERAGE_EXCEPTIONS
-from .github import format_github_command
+
+config_read_error = _config_io.config_read_error
+github_path = _config_io.github_path
 
 LANGUAGE_BY_EXTENSION = {
     ".c": "c",
@@ -135,7 +138,7 @@ def language_for_path(path: Path) -> str | None:
 
 def read_config(path: Path) -> dict:
     try:
-        loaded = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_json_keys)
+        loaded = json.loads(read_config_text(path, config_error), object_pairs_hook=reject_duplicate_json_keys)
     except DuplicateJSONKeyError as exc:
         config_error(path, f"Duplicate JSON key {exc.key!r}.")
     except json.JSONDecodeError as exc:
@@ -196,18 +199,6 @@ def load_config(path: Path) -> dict:
     config["coverage_mode"] = validate_coverage_mode(config, path)
     config["coverage_exceptions"] = validate_coverage_exceptions(config, path)
     return config
-
-
-def config_error(path: Path, message: str) -> None:
-    print(
-        format_github_command(
-            "error",
-            properties=(("file", github_path(path)),),
-            data=message,
-        ),
-        file=sys.stderr,
-    )
-    sys.exit(2)
 
 
 def merge_ignore(loaded_ignore: object, path: Path) -> list[str]:
@@ -291,10 +282,3 @@ def config_int(config: dict, key: str, fallback: int, path: Path) -> int:
     if value > LIMIT_MAXIMUMS[key]:
         config_error(path, f"'{key}' must not exceed {LIMIT_MAXIMUMS[key]}, got {value}.")
     return value
-
-
-def github_path(path: Path) -> str:
-    try:
-        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
