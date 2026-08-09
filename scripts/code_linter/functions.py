@@ -10,6 +10,7 @@ from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
 from .signatures import (
     count_params_in_signature,
+    csharp_lambda_match,
     detect_brace_function,
     pending_body_braces,
 )
@@ -28,6 +29,8 @@ class FunctionScanState:
     brace_depth: int = 0
     type_scopes: list[tuple[int, str]] = field(default_factory=list)
     method_scopes: list[int] = field(default_factory=list)
+    csharp_candidate: list[str] = field(default_factory=list)
+    csharp_candidate_start: int = 0
 
 
 def function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
@@ -67,6 +70,11 @@ def clear_pending(state: FunctionScanState) -> None:
     state.pending_signature = []
 
 
+def clear_csharp_candidate(state: FunctionScanState) -> None:
+    state.csharp_candidate = []
+    state.csharp_candidate_start = 0
+
+
 def track_declaration_context(state: FunctionScanState, clean: str, language: str) -> None:
     state.type_scopes = [scope for scope in state.type_scopes if scope[0] <= state.brace_depth]
     state.method_scopes = [depth for depth in state.method_scopes if depth <= state.brace_depth]
@@ -91,6 +99,69 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
             state.method_scopes.append(state.brace_depth + clean.count("{"))
 
 
+def set_pending_signature(
+    state: FunctionScanState,
+    detected: str,
+    signature: str,
+    line_number: int,
+    arrow: bool = False,
+) -> None:
+    state.pending_signature = signature.splitlines()
+    params = count_params_in_signature(signature, detected, "csharp")
+    state.pending = (detected, line_number, params, arrow)
+
+
+def csharp_candidate_possible(clean: str) -> bool:
+    stripped = clean.strip()
+    if not stripped or ";" in stripped or "{" in stripped or "}" in stripped:
+        return False
+    return bool(
+        "=" in stripped
+        or re.search(r"\b(?:async|await|return|throw|yield)\b", stripped)
+        or stripped.endswith(("(", ",", ":", "?"))
+        or stripped.startswith("(")
+    )
+
+
+def track_csharp_signature(
+    state: FunctionScanState,
+    clean: str,
+    line_number: int,
+    enclosing_types: frozenset[str],
+) -> None:
+    if state.pending:
+        state.pending_signature.append(clean)
+        signature = "\n".join(state.pending_signature)
+        params = count_params_in_signature(signature, state.pending[0], "csharp")
+        state.pending = (*state.pending[:2], params, state.pending[3])
+        return
+
+    signature_lines = [*state.csharp_candidate, clean]
+    signature = "\n".join(signature_lines)
+    match = csharp_lambda_match(signature)
+    if match:
+        start = state.csharp_candidate_start or line_number
+        lambda_line = start + signature[: match[0]].count("\n")
+        set_pending_signature(state, "<anonymous>", signature, lambda_line, arrow=True)
+        clear_csharp_candidate(state)
+        return
+
+    detected = detect_brace_function(clean.strip(), "csharp", enclosing_types)
+    if detected and detected != "<anonymous>":
+        set_pending_signature(state, detected, clean.strip(), line_number)
+        clear_csharp_candidate(state)
+        return
+
+    if state.csharp_candidate:
+        if ";" in clean or "{" in clean or "}" in clean:
+            clear_csharp_candidate(state)
+        else:
+            state.csharp_candidate.append(clean)
+    elif csharp_candidate_possible(clean):
+        state.csharp_candidate = [clean]
+        state.csharp_candidate_start = line_number
+
+
 def track_signature(
     state: FunctionScanState,
     clean: str,
@@ -98,6 +169,9 @@ def track_signature(
     language: str,
 ) -> None:
     enclosing_types = frozenset(name for _, name in state.type_scopes)
+    if language == "csharp":
+        track_csharp_signature(state, clean, line_number, enclosing_types)
+        return
     allow_method_fallback = language in {"javascript", "typescript"} and bool(state.method_scopes)
     detected = detect_brace_function(
         clean.strip(),
@@ -145,7 +219,8 @@ def finish_pending_line(
         and not waiting_for_function_body
         and not opens
         and not closes
-        and ("=" in stripped or "=>" in stripped)
+        and (language != "csharp" or ";" in signature)
+        and ("=" in stripped or "=>" in stripped or language == "csharp")
     ):
         # Expression-bodied anonymous functions are intentionally one line;
         # call-like blocks are not classified as functions here.
