@@ -7,6 +7,7 @@ from pathlib import Path
 from . import config_io as _config_io
 from .config_io import config_error, read_config_text
 from .coverage import COVERAGE_MODES, DEFAULT_COVERAGE_EXCEPTIONS
+from .json_safety import exceeds_json_depth
 
 config_read_error = _config_io.config_read_error
 github_path = _config_io.github_path
@@ -137,10 +138,15 @@ def language_for_path(path: Path) -> str | None:
 
 
 def read_config(path: Path) -> dict:
+    text = read_config_text(path, config_error)
+    if exceeds_json_depth(text):
+        config_error(path, "Invalid JSON config: nesting is too deep.")
     try:
-        loaded = json.loads(read_config_text(path, config_error), object_pairs_hook=reject_duplicate_json_keys)
+        loaded = json.loads(text, object_pairs_hook=reject_duplicate_json_keys)
     except DuplicateJSONKeyError as exc:
         config_error(path, f"Duplicate JSON key {exc.key!r}.")
+    except RecursionError:
+        config_error(path, "Invalid JSON config: nesting is too deep.")
     except json.JSONDecodeError as exc:
         config_error(path, f"Invalid JSON config: {exc}")
     if not isinstance(loaded, dict):
