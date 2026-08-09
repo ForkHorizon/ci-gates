@@ -10,9 +10,7 @@ def format_github_command(
     data: object = "",
 ) -> str:
     """Format a workflow command while escaping all dynamic fields."""
-    encoded_properties = ",".join(
-        f"{name}={escape_github_property(str(value))}" for name, value in properties
-    )
+    encoded_properties = ",".join(f"{name}={escape_github_property(str(value))}" for name, value in properties)
     prefix = f"::{command}"
     if encoded_properties:
         prefix += f" {encoded_properties}"
