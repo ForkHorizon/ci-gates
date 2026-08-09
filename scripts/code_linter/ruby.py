@@ -54,20 +54,46 @@ def ruby_syntax_issues(relative: str, text: str) -> list[Issue]:
 
 
 def ruby_parameter_count(signature: str, name: str, first_line: str) -> int:
-    after_name = first_line[first_line.find(name) + len(name) :].strip()
-    if after_name.startswith("("):
-        return count_params_in_signature(signature, name)
-    if not after_name or is_endless_ruby_method(after_name):
+    def_match = RUBY_DEF_PATTERN.match(first_line)
+    if not def_match or def_match.group(1) != name:
         return 0
-    return count_params_in_signature(f"({after_name})")
+    after_name = first_line[def_match.end() :].strip()
+    if not after_name:
+        return 0
+    parameter_text = signature[def_match.end() :].lstrip()
+    if not parameter_text.startswith("(") and is_endless_ruby_method(after_name):
+        return 0
+    if parameter_text.startswith("("):
+        closing = matching_ruby_delimiter(parameter_text, "(", ")")
+        if closing < 0:
+            return 0
+        parameter_text = parameter_text[1:closing]
+    return count_ruby_parameters(parameter_text)
+
+
+def matching_ruby_delimiter(text: str, opening: str, closing: str) -> int:
+    depth = 0
+    for index, char in enumerate(text):
+        if char == opening:
+            depth += 1
+        elif char == closing:
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def count_ruby_parameters(parameters: str) -> int:
+    return count_params_in_signature(f"({parameters})")
 
 
 def ruby_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
     stack: list[tuple[str, str, int, int]] = []
     results = []
-    source_lines = text.splitlines()
+    clean_lines = ruby_code_lines(text)
+    source_lines = [line for _, line in clean_lines]
 
-    for line_number, line in ruby_code_lines(text):
+    for line_number, line in clean_lines:
         stripped = line.strip()
         if not stripped:
             continue
