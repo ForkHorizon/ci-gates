@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from .javascript_templates import TemplateContext, consume_template_brace, consume_template_text
 from .literals import is_rust_lifetime
 
 
@@ -12,6 +13,7 @@ class CStyleScanState:
     block_depth: int = 0
     quote: str | None = None
     raw_terminator: str | None = None
+    template_stack: list[TemplateContext] = field(default_factory=list)
 
 
 @dataclass
@@ -216,6 +218,31 @@ def start_special_region(
     return None
 
 
+def consume_template_region(
+    line: str,
+    index: int,
+    language: str,
+    state: CStyleScanState,
+    output: list[str],
+) -> int | None:
+    if state.template_stack:
+        context = state.template_stack[-1]
+        if not context.in_interpolation:
+            return consume_template_text(line, index, state.template_stack)
+        char = line[index]
+        if char in "{}":
+            if consume_template_brace(char, context):
+                output.append(char)
+            return index + 1
+        if char == "`":
+            state.template_stack.append(TemplateContext())
+            return index + 1
+    if line[index] == "`" and language in {"javascript", "typescript"}:
+        state.template_stack.append(TemplateContext())
+        return index + 1
+    return None
+
+
 def scan_c_style_line(line: str, language: str, state: CStyleScanState) -> tuple[str, bool]:
     heredoc = scan_heredoc(line, language, state)
     if heredoc is not None:
@@ -233,6 +260,10 @@ def scan_c_style_line(line: str, language: str, state: CStyleScanState) -> tuple
             continue
         if state.quote:
             index = consume_active_quote(line, index, state)
+            continue
+        template_index = consume_template_region(line, index, language, state, output)
+        if template_index is not None:
+            index = template_index
             continue
         special = start_special_region(line, index, language, state)
         if special:
