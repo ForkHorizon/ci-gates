@@ -78,7 +78,7 @@ def c_style_syntax_issues(relative: str, text: str, language: str) -> list[Issue
                         "Unexpected closing brace.",
                     )
                 ]
-    if state.block_depth or state.quote or state.raw_terminator:
+    if state.block_depth or state.quote or state.raw_terminator or state.template_stack:
         return [
             Issue(
                 relative,
