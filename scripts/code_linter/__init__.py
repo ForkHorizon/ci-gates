@@ -9,6 +9,13 @@ from .config import (
     github_path,
     load_config,
 )
+from .coverage import (
+    COVERAGE_MODES,
+    DEFAULT_COVERAGE_EXCEPTIONS,
+    UNSUPPORTED_SURFACE_BY_EXTENSION,
+    UNSUPPORTED_SURFACE_BY_FILENAME,
+    unknown_text_surface,
+)
 from .functions import (
     brace_function_lengths,
     function_lengths,
@@ -19,7 +26,9 @@ from .nesting import check_nesting_depth
 from .paths import (
     all_repo_paths,
     changed_paths,
+    collect_path_inventory,
     collect_paths,
+    unsupported_surface,
     should_ignore,
     to_relative,
 )
@@ -31,6 +40,7 @@ from .runner import (
     main,
     parse_args,
     print_report,
+    strict_coverage_issues,
 )
 from .scanner import scan_c_style_lines
 from .signatures import count_params_in_signature, detect_brace_function
@@ -44,12 +54,16 @@ from .structure import (
 from .syntax import check_syntax
 
 __all__ = [
+    "COVERAGE_MODES",
     "DEFAULT_CONFIG",
+    "DEFAULT_COVERAGE_EXCEPTIONS",
     "DEFAULT_IGNORE",
     "LANGUAGE_BY_EXTENSION",
     "LIMIT_DEFAULTS",
     "LIMIT_MAXIMUMS",
     "MAX_FILE_BYTES",
+    "UNSUPPORTED_SURFACE_BY_EXTENSION",
+    "UNSUPPORTED_SURFACE_BY_FILENAME",
     "all_repo_paths",
     "brace_function_lengths",
     "brace_type_declarations",
@@ -59,6 +73,7 @@ __all__ = [
     "check_paths",
     "check_syntax",
     "check_types_per_file",
+    "collect_path_inventory",
     "collect_paths",
     "comment_line_flags",
     "comment_line_kinds",
@@ -77,6 +92,9 @@ __all__ = [
     "ruby_function_lengths",
     "scan_c_style_lines",
     "should_ignore",
+    "strict_coverage_issues",
     "strip_strings",
     "to_relative",
+    "unknown_text_surface",
+    "unsupported_surface",
 ]

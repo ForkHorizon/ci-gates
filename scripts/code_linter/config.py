@@ -5,7 +5,28 @@ import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from .coverage import COVERAGE_MODES, DEFAULT_COVERAGE_EXCEPTIONS
+
 LANGUAGE_BY_EXTENSION = {
+    ".c": "c",
+    ".h": "c",
+    ".cc": "cpp",
+    ".hh": "cpp",
+    ".cpp": "cpp",
+    ".cxx": "cpp",
+    ".hpp": "cpp",
+    ".hxx": "cpp",
+    ".m": "objective_c",
+    ".mm": "objective_c",
+    ".dart": "dart",
+    ".scala": "scala",
+    ".sc": "scala",
+    ".groovy": "groovy",
+    ".gradle": "groovy",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".json": "json",
+    ".toml": "toml",
     ".swift": "swift",
     ".cs": "csharp",
     ".js": "javascript",
@@ -74,6 +95,8 @@ DEFAULT_CONFIG = {
     "include_extensions": sorted(LANGUAGE_BY_EXTENSION),
     "ignore": DEFAULT_IGNORE,
     "language_overrides": {},
+    "coverage_mode": "report",
+    "coverage_exceptions": DEFAULT_COVERAGE_EXCEPTIONS,
 }
 
 
@@ -82,6 +105,7 @@ def initial_config() -> dict:
     config["ignore"] = list(DEFAULT_IGNORE)
     config["include_extensions"] = list(DEFAULT_CONFIG["include_extensions"])
     config["language_overrides"] = {}
+    config["coverage_exceptions"] = [dict(item) for item in DEFAULT_COVERAGE_EXCEPTIONS]
     return config
 
 
@@ -143,6 +167,8 @@ def load_config(path: Path) -> dict:
         config[key] = config_int(config, key, fallback, path)
     config["include_extensions"] = validate_extensions(config, path)
     config["language_overrides"] = validate_overrides(config, path)
+    config["coverage_mode"] = validate_coverage_mode(config, path)
+    config["coverage_exceptions"] = validate_coverage_exceptions(config, path)
     return config
 
 
@@ -175,6 +201,47 @@ def reject_blanket_ignores(patterns: Sequence[str], path: Path) -> None:
             path,
             f"Blanket source ignore pattern(s) are not allowed: {', '.join(invalid)}.",
         )
+
+
+def validate_coverage_mode(config: dict, path: Path) -> str:
+    mode = config.get("coverage_mode", "report")
+    if mode not in COVERAGE_MODES:
+        config_error(
+            path,
+            f"'coverage_mode' must be one of {', '.join(COVERAGE_MODES)}, got {mode!r}.",
+        )
+    return mode
+
+
+def validate_coverage_exceptions(config: dict, path: Path) -> list[dict[str, str]]:
+    exceptions = config.get("coverage_exceptions", [])
+    if not isinstance(exceptions, list):
+        config_error(path, "'coverage_exceptions' must be a JSON array of objects.")
+    exceptions = [*DEFAULT_COVERAGE_EXCEPTIONS, *exceptions]
+
+    validated: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for index, exception in enumerate(exceptions):
+        if not isinstance(exception, dict):
+            config_error(path, f"Coverage exception {index} must be a JSON object.")
+        unknown = sorted(set(exception) - {"pattern", "reason"})
+        if unknown:
+            config_error(
+                path,
+                f"Coverage exception {index} has unknown key(s): {', '.join(unknown)}.",
+            )
+        pattern = exception.get("pattern")
+        reason = exception.get("reason")
+        if not isinstance(pattern, str) or not pattern.strip():
+            config_error(path, f"Coverage exception {index} needs a non-empty 'pattern'.")
+        if not isinstance(reason, str) or not reason.strip():
+            config_error(path, f"Coverage exception {index} needs a non-empty 'reason'.")
+        reject_blanket_ignores([pattern], path)
+        key = (pattern, reason)
+        if key not in seen:
+            validated.append({"pattern": pattern, "reason": reason})
+            seen.add(key)
+    return validated
 
 
 def config_list(config: dict, key: str, fallback: Iterable[str], path: Path) -> list[str]:

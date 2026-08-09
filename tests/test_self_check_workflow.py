@@ -45,6 +45,13 @@ class SelfCheckWorkflowTests(unittest.TestCase):
         config = json.loads((ROOT / ".code-linter.json").read_text(encoding="utf-8"))
         self.assertEqual(config, {})
 
+    def test_code_linter_workflow_exposes_coverage_mode(self):
+        workflow = (ROOT / ".github" / "workflows" / "code-linter.yml").read_text(encoding="utf-8")
+        self.assertIn("coverage-mode:", workflow)
+        self.assertIn("COVERAGE_MODE: ${{ inputs['coverage-mode'] }}", workflow)
+        self.assertIn('coverage_args+=(--coverage-mode "$COVERAGE_MODE")', workflow)
+        self.assertIn('--coverage-mode "$COVERAGE_MODE"', workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

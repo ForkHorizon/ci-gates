@@ -22,7 +22,7 @@ spec.loader.exec_module(linter)
 class UnsupportedExtensionTests(unittest.TestCase):
     def test_unsupported_extension_is_rejected(self):
         root = Path(tempfile.mkdtemp()).resolve()
-        (root / ".code-linter.json").write_text('{"include_extensions": [".cpp"], "max_file_lines": 10}')
+        (root / ".code-linter.json").write_text('{"include_extensions": [".brainfuck"], "max_file_lines": 10}')
         with self.assertRaises(SystemExit) as raised:
             linter.load_config(root / ".code-linter.json")
         self.assertEqual(raised.exception.code, 2)
