@@ -188,7 +188,8 @@ def track_signature(
         allow_method_fallback,
     )
     if detected:
-        arrow = bool(
+        php_arrow = language == "php" and re.search(r"\bfn\s*\(", clean)
+        arrow = bool(php_arrow) or bool(
             language in {"javascript", "typescript"}
             and detected != "<anonymous>"
             and "=>" not in clean

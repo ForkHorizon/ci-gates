@@ -8,6 +8,7 @@ from .declaration_helpers import (
     detect_with_context,
 )
 from .literals import strip_strings
+from .php_signatures import detect_php, php_parameter_start
 from .swift_syntax import detect_swift
 
 
@@ -52,6 +53,7 @@ def _csharp_parameter_start(signature: str) -> tuple[int, int]:
 ANONYMOUS_PARAMETER_START = {
     "csharp": _csharp_parameter_start,
     "javascript": _javascript_parameter_start,
+    "php": php_parameter_start,
     "swift": _swift_parameter_start,
     "typescript": _javascript_parameter_start,
 }
@@ -117,7 +119,9 @@ def pending_body_braces(
     braces: tuple[int, int],
 ) -> tuple[tuple[int, int], bool]:
     waiting = (
-        name == "<anonymous>" and language in {"javascript", "typescript"} and re.search(r"\bfunction\b", signature)
+        name == "<anonymous>"
+        and language in {"javascript", "typescript", "php"}
+        and re.search(r"\bfunction\b", signature)
     )
     if not waiting:
         return braces, False
@@ -245,11 +249,6 @@ def detect_csharp(
 
 def detect_rust(line: str) -> str | None:
     match = re.search(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*[<(]", line)
-    return match.group(1) if match else None
-
-
-def detect_php(line: str) -> str | None:
-    match = re.search(r"\bfunction\s+&?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
     return match.group(1) if match else None
 
 
