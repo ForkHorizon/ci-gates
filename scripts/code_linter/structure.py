@@ -62,6 +62,9 @@ def comment_line_kinds(text: str, language: str) -> list[str | None]:
             flags.append("prose" if stripped.startswith("#") and not is_shebang else None)
         return flags
 
+    if language == "shell":
+        return ["prose" if is_comment else None for _, _, is_comment in scan_c_style_lines(text, language)]
+
     flags = []
     in_doc_block = False
     for raw, _, is_comment in scan_c_style_lines(text, language):
@@ -164,6 +167,12 @@ def check_comment_blocks(
 
 
 TYPE_PATTERNS = {
+    "c": r"\b(?:class|struct|union|enum)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "cpp": r"\b(?:class|struct|union|enum)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "objective_c": r"\b@(?:interface|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "dart": r"\b(?:class|mixin|enum|extension)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "scala": r"\b(?:class|trait|object|enum)\s+([A-Za-z_][A-Za-z0-9_]*)",
+    "groovy": r"\b(?:class|interface|trait|enum)\s+([A-Za-z_][A-Za-z0-9_]*)",
     "csharp": r"\b(?:class|struct|interface|enum|record(?:\s+(?:class|struct))?)\s+([A-Za-z_][A-Za-z0-9_]*)",
     "swift": r"\b(?:class|struct|enum|actor|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)",
     "go": r"\btype\s+([A-Za-z_][A-Za-z0-9_]*)\b",
@@ -209,7 +218,7 @@ def check_types_per_file(relative: str, text: str, language: str, max_types: int
             tree = None
         if tree is not None:
             types = [(node.name, node.lineno) for node in tree.body if isinstance(node, ast.ClassDef)]
-    else:
+    elif language not in {"shell", "json", "toml"}:
         types = brace_type_declarations(text, language)
 
     if len(types) > max_types:

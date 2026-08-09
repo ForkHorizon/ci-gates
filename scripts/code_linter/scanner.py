@@ -165,7 +165,7 @@ def consume_quoted_literal(line: str, index: int) -> int:
 def start_special_region(
     line: str, index: int, language: str, state: CStyleScanState
 ) -> tuple[int | None, bool] | None:
-    if line.startswith("//", index) or (language == "php" and line[index] == "#"):
+    if line.startswith("//", index) or (language in {"php", "shell", "toml"} and line[index] == "#"):
         return None, True
     if line.startswith("/*", index):
         state.block_depth = 1

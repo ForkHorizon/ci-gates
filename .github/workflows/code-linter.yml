@@ -15,6 +15,10 @@ on:
         description: Path to the Code Linter config in the calling repo.
         type: string
         default: .code-linter.json
+      coverage-mode:
+        description: Coverage policy override; empty uses the repository config.
+        type: string
+        default: ''
       explain-model:
         description: Ollama model that explains failures; empty string disables.
         type: string
@@ -94,22 +98,30 @@ jobs:
         shell: bash
         env:
           CONFIG_PATH: ${{ inputs.config }}
+          COVERAGE_MODE: ${{ inputs['coverage-mode'] }}
           SCAN_MODE: ${{ steps.scan.outputs.mode }}
           BASE_SHA: ${{ steps.scan.outputs.base }}
           HEAD_SHA: ${{ steps.scan.outputs.head }}
         run: |
           set -euo pipefail
 
+          coverage_args=()
+          if [ -n "$COVERAGE_MODE" ]; then
+            coverage_args+=(--coverage-mode "$COVERAGE_MODE")
+          fi
+
           if [ "$SCAN_MODE" = "changed" ]; then
             python3 .ci-gates/scripts/code-linter.py \
               --config "$CONFIG_PATH" \
               --mode changed \
               --base "$BASE_SHA" \
-              --head "$HEAD_SHA" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
+              --head "$HEAD_SHA" \
+              "${coverage_args[@]}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
           else
             python3 .ci-gates/scripts/code-linter.py \
               --config "$CONFIG_PATH" \
-              --mode all 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
+              --mode all \
+              "${coverage_args[@]}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
           fi
 
       - name: Explain failure

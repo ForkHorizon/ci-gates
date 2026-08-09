@@ -190,6 +190,15 @@ def detect_brace_function(line: str, language: str) -> str | None:
         return detector(line)
     if language in {"javascript", "typescript"}:
         return detect_javascript(line)
-    if language in {"csharp", "java"}:
+    if language in {
+        "c",
+        "cpp",
+        "csharp",
+        "dart",
+        "groovy",
+        "java",
+        "objective_c",
+        "scala",
+    }:
         return detect_c_family(line)
     return None

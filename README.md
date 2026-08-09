@@ -8,7 +8,7 @@ pushing to `main` in this repo updates every project instantly.
 
 | Workflow | What it checks |
 |---|---|
-| `code-linter.yml` | Dependency-free structure checks for 13 languages: file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, prose comment block ≤ 5 lines, doc-comment block ≤ 50 lines, top-level types per file ≤ 2, plus Python syntax and lexical block-balance checks. Blank lines inside a comment run do not reset its limit; recognized SPDX/license headers have a bounded allowance of 30 lines under the default policy. |
+| `code-linter.yml` | Dependency-free structure checks for 20 mapped language/config families: file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, prose comment block ≤ 5 lines, doc-comment block ≤ 50 lines, top-level types per file ≤ 2, plus syntax and lexical block-balance checks. Blank lines inside a comment run do not reset its limit; recognized SPDX/license headers have a bounded allowance of 30 lines under the default policy. |
 | `swift-compile.yml` | Project compiles; fails on critical warnings (Swift 6 concurrency, Sendable, data races). |
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |
@@ -63,6 +63,43 @@ workflow forces an all-files structure scan. The gate does not replace a
 compiler, type checker, security scanner, or tests; use the language-specific
 quality workflows alongside it.
 
+Coverage gaps are accounted for separately. The default `coverage_mode` is
+`report`: tracked files in ignored source directories, excluded supported
+extensions, and recognized unsupported code/config surfaces are listed as
+GitHub warnings instead of disappearing silently. Set `"coverage_mode":
+"strict"` to fail on any unapproved gap. Intentional exclusions for surfaces
+that still need a dedicated analyzer must be documented with a pattern and
+reason, for example:
+
+```json
+{
+  "coverage_mode": "strict",
+  "coverage_exceptions": [
+    {
+      "pattern": "vendor/",
+      "reason": "third-party dependency mirrored from upstream"
+    },
+    {
+      "pattern": ".github/workflows/",
+      "reason": "validated by actionlint in the workflow gate"
+    }
+  ]
+}
+```
+
+The coverage inventory recognizes common C/C++, Objective-C, Dart, Scala,
+shell, SQL, build, web, serialization, and workflow/configuration surfaces.
+C/C++, Objective-C, Dart, Scala, and Groovy/Gradle now use the existing
+brace-based structural checks; JSON and TOML use standard-library syntax
+parsers, and Bash-compatible shell files use native `bash -n` plus structural
+checks. Other recognized surfaces remain explicit gaps,
+and unknown UTF-8 text files are reported too; binary files and clearly
+documentary files such as Markdown are excluded from that inventory.
+Strict mode never approves an ignored or excluded extension that already has
+structural support; this prevents a self-declared generated/vendor exception
+from hiding handwritten code. Such files must be scanned or removed from the
+policy gap before release.
+
 Function detection is dependency-free and best-effort lexical analysis, not a
 full parser for every supported language. Keep language-specific quality gates
 enabled when complete grammar coverage is required.
@@ -81,6 +118,8 @@ Common to all workflows:
 - `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope` for the Code Linter, `ci-scope-broker` for Swift gates).
 - `config` — path to the gate's JSON config in the calling repo; the Code
   Linter defaults to `.code-linter.json`.
+- `coverage-mode` — optional `report` or `strict` override; when omitted, the
+  repository config's `coverage_mode` is used.
 - `gates-ref` — which ref of this repo to fetch scripts from where supported.
   The Code Linter deliberately always fetches `main`.
 

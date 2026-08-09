@@ -6,6 +6,7 @@ import re
 from .model import Issue
 from .ruby import RUBY_BLOCK_START, RUBY_DEF_PATTERN, is_endless_ruby_method, ruby_code_lines
 from .scanner import CStyleScanState, brace_events, scan_c_style_line, scan_c_style_lines
+from .shell import shell_nesting_issues
 
 NESTING_KEYWORD = re.compile(
     r"^\s*(?:\}\s*)*"
@@ -14,7 +15,19 @@ NESTING_KEYWORD = re.compile(
     r"lock|using|synchronized|loop|match|select|defer)\b"
 )
 INLINE_UNBRACED_KEYWORD = re.compile(r"(?<![A-Za-z0-9_.])(?:if|for|foreach|while|lock|using)\b")
-UNBRACED_LANGUAGES = {"csharp", "java", "javascript", "typescript", "kotlin"}
+UNBRACED_LANGUAGES = {
+    "c",
+    "cpp",
+    "csharp",
+    "dart",
+    "groovy",
+    "java",
+    "javascript",
+    "objective_c",
+    "scala",
+    "typescript",
+    "kotlin",
+}
 
 
 def check_nesting_depth(relative: str, text: str, language: str, max_depth: int) -> list[Issue]:
@@ -22,6 +35,8 @@ def check_nesting_depth(relative: str, text: str, language: str, max_depth: int)
         return python_nesting_issues(relative, text, max_depth)
     if language == "ruby":
         return ruby_nesting_issues(relative, text, max_depth)
+    if language == "shell":
+        return shell_nesting_issues(relative, text, max_depth)
     issues = c_style_nesting_issues(relative, text, language, max_depth)
     issues.extend(unbraced_nesting_issues(relative, text, language, max_depth))
     if language == "php":

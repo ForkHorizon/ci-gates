@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from .model import FunctionBlock
 from .ruby import ruby_function_lengths
+from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
 from .signatures import count_params_in_signature, detect_brace_function
 
@@ -28,6 +29,8 @@ def function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]
         return python_function_lengths(text)
     if language == "ruby":
         return ruby_function_lengths(text)
+    if language == "shell":
+        return shell_function_lengths(text)
     return brace_function_lengths(text, language)
 
 

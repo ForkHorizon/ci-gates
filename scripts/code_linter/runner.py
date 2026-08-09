@@ -13,10 +13,11 @@ from .config import (
     config_error,
     load_config,
 )
+from .coverage import CoverageGap, PathInventory
 from .functions import function_lengths
 from .model import Issue
 from .nesting import check_nesting_depth
-from .paths import collect_paths, to_relative
+from .paths import collect_path_inventory, matches_ignore_pattern, to_relative
 from .structure import check_comment_blocks, check_types_per_file
 from .syntax import check_syntax
 
@@ -31,12 +32,21 @@ def main(argv: Sequence[str]) -> int:
         config_error(config_path, "Code Linter config does not exist.")
     config = load_config(config_path)
 
-    paths = collect_paths(root, config, args)
-    if not paths:
+    inventory = collect_path_inventory(root, config, args)
+    if not inventory.selected:
         progress("lint", detail="No matching source files")
-    issues = check_paths(root, paths, config)
-    print_report(issues, len(paths), args.mode)
-    return 1 if issues else 0
+    issues = check_paths(root, inventory.selected, config)
+    coverage_mode = getattr(args, "coverage_mode", None) or config["coverage_mode"]
+    coverage_issues = strict_coverage_issues(inventory, config) if coverage_mode == "strict" else []
+    report_config = {**config, "coverage_mode": coverage_mode}
+    print_report(
+        [*issues, *coverage_issues],
+        len(inventory.selected),
+        args.mode,
+        inventory,
+        report_config,
+    )
+    return 1 if issues or coverage_issues else 0
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -48,6 +58,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--head", default="HEAD", help="Head ref for changed mode.")
     parser.add_argument("--config", default=".code-linter.json")
     parser.add_argument("--root", default=".")
+    parser.add_argument("--coverage-mode", choices=("report", "strict"), default=None)
     return parser.parse_args(argv)
 
 
@@ -134,7 +145,70 @@ def limits_for_language(config: dict, language: str) -> dict[str, int]:
     return limits
 
 
-def print_report(issues: Sequence[Issue], checked_count: int, mode: str) -> None:
+def strict_coverage_issues(inventory: PathInventory, config: dict) -> list[Issue]:
+    issues = []
+    for gap in unapproved_gaps(inventory.gaps, config):
+        issues.append(
+            Issue(
+                gap.path,
+                1,
+                "coverage_gap",
+                coverage_issue_message(gap),
+            )
+        )
+    return issues
+
+
+def unapproved_gaps(gaps: Sequence[CoverageGap], config: dict) -> list[CoverageGap]:
+    exceptions = config.get("coverage_exceptions", [])
+    return [
+        gap
+        for gap in gaps
+        if gap.category in {"ignored_source", "excluded_extension"}
+        or not any(matches_ignore_pattern(gap.path, exception["pattern"]) for exception in exceptions)
+    ]
+
+
+def coverage_issue_message(gap: CoverageGap) -> str:
+    if gap.category in {"ignored_source", "excluded_extension"}:
+        return f"{gap.message} Strict mode does not accept exclusions for structurally supported source."
+    return f"{gap.message} Add support or an explicit coverage_exceptions entry with a reason."
+
+
+def print_coverage_report(inventory: PathInventory, config: dict, coverage_mode: str) -> None:
+    if not inventory.gaps:
+        print(f"Code Linter coverage: all {len(inventory.selected)} selected source file(s) are covered.")
+        return
+
+    approved = len(inventory.gaps) - len(unapproved_gaps(inventory.gaps, config))
+    counts: dict[str, int] = {}
+    for gap in inventory.gaps:
+        counts[gap.category] = counts.get(gap.category, 0) + 1
+    breakdown = ", ".join(f"{category}={count}" for category, count in sorted(counts.items()))
+    print(
+        f"Code Linter coverage: {len(inventory.gaps)} gap(s) ({breakdown}); "
+        f"{approved} approved exclusion(s), {len(inventory.selected)} selected file(s)."
+    )
+
+    gaps = unapproved_gaps(inventory.gaps, config)
+    if coverage_mode == "strict":
+        return
+    for gap in gaps[:50]:
+        print(f"::warning file={gap.path},line=1,title=coverage_gap::{escape_github_message(gap.message)}")
+    if len(gaps) > 50:
+        print(f"::notice::Code Linter suppressed {len(gaps) - 50} additional coverage gap annotation(s).")
+
+
+def print_report(
+    issues: Sequence[Issue],
+    checked_count: int,
+    mode: str,
+    inventory: PathInventory | None = None,
+    config: dict | None = None,
+) -> None:
+    if inventory is not None:
+        settings = config or {"coverage_exceptions": [], "coverage_mode": "report"}
+        print_coverage_report(inventory, settings, settings["coverage_mode"])
     if not issues:
         print(f"Code Linter passed: scanned {checked_count} file(s) in {mode} mode.")
         return
