@@ -110,6 +110,7 @@ def track_signature(
             language in {"javascript", "typescript"}
             and detected != "<anonymous>"
             and "=>" not in clean
+            and "function" not in clean
             and re.search(r"\b(?:const|let|var)\s+\w+\s*=", clean)
             and not re.search(r"=\s*\{", clean)
         )
