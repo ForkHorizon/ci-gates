@@ -114,10 +114,12 @@ class SymlinkSafetyTests(unittest.TestCase):
             read.assert_called_once_with(source)
 
     def test_limited_reader_requests_no_follow_open(self):
-        with patch.object(runner.os, "open", return_value=41) as open_file:
-            with patch.object(runner.os, "read", side_effect=[b"ok", b""]):
-                with patch.object(runner.os, "close"):
-                    self.assertEqual(runner._read_limited_bytes(Path("unused.py")), b"ok")
+        with (
+            patch.object(runner.os, "open", return_value=41) as open_file,
+            patch.object(runner.os, "read", side_effect=[b"ok", b""]),
+            patch.object(runner.os, "close"),
+        ):
+            self.assertEqual(runner._read_limited_bytes(Path("unused.py")), b"ok")
         flags = open_file.call_args.args[1]
         expected = runner.os.O_RDONLY | getattr(runner.os, "O_NOFOLLOW", 0)
         self.assertEqual(flags, expected)

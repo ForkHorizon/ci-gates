@@ -81,10 +81,7 @@ def read_source(path: Path, relative: Path) -> tuple[str | None, Issue | None]:
         return None, Issue(relative, 1, "file_read", f"Unable to read file: {exc}.")
     if len(raw) > MAX_FILE_BYTES:
         return None, Issue(relative, 1, "file_size", f"File exceeds safety limit of {MAX_FILE_BYTES} bytes.")
-    try:
-        return raw.decode("utf-8"), None
-    except UnicodeDecodeError:
-        return raw.decode("utf-8", errors="replace"), None
+    return raw.decode("utf-8", errors="replace"), None
 
 
 def _read_limited_bytes(path: Path) -> bytes:

@@ -45,9 +45,11 @@ class PathTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         subprocess.run(["git", "add", "."], cwd=root, check=True)
         args = argparse.Namespace(mode="all", base="", head="", config=".code-linter.json")
-        with patch("code_linter.paths.unknown_text_surface", side_effect=AssertionError("symlink was probed")):
-            with self.assertRaises(SystemExit):
-                linter.collect_paths(root, linter.load_config(root / ".code-linter.json"), args)
+        with (
+            patch("code_linter.paths.unknown_text_surface", side_effect=AssertionError("symlink was probed")),
+            self.assertRaises(SystemExit),
+        ):
+            linter.collect_paths(root, linter.load_config(root / ".code-linter.json"), args)
 
     def test_direct_source_read_rejects_symlink(self):
         with tempfile.TemporaryDirectory() as directory:
