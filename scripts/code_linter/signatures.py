@@ -2,26 +2,12 @@ from __future__ import annotations
 
 import re
 
+from .declaration_helpers import (
+    CONTROL_WORDS,
+    detect_c_family,
+    detect_with_context,
+)
 from .literals import strip_strings
-
-
-CONTROL_WORDS = {
-    "catch",
-    "do",
-    "else",
-    "for",
-    "foreach",
-    "guard",
-    "if",
-    "lock",
-    "repeat",
-    "switch",
-    "try",
-    "using",
-    "when",
-    "while",
-    "with",
-}
 
 
 def _javascript_parameter_start(signature: str) -> tuple[int, int]:
@@ -176,7 +162,7 @@ def detect_go(line: str) -> str | None:
     return "<anonymous>" if re.search(r"\bfunc\s*\(", line) else None
 
 
-def detect_javascript(line: str) -> str | None:
+def detect_javascript(line: str, allow_method_fallback: bool = False) -> str | None:
     patterns = (
         r"\bfunction\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*<[^>]+>)?\s*\(",
         r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=.*=>",
@@ -185,7 +171,7 @@ def detect_javascript(line: str) -> str | None:
         r"(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?\*?\s*"
         r"([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{?",
     )
-    for index, pattern in enumerate(patterns):
+    for index, pattern in enumerate(patterns[:4]):
         match = re.search(pattern, line) if index < 3 else re.match(pattern, line)
         if match and match.group(1) not in CONTROL_WORDS:
             return match.group(1)
@@ -196,6 +182,10 @@ def detect_javascript(line: str) -> str | None:
     )
     if object_method and object_method.group(1) not in CONTROL_WORDS:
         return object_method.group(1)
+    if allow_method_fallback:
+        method = re.match(patterns[4], line)
+        if method and method.group(1) not in CONTROL_WORDS:
+            return method.group(1)
     function_expression = re.search(
         r"\b(?:async\s+)?function\s*\*?\s*(?:<[^(){}]*>)?\s*\(",
         line,
@@ -223,32 +213,14 @@ def detect_csharp_lambda(line: str) -> str | None:
     return None
 
 
-def detect_csharp(line: str) -> str | None:
+def detect_csharp(
+    line: str,
+    enclosing_types: frozenset[str] = frozenset(),
+) -> str | None:
     destructor = re.match(r"~([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
     if destructor:
         return "~" + destructor.group(1)
-    return detect_csharp_lambda(line) or detect_c_family(line)
-
-
-def detect_c_family(line: str) -> str | None:
-    if "(" not in line:
-        return None
-    prefix = (
-        r"(?:\[[^\]]+\]\s*)*"
-        r"(?:(?:public|private|protected|internal|static|virtual|override|async|"
-        r"sealed|extern|unsafe|partial|new|final|synchronized|abstract)\s+)*"
-    )
-    patterns = (
-        prefix + r"\S+\s+([A-Za-z_][A-Za-z0-9_]*)\s*<[^>]+>\s*\(",
-        prefix + r"<[^>]+>\s+\S+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-        prefix + r"(?:<[^>]+>\s+)?(?:[A-Za-z_][A-Za-z0-9_<>,\[\].?]+?\s+)?"
-        r"([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^>]+>)?\s*\(",
-    )
-    for pattern in patterns:
-        match = re.match(pattern, line)
-        if match and match.group(1) not in CONTROL_WORDS:
-            return match.group(1)
-    return None
+    return detect_csharp_lambda(line) or detect_c_family(line, "csharp", enclosing_types)
 
 
 def detect_rust(line: str) -> str | None:
@@ -261,14 +233,21 @@ def detect_php(line: str) -> str | None:
     return match.group(1) if match else None
 
 
-def detect_brace_function(line: str, language: str) -> str | None:
+def detect_brace_function(
+    line: str,
+    language: str,
+    enclosing_types: frozenset[str] = frozenset(),
+    allow_method_fallback: bool = False,
+) -> str | None:
     if not line:
         return None
     first_word = re.match(r"(?:@\w+\s+)*(?:[A-Za-z_][A-Za-z0-9_]*)", line)
     if first_word and first_word.group(0).split()[0] in CONTROL_WORDS:
         return None
     detector = BRACE_FUNCTION_DETECTORS.get(language)
-    return detector(line) if detector else None
+    if not detector:
+        return None
+    return detect_with_context(detector, line, language, enclosing_types, allow_method_fallback)
 
 
 BRACE_FUNCTION_DETECTORS = {
