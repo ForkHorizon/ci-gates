@@ -11,6 +11,7 @@ from .literals import is_rust_lifetime
 class CStyleScanState:
     block_depth: int = 0
     quote: str | None = None
+    raw_terminator: str | None = None
 
 
 @dataclass
@@ -125,6 +126,37 @@ def consume_active_quote(line: str, index: int, state: CStyleScanState) -> int:
     return index + 1
 
 
+def consume_active_raw(line: str, index: int, state: CStyleScanState) -> int:
+    terminator = state.raw_terminator
+    if terminator is None:
+        return index
+    while True:
+        end = line.find(terminator, index)
+        if end < 0:
+            return len(line)
+        if terminator.startswith('"') and end + len(terminator) < len(line) and line[end + len(terminator)] == "#":
+            index = end + 1
+            continue
+        state.raw_terminator = None
+        return end + len(terminator)
+
+
+def raw_string_terminator(line: str, index: int, language: str) -> tuple[int, str] | None:
+    boundary = not index or not (line[index - 1].isalnum() or line[index - 1] == "_")
+    if language == "rust":
+        match = re.match(r"(?:br|r)(#+)?\"", line[index:]) if boundary else None
+        if match:
+            hashes = match.group(1) or ""
+            return index + match.end(), f'"{hashes}'
+        return None
+    if language in {"c", "cpp", "objective_c"} and boundary:
+        match = re.match(r"(?:u8|u|U|L)?R\"([^\s()\\]{0,16})\(", line[index:])
+        if match:
+            delimiter = match.group(1)
+            return index + match.end(), f'){delimiter}"'
+    return None
+
+
 def consume_javascript_regex(line: str, index: int, state: CStyleScanState) -> int:
     state.quote = "/"
     in_class = False
@@ -170,6 +202,11 @@ def start_special_region(
     if line.startswith("/*", index):
         state.block_depth = 1
         return index + 2, True
+    raw = raw_string_terminator(line, index, language)
+    if raw:
+        index, terminator = raw
+        state.raw_terminator = terminator
+        return index, False
     if line.startswith('"""', index):
         state.quote = '"""'
         return index + 3, False
@@ -190,6 +227,9 @@ def scan_c_style_line(line: str, language: str, state: CStyleScanState) -> tuple
         if state.block_depth:
             had_comment = True
             index = consume_block_comment(line, index, language, state)
+            continue
+        if state.raw_terminator:
+            index = consume_active_raw(line, index, state)
             continue
         if state.quote:
             index = consume_active_quote(line, index, state)
