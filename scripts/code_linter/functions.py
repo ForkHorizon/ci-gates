@@ -14,6 +14,7 @@ from .signatures import (
     detect_brace_function,
     pending_body_braces,
 )
+from .swift_closures import track_swift_signature
 
 
 FunctionResult = tuple[str, int, int, int]
@@ -31,6 +32,10 @@ class FunctionScanState:
     method_scopes: list[int] = field(default_factory=list)
     csharp_candidate: list[str] = field(default_factory=list)
     csharp_candidate_start: int = 0
+    swift_candidate: list[str] = field(default_factory=list)
+    swift_candidate_start: int = 0
+    swift_candidate_parent_depth: int = 0
+    swift_candidate_open: bool = False
 
 
 def function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
@@ -171,6 +176,9 @@ def track_signature(
     enclosing_types = frozenset(name for _, name in state.type_scopes)
     if language == "csharp":
         track_csharp_signature(state, clean, line_number, enclosing_types)
+        return
+    if language == "swift":
+        track_swift_signature(state, clean, line_number)
         return
     allow_method_fallback = language in {"javascript", "typescript"} and bool(state.method_scopes)
     detected = detect_brace_function(
