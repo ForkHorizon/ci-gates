@@ -113,6 +113,10 @@ class SyntaxAndParserTests(unittest.TestCase):
 
 
 class NestingTests(unittest.TestCase):
+    def assert_nesting_count(self, source, language, limit, expected):
+        issues = linter.check_nesting_depth("depth-fixture", source, language, limit)
+        self.assertEqual(len(issues), expected)
+
     def test_brace_free_csharp_nesting_is_measured(self):
         source = "void Run() {\n if (a)\n  if (b)\n   if (c)\n    Work();\n}\n"
         self.assertEqual(len(linter.check_nesting_depth("x.cs", source, "csharp", 2)), 1)
@@ -128,6 +132,84 @@ class NestingTests(unittest.TestCase):
     def test_labeled_loop_is_measured(self):
         source = "outer: for (let i = 0; i < 1; i++) {\n  work();\n}\n"
         self.assertEqual(len(linter.check_nesting_depth("x.js", source, "javascript", 0)), 1)
+
+    def test_same_line_brace_free_csharp_nesting_is_measured(self):
+        source = "void Run() {\n if (a) if (b) Work();\n}\n"
+        self.assertEqual(len(linter.check_nesting_depth("x.cs", source, "csharp", 1)), 1)
+
+    def test_braced_and_brace_free_csharp_depth_is_combined(self):
+        source = "void Run() {\n if (a) {\n  if (b)\n   if (c)\n    Work();\n }\n}\n"
+        self.assertEqual(len(linter.check_nesting_depth("x.cs", source, "csharp", 2)), 1)
+
+    def test_php_alternative_and_braced_depth_is_combined(self):
+        source = "if ($a) {\n if ($b):\n  work();\n endif;\n}\n"
+        self.assertEqual(len(linter.check_nesting_depth("x.php", source, "php", 1)), 1)
+
+    def test_php_braced_and_alternative_depth_is_combined(self):
+        source = "if ($a):\n if ($b) {\n  work();\n }\nendif;\n"
+        self.assertEqual(len(linter.check_nesting_depth("x.php", source, "php", 1)), 1)
+
+    def test_braced_depth_one_at_limit_passes(self):
+        source = "if (a) {\n work();\n}\n"
+        self.assert_nesting_count(source, "csharp", 1, 0)
+
+    def test_braced_depth_three_over_limit_fails(self):
+        source = "if (a) {\n if (b) {\n  if (c) {\n   work();\n  }\n }\n}\n"
+        self.assert_nesting_count(source, "csharp", 2, 1)
+
+    def test_braced_depth_four_at_limit_passes(self):
+        source = "if (a) {\n if (b) {\n  if (c) {\n   if (d) {\n    work();\n   }\n  }\n }\n}\n"
+        self.assert_nesting_count(source, "javascript", 4, 0)
+
+    def test_unbraced_depth_two_over_limit_fails(self):
+        source = "if (a)\n if (b)\n  Work();\n"
+        self.assert_nesting_count(source, "java", 1, 1)
+
+    def test_unbraced_depth_four_over_limit_fails(self):
+        source = "if (a)\n if (b)\n  if (c)\n   if (d)\n    Work();\n"
+        self.assert_nesting_count(source, "csharp", 3, 1)
+
+    def test_one_braced_plus_two_unbraced_depth_three_fails(self):
+        source = "if (a) {\n if (b)\n  if (c)\n   Work();\n}\n"
+        self.assert_nesting_count(source, "csharp", 2, 1)
+
+    def test_two_braced_plus_two_unbraced_depth_four_fails(self):
+        source = "if (a) {\n if (b) {\n  if (c)\n   if (d)\n    Work();\n }\n}\n"
+        self.assert_nesting_count(source, "csharp", 3, 1)
+
+    def test_three_inline_unbraced_conditions_over_limit_fail(self):
+        source = "if (a) if (b) if (c) Work();\n"
+        self.assert_nesting_count(source, "typescript", 2, 1)
+
+    def test_java_braced_outer_with_unbraced_inner_fails(self):
+        source = "if (a) {\n if (b)\n  if (c)\n   work();\n}\n"
+        self.assert_nesting_count(source, "java", 2, 1)
+
+    def test_java_two_inline_unbraced_conditions_over_limit_fail(self):
+        source = "if (a) if (b) work();\n"
+        self.assert_nesting_count(source, "java", 1, 1)
+
+    def test_labeled_braced_loop_with_unbraced_if_combines_depth(self):
+        source = "outer: for (let i = 0; i < n; i++) {\n if (ready) work();\n}\n"
+        self.assert_nesting_count(source, "javascript", 1, 1)
+
+    def test_typescript_two_braced_plus_unbraced_depth_three_fails(self):
+        source = "if (a) {\n for (const item of items) {\n  if (item.ready)\n   work(item);\n }\n}\n"
+        self.assert_nesting_count(source, "typescript", 2, 1)
+
+    def test_kotlin_when_brace_plus_unbraced_if_combines_depth(self):
+        source = "when (value) {\n 1 -> {\n  if (ready)\n   work()\n }\n}\n"
+        self.assert_nesting_count(source, "kotlin", 1, 1)
+
+    def test_php_alternative_depth_three_over_limit_fails(self):
+        source = (
+            "if ($a):\n foreach ($items as $item):\n  while ($item):\n   work();\n  endwhile;\n endforeach;\nendif;\n"
+        )
+        self.assert_nesting_count(source, "php", 2, 1)
+
+    def test_php_alternative_outer_with_braced_inner_combines_depth(self):
+        source = "if ($a):\n if ($b) {\n  work();\n }\nendif;\n"
+        self.assert_nesting_count(source, "php", 1, 1)
 
 
 if __name__ == "__main__":

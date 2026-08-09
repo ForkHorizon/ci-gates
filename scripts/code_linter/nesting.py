@@ -13,6 +13,8 @@ NESTING_KEYWORD = re.compile(
     r"\b(?:if|else|for|foreach|while|switch|try|catch|guard|do|repeat|when|"
     r"lock|using|synchronized|loop|match|select|defer)\b"
 )
+INLINE_UNBRACED_KEYWORD = re.compile(r"(?<![A-Za-z0-9_.])(?:if|for|foreach|while|lock|using)\b")
+UNBRACED_LANGUAGES = {"csharp", "java", "javascript", "typescript", "kotlin"}
 
 
 def check_nesting_depth(relative: str, text: str, language: str, max_depth: int) -> list[Issue]:
@@ -103,10 +105,11 @@ def ruby_nesting_issues(relative: str, text: str, max_depth: int) -> list[Issue]
 
 
 def unbraced_nesting_issues(relative: str, text: str, language: str, max_depth: int) -> list[Issue]:
-    if language not in {"csharp", "java", "javascript", "typescript", "kotlin"}:
+    if language not in UNBRACED_LANGUAGES:
         return []
     issues = []
     indents: list[int] = []
+    brace_depths = control_flow_brace_depths(text, language)
     for line_number, (_, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
         if not clean.strip():
             continue
@@ -114,17 +117,23 @@ def unbraced_nesting_issues(relative: str, text: str, language: str, max_depth: 
         while indents and indent <= indents[-1]:
             indents.pop()
         match = NESTING_KEYWORD.search(clean)
-        if not match or "{" in clean[match.end() :] or clean.rstrip().endswith(";"):
+        inline_depth = inline_unbraced_depth(clean, language) if "{" not in clean else 0
+        if not match or "{" in clean[match.end() :] or inline_depth == 0:
             continue
-        indents.append(indent)
-        if len(indents) > max_depth:
-            issues.append(nesting_issue(relative, line_number, len(indents), max_depth))
+        if not clean.rstrip().endswith(";"):
+            indents.extend([indent] * inline_depth)
+        depth = brace_depths.get(line_number, 0) + len(indents)
+        if clean.rstrip().endswith(";"):
+            depth += inline_depth
+        if depth > max_depth:
+            issues.append(nesting_issue(relative, line_number, depth, max_depth))
     return issues
 
 
 def php_alternative_nesting_issues(relative: str, text: str, max_depth: int) -> list[Issue]:
     issues = []
     depth = 0
+    brace_depths = control_flow_brace_depths(text, "php")
     state = CStyleScanState()
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
         clean, _ = scan_c_style_line(raw_line, "php", state)
@@ -132,8 +141,9 @@ def php_alternative_nesting_issues(relative: str, text: str, max_depth: int) -> 
             depth = max(0, depth - 1)
         if re.search(r"^\s*(?:if|foreach|for|while|switch)\b.*:\s*$", clean):
             depth += 1
-            if depth > max_depth:
-                issues.append(nesting_issue(relative, line_number, depth, max_depth))
+            effective_depth = depth + brace_depths.get(line_number, 0)
+            if effective_depth > max_depth:
+                issues.append(nesting_issue(relative, line_number, effective_depth, max_depth))
     return issues
 
 
@@ -147,13 +157,69 @@ def c_style_nesting_issues(relative: str, text: str, language: str, max_depth: i
     """
     issues: list[Issue] = []
     depth = 0
+    php_alternative_before = php_alternative_depth_before(text) if language == "php" else {}
     for event in brace_events(text, language, NESTING_KEYWORD):
         if not event.triggered:
             continue
         if event.kind == "open":
             depth += 1
-            if depth > max_depth:
-                issues.append(nesting_issue(relative, event.line, depth, max_depth))
+            effective_depth = depth + php_alternative_before.get(event.line, 0)
+            if effective_depth > max_depth:
+                issues.append(nesting_issue(relative, event.line, effective_depth, max_depth))
         elif event.kind == "close":
             depth -= 1
     return issues
+
+
+def inline_unbraced_depth(line: str, language: str) -> int:
+    if language not in UNBRACED_LANGUAGES:
+        return 0
+    depth = 0
+    parentheses = 0
+    index = 0
+    while index < len(line):
+        match = INLINE_UNBRACED_KEYWORD.match(line, index)
+        if match and parentheses == 0:
+            keyword = match.group(0)
+            if keyword not in {"lock", "using"} or re.match(r"\s*\(", line[match.end() :]):
+                depth += 1
+            index = match.end()
+            continue
+        if line[index] == "(":
+            parentheses += 1
+        elif line[index] == ")":
+            parentheses = max(0, parentheses - 1)
+        index += 1
+    return depth
+
+
+def control_flow_brace_depths(text: str, language: str) -> dict[int, int]:
+    depths: dict[int, int] = {}
+    depth = 0
+    events_by_line = {}
+    for event in brace_events(text, language, NESTING_KEYWORD):
+        events_by_line.setdefault(event.line, []).append(event)
+    for line_number in range(1, len(text.splitlines()) + 1):
+        for event in events_by_line.get(line_number, []):
+            if not event.triggered:
+                continue
+            if event.kind == "open":
+                depth += 1
+            elif event.kind == "close":
+                depth = max(0, depth - 1)
+        depths[line_number] = depth
+    return depths
+
+
+def php_alternative_depth_before(text: str) -> dict[int, int]:
+    before: dict[int, int] = {}
+    depth = 0
+    state = CStyleScanState()
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        before[line_number] = depth
+        clean, _ = scan_c_style_line(raw_line, "php", state)
+        if re.search(r"\b(?:endif|endforeach|endfor|endwhile|endswitch)\s*;", clean):
+            depth = max(0, depth - 1)
+        if re.search(r"^\s*(?:if|foreach|for|while|switch)\b.*:\s*$", clean):
+            depth += 1
+    return before
