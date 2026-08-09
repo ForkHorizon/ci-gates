@@ -152,7 +152,8 @@ def track_csharp_signature(
         return
 
     detected = detect_brace_function(clean.strip(), "csharp", enclosing_types)
-    if detected and detected != "<anonymous>":
+    expression_context = bool(re.search(r"\b(?:return|throw|await)\b", clean))
+    if detected and detected != "<anonymous>" and not expression_context:
         set_pending_signature(state, detected, clean.strip(), line_number)
         clear_csharp_candidate(state)
         return
