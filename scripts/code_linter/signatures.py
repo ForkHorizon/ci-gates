@@ -224,6 +224,9 @@ def detect_csharp_lambda(line: str) -> str | None:
 
 
 def detect_csharp(line: str) -> str | None:
+    destructor = re.match(r"~([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
+    if destructor:
+        return "~" + destructor.group(1)
     return detect_csharp_lambda(line) or detect_c_family(line)
 
 
