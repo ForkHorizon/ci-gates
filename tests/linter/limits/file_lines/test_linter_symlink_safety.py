@@ -103,14 +103,15 @@ class SymlinkSafetyTests(unittest.TestCase):
             self.assertIsNone(text)
             self.assertEqual(error.kind, "file_size")
 
-    def test_invalid_utf8_is_replaced_without_second_file_read(self):
+    def test_invalid_utf8_is_rejected_without_second_file_read(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "invalid.py"
             source.write_bytes(b"placeholder")
             with patch.object(runner, "_read_limited_bytes", return_value=b"\xff") as read:
                 text, error = runner.read_source(source, Path("invalid.py"))
-            self.assertIsNone(error)
-            self.assertEqual(text, "\ufffd")
+            self.assertIsNone(text)
+            self.assertEqual(error.kind, "encoding")
+            self.assertIn("UTF-8", error.message)
             read.assert_called_once_with(source)
 
     def test_limited_reader_requests_no_follow_open(self):

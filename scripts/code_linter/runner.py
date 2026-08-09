@@ -22,6 +22,7 @@ from .github import escape_github_data, format_github_command
 from .model import Issue
 from .nesting import check_nesting_depth
 from .paths import collect_path_inventory, matches_ignore_pattern, to_relative
+from .source_validation import decode_source as _decode_source
 from .structure import check_comment_blocks, check_types_per_file
 from .syntax import check_syntax
 
@@ -66,7 +67,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def read_source(path: Path, relative: Path) -> tuple[str | None, Issue | None]:
+def read_source(path: Path, relative: Path, language: str | None = None) -> tuple[str | None, Issue | None]:
     try:
         metadata = path.lstat()
     except OSError as exc:
@@ -82,7 +83,8 @@ def read_source(path: Path, relative: Path) -> tuple[str | None, Issue | None]:
         return None, Issue(relative, 1, "file_read", f"Unable to read file: {exc}.")
     if len(raw) > MAX_FILE_BYTES:
         return None, Issue(relative, 1, "file_size", f"File exceeds safety limit of {MAX_FILE_BYTES} bytes.")
-    return raw.decode("utf-8", errors="replace"), None
+    selected_language = language if language is not None else language_for_path(path)
+    return _decode_source(raw, relative, selected_language)
 
 
 def _read_limited_bytes(path: Path) -> bytes:
@@ -143,10 +145,10 @@ def source_issues(relative: Path, text: str, language: str | None, limits: dict[
 
 def check_path(root: Path, path: Path, config: dict) -> list[Issue]:
     relative = to_relative(root, path)
-    text, error = read_source(path, relative)
+    language = language_for_path(path)
+    text, error = read_source(path, relative, language)
     if error:
         return [error]
-    language = language_for_path(path)
     limits = limits_for_language(config, language or "")
     return source_issues(relative, text or "", language, limits)
 
