@@ -10,6 +10,7 @@ except ModuleNotFoundError:  # Python 3.10: report an explicit capability gap.
 
 from .model import Issue
 from .gitignore import gitignore_syntax_issues
+from .json_safety import exceeds_json_depth
 from .ruby import ruby_syntax_issues
 from .shell import shell_syntax_issues
 from .scanner import CStyleScanState, scan_c_style_line
@@ -43,7 +44,16 @@ def config_syntax_issues(relative: str, text: str, language: str) -> list[Issue]
     if language == "toml" and tomllib is None:
         return [Issue(relative, 1, "syntax_unavailable", "Python 3.11+ is required to validate TOML syntax.")]
     try:
-        json.loads(text) if language == "json" else tomllib.loads(text)
+        if language == "json":
+            if exceeds_json_depth(text):
+                return [Issue(relative, 1, "syntax_error", "JSON syntax error: nesting is too deep.")]
+            json.loads(text)
+        else:
+            tomllib.loads(text)
+    except RecursionError:
+        if language != "json":
+            raise
+        return [Issue(relative, 1, "syntax_error", "JSON syntax error: nesting is too deep.")]
     except (json.JSONDecodeError, ValueError) as exc:
         line = getattr(exc, "lineno", 1) or 1
         label = "JSON" if language == "json" else "TOML"
