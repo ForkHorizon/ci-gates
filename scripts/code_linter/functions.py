@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 
 from .model import FunctionBlock
+from .pending_functions import finish_pending_line
 from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
@@ -12,7 +13,6 @@ from .signatures import (
     count_params_in_signature,
     csharp_lambda_match,
     detect_brace_function,
-    pending_body_braces,
 )
 from .swift_closures import track_swift_signature
 
@@ -68,11 +68,6 @@ def python_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
             )
             results.append((node.name, node.lineno, end_line - node.lineno + 1, pcount))
     return results
-
-
-def clear_pending(state: FunctionScanState) -> None:
-    state.pending = None
-    state.pending_signature = []
 
 
 def clear_csharp_candidate(state: FunctionScanState) -> None:
@@ -206,49 +201,6 @@ def track_signature(
         signature = "\n".join(state.pending_signature)
         params = count_params_in_signature(signature, state.pending[0], language)
         state.pending = (*state.pending[:2], params, state.pending[3])
-
-
-def finish_pending_line(
-    state: FunctionScanState,
-    stripped: str,
-    line_number: int,
-    language: str,
-    braces: tuple[int, int],
-) -> None:
-    if not state.pending:
-        return
-    signature = "\n".join(state.pending_signature)
-    confirmed = not state.pending[3] or "=>" in signature
-    name, start, params, _ = state.pending
-    (opens, closes), waiting_for_function_body = pending_body_braces(signature, name, language, braces)
-    if confirmed and opens:
-        state.active.append(FunctionBlock(name, start, state.brace_depth, params))
-        clear_pending(state)
-    elif (
-        confirmed
-        and not waiting_for_function_body
-        and not opens
-        and not closes
-        and (language != "csharp" or ";" in signature)
-        and ("=" in stripped or "=>" in stripped or language == "csharp")
-    ):
-        # Expression-bodied anonymous functions are intentionally one line;
-        # call-like blocks are not classified as functions here.
-        incomplete = stripped.endswith(",") or (len(state.pending_signature) > 1 and not stripped.endswith(";"))
-        if not incomplete:
-            state.results.append((name, start, 1, params))
-            clear_pending(state)
-    elif stripped.endswith(";"):
-        declaration = bool(
-            (language in {"csharp", "java"} and re.search(r"\b(?:abstract|extern|native)\b", signature))
-            or (language == "typescript" and re.search(r"\bdeclare\s+function\b", signature))
-        )
-        if declaration:
-            state.results.append((name, start, line_number - start + 1, params))
-        clear_pending(state)
-    elif closes and not opens:
-        state.results.append((name, start, max(1, line_number - start), params))
-        clear_pending(state)
 
 
 def close_functions(state: FunctionScanState, line_number: int) -> None:
