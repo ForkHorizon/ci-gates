@@ -147,7 +147,7 @@ TEXT;
     def test_indented_heredoc_closer_with_semicolon_resumes_scanning(self):
         source = """<?php
 $document = <<<TEXT
-opaque { function fake() {} }
+    opaque { function fake() {} }
     TEXT;
 function after($a, $b, $c, $d, $e, $f) { return $a; }
 """
