@@ -121,8 +121,14 @@ func calculate() {
 }
 """
         lengths = linter_checker.brace_function_lengths(swift_code, "swift")
-        self.assertEqual(len(lengths), 1)
-        self.assertEqual(lengths[0][0], "calculate")
+        self.assertEqual(
+            lengths,
+            [
+                ("<anonymous>", 4, 1, 1),
+                ("<anonymous>", 5, 1, 1),
+                ("calculate", 2, 5, 0),
+            ],
+        )
 
     def test_python_match_case_nesting(self):
         code = """
