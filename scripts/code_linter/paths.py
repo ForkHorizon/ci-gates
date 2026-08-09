@@ -16,7 +16,7 @@ from .coverage import (
     PathInventory,
     unknown_text_surface,
 )
-from .github import escape_github_data
+from .github import format_github_command
 
 
 def collect_paths(root: Path, config: dict, args: argparse.Namespace) -> list[Path]:
@@ -125,7 +125,7 @@ def changed_paths(root: Path, base: str, head: str) -> list[Path]:
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
         message = f"Unable to collect changed files: {stderr}"
-        print(f"::error::{escape_github_data(message)}", file=sys.stderr)
+        print(format_github_command("error", data=message), file=sys.stderr)
         sys.exit(2)
     return [root / path for path in result.stdout.split("\0") if path]
 

@@ -14,11 +14,43 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import code_linter
 import code_linter.paths as linter_paths
 from code_linter.coverage import CoverageGap, PathInventory
+from code_linter.github import format_github_command
 from code_linter.model import Issue
 from code_linter.runner import print_coverage_report
+from _progress import progress
 
 
 class GithubAnnotationSafetyTests(unittest.TestCase):
+    def test_command_formatter_escapes_every_property_and_data_field(self):
+        command = format_github_command(
+            "error",
+            properties=(
+                ("file", "bad\nname\r,:%\x1b\"';&.py"),
+                ("line", "1,2:3"),
+                ("title", "kind\n,:%\x1b\"';&"),
+            ),
+            data="message\nwith\rpercent % and \x1b[31m ANSI",
+        )
+        self.assertEqual(
+            command,
+            "::error file=bad%0Aname%0D%2C%3A%25%1B\"';&.py,line=1%2C2%3A3,"
+            "title=kind%0A%2C%3A%25%1B\"';&::message%0Awith%0Dpercent %25 and %1B[31m ANSI",
+        )
+
+    def test_command_formatter_supports_data_only_commands(self):
+        self.assertEqual(
+            format_github_command("notice", data="safe message"),
+            "::notice::safe message",
+        )
+
+    def test_progress_escapes_percent_encoded_command_sequences_in_paths(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            progress("lint", detail="bad%0A::warning file=forged::x")
+        command = output.getvalue().strip()
+        self.assertIn('"detail": "bad%250A::warning file=forged::x"', command)
+        self.assertNotIn('"detail": "bad%0A::warning', command)
+
     def test_data_escapes_low_and_c1_control_bytes(self):
         self.assertEqual(code_linter.escape_github_data("\t\x00\x1f\x7f\x80\x9f"), "%09%00%1F%7F%80%9F")
 

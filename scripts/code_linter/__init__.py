@@ -23,7 +23,7 @@ from .functions import (
     function_lengths,
     python_function_lengths,
 )
-from .github import escape_github_data, escape_github_property
+from .github import escape_github_data, escape_github_property, format_github_command
 from .literals import strip_strings
 from .nesting import check_nesting_depth
 from .paths import (
@@ -87,6 +87,7 @@ __all__ = [
     "escape_github_data",
     "escape_github_message",
     "escape_github_property",
+    "format_github_command",
     "function_lengths",
     "github_path",
     "language_for_path",

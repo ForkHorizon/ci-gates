@@ -10,6 +10,8 @@ job's local log file.
 import argparse
 import json
 
+from code_linter.github import format_github_command
+
 
 def progress(step, current=None, total=None, detail=None):
     payload = {"step": step}
@@ -19,7 +21,7 @@ def progress(step, current=None, total=None, detail=None):
         payload["total"] = total
     if detail is not None:
         payload["detail"] = str(detail)[:200]
-    print(f"::ci-scope-progress:: {json.dumps(payload)}", flush=True)
+    print(format_github_command("ci-scope-progress", data=f" {json.dumps(payload)}"), flush=True)
 
 
 def main(argv=None):

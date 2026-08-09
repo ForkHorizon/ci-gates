@@ -1,5 +1,23 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
+
+def format_github_command(
+    command: str,
+    *,
+    properties: Iterable[tuple[str, object]] = (),
+    data: object = "",
+) -> str:
+    """Format a workflow command while escaping all dynamic fields."""
+    encoded_properties = ",".join(
+        f"{name}={escape_github_property(str(value))}" for name, value in properties
+    )
+    prefix = f"::{command}"
+    if encoded_properties:
+        prefix += f" {encoded_properties}"
+    return f"{prefix}::{escape_github_data(str(data))}"
+
 
 def escape_github_data(value: str) -> str:
     return _escape_github(value, property_value=False)
