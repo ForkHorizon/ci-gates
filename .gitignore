@@ -1,2 +1,13 @@
 __pycache__/
 *.pyc
+
+# Local-only AI project memory and code graphs.
+.projectmem/
+CLAUDE.md
+graphify-out/
+.codebase-memory/
+
+.projectmem/events.jsonl
+.projectmem/watch.pid
+.projectmem/watch.log
+.projectmem/structure.json
