@@ -11,22 +11,71 @@ RUBY_DEF_PATTERN = re.compile(
     r"\s*def\s+((?:[A-Za-z_][A-Za-z0-9_]*(?:::|\.))?"
     r"(?:[A-Za-z_][A-Za-z0-9_]*[!?=]?|\[\]=?|[-+*/%<>=~&|^`]+))"
 )
+RUBY_HEREDOC_MARKER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def ruby_code_lines(text: str) -> list[tuple[int, str]]:
+    return _ruby_code_scan(text)[0]
+
+
+def _ruby_code_scan(text: str) -> tuple[list[tuple[int, str]], int | None]:
     lines = []
-    heredoc_end: str | None = None
+    heredoc_ends: list[tuple[str, int]] = []
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
-        if heredoc_end:
-            if raw_line.strip() == heredoc_end:
-                heredoc_end = None
+        if heredoc_ends:
+            if raw_line.strip() == heredoc_ends[0][0]:
+                heredoc_ends.pop(0)
             lines.append((line_number, ""))
             continue
-        match = re.search(r"<<[-~]?(?:['\"])?([A-Za-z_][A-Za-z0-9_]*)", raw_line)
-        if match:
-            heredoc_end = match.group(1)
-        lines.append((line_number, strip_ruby_comment(raw_line)))
-    return lines
+        clean_line = strip_ruby_comment(raw_line)
+        heredoc_ends.extend((marker, line_number) for marker in _ruby_heredoc_markers(raw_line))
+        lines.append((line_number, clean_line))
+    opener_line = heredoc_ends[0][1] if heredoc_ends else None
+    return lines, opener_line
+
+
+def _ruby_heredoc_markers(line: str) -> list[str]:
+    markers = []
+    index = 0
+    while index < len(line):
+        if line[index] in {'"', "'"}:
+            index = _skip_ruby_quote(line, index)
+            continue
+        if line[index] == "#":
+            break
+        if line[index] == "\\":
+            index += 2
+            continue
+        if not line.startswith("<<", index) or line.startswith("<<<", index):
+            index += 1
+            continue
+        marker_index = index + 2
+        if marker_index < len(line) and line[marker_index] in "-~":
+            marker_index += 1
+        quote = None
+        if marker_index < len(line) and line[marker_index] in {'"', "'"}:
+            quote = line[marker_index]
+            marker_index += 1
+        match = RUBY_HEREDOC_MARKER.match(line, marker_index)
+        if not match or (quote and (match.end() >= len(line) or line[match.end()] != quote)):
+            index += 2
+            continue
+        markers.append(match.group())
+        index = match.end() + bool(quote)
+    return markers
+
+
+def _skip_ruby_quote(line: str, index: int) -> int:
+    quote = line[index]
+    index += 1
+    while index < len(line):
+        if line[index] == "\\":
+            index += 2
+        elif line[index] == quote:
+            return index + 1
+        else:
+            index += 1
+    return index
 
 
 def ruby_block_start(line: str) -> bool:
@@ -41,13 +90,16 @@ def ruby_block_start(line: str) -> bool:
 
 def ruby_syntax_issues(relative: str, text: str) -> list[Issue]:
     stack: list[int] = []
-    for line_number, line in ruby_code_lines(text):
+    clean_lines, heredoc_opener = _ruby_code_scan(text)
+    for line_number, line in clean_lines:
         if ruby_block_start(line):
             stack.append(line_number)
         for _ in re.finditer(r"(^|[^A-Za-z0-9_])end([^A-Za-z0-9_]|$)", line):
             if not stack:
                 return [Issue(relative, line_number, "syntax_error", "Unexpected Ruby 'end'.")]
             stack.pop()
+    if heredoc_opener:
+        return [Issue(relative, heredoc_opener, "syntax_error", "Ruby heredoc is missing its terminator.")]
     if stack:
         return [Issue(relative, stack[-1], "syntax_error", "Ruby block is missing 'end'.")]
     return []
