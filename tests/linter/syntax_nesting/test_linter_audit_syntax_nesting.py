@@ -202,7 +202,9 @@ class NestingTests(unittest.TestCase):
         self.assert_nesting_count(source, "kotlin", 1, 1)
 
     def test_php_alternative_depth_three_over_limit_fails(self):
-        source = "if ($a):\n foreach ($items as $item):\n  while ($item):\n   work();\n  endwhile;\n endforeach;\nendif;\n"
+        source = (
+            "if ($a):\n foreach ($items as $item):\n  while ($item):\n   work();\n  endwhile;\n endforeach;\nendif;\n"
+        )
         self.assert_nesting_count(source, "php", 2, 1)
 
     def test_php_alternative_outer_with_braced_inner_combines_depth(self):
