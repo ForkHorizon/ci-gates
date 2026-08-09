@@ -9,32 +9,34 @@ except ModuleNotFoundError:  # Python 3.10: report an explicit capability gap.
     tomllib = None
 
 from .model import Issue
+from .gitignore import gitignore_syntax_issues
 from .ruby import ruby_syntax_issues
 from .shell import shell_syntax_issues
 from .scanner import CStyleScanState, scan_c_style_line
+from .yaml import yaml_syntax_issues
 
 
 def check_syntax(relative: str, text: str, language: str) -> list[Issue]:
     if language == "python":
-        try:
-            ast.parse(text)
-        except SyntaxError as exc:
-            return [
-                Issue(
-                    relative,
-                    exc.lineno or 1,
-                    "syntax_error",
-                    f"Python syntax error: {exc.msg}.",
-                )
-            ]
-        return []
-    if language == "ruby":
-        return ruby_syntax_issues(relative, text)
-    if language == "shell":
-        return shell_syntax_issues(relative, text)
+        return python_syntax_issues(relative, text)
     if language in {"json", "toml"}:
         return config_syntax_issues(relative, text, language)
-    return c_style_syntax_issues(relative, text, language)
+    checkers = {
+        "gitignore": gitignore_syntax_issues,
+        "ruby": ruby_syntax_issues,
+        "shell": shell_syntax_issues,
+        "yaml": yaml_syntax_issues,
+    }
+    checker = checkers.get(language)
+    return checker(relative, text) if checker else c_style_syntax_issues(relative, text, language)
+
+
+def python_syntax_issues(relative: str, text: str) -> list[Issue]:
+    try:
+        ast.parse(text)
+    except SyntaxError as exc:
+        return [Issue(relative, exc.lineno or 1, "syntax_error", f"Python syntax error: {exc.msg}.")]
+    return []
 
 
 def config_syntax_issues(relative: str, text: str, language: str) -> list[Issue]:

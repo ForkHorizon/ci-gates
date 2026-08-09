@@ -7,10 +7,11 @@ from pathlib import Path
 from _progress import progress
 
 from .config import (
-    LANGUAGE_BY_EXTENSION,
     LIMIT_DEFAULTS,
     MAX_FILE_BYTES,
+    SYNTAX_ONLY_LANGUAGES,
     config_error,
+    language_for_path,
     load_config,
 )
 from .coverage import CoverageGap, PathInventory
@@ -100,6 +101,8 @@ def source_issues(relative: Path, text: str, language: str | None, limits: dict[
     issues.extend(syntax)
     if syntax:
         return issues
+    if language in SYNTAX_ONLY_LANGUAGES:
+        return issues
     issues.extend(function_issues(relative, text, language, limits))
     issues.extend(check_nesting_depth(relative, text, language, limits["max_nesting_depth"]))
     issues.extend(
@@ -120,7 +123,7 @@ def check_path(root: Path, path: Path, config: dict) -> list[Issue]:
     text, error = read_source(path, relative)
     if error:
         return [error]
-    language = LANGUAGE_BY_EXTENSION.get(path.suffix.lower())
+    language = language_for_path(path)
     limits = limits_for_language(config, language or "")
     return source_issues(relative, text or "", language, limits)
 

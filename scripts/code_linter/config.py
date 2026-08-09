@@ -26,6 +26,8 @@ LANGUAGE_BY_EXTENSION = {
     ".sh": "shell",
     ".bash": "shell",
     ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
     ".toml": "toml",
     ".swift": "swift",
     ".cs": "csharp",
@@ -42,6 +44,8 @@ LANGUAGE_BY_EXTENSION = {
     ".php": "php",
     ".rb": "ruby",
 }
+LANGUAGE_BY_FILENAME = {".gitignore": "gitignore"}
+SYNTAX_ONLY_LANGUAGES = {"gitignore", "yaml"}
 
 DEFAULT_IGNORE = [
     ".ci-gates",
@@ -60,7 +64,6 @@ DEFAULT_IGNORE = [
     "Pods",
     "bin",
     "build",
-    "coverage",
     "dist",
     "node_modules",
     "obj",
@@ -107,6 +110,10 @@ def initial_config() -> dict:
     config["language_overrides"] = {}
     config["coverage_exceptions"] = [dict(item) for item in DEFAULT_COVERAGE_EXCEPTIONS]
     return config
+
+
+def language_for_path(path: Path) -> str | None:
+    return LANGUAGE_BY_FILENAME.get(path.name.lower()) or LANGUAGE_BY_EXTENSION.get(path.suffix.lower())
 
 
 def read_config(path: Path) -> dict:

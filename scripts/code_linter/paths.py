@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from .config import LANGUAGE_BY_EXTENSION, config_error
+from .config import LANGUAGE_BY_EXTENSION, config_error, language_for_path
 from .coverage import (
     UNSUPPORTED_SURFACE_BY_EXTENSION,
     UNSUPPORTED_SURFACE_BY_FILENAME,
@@ -34,7 +34,11 @@ def collect_path_inventory(root: Path, config: dict, args: argparse.Namespace) -
         if gap is not None:
             gaps.append(gap)
             continue
-        if to_relative(root, path) != policy_path and path.is_file() and path.suffix.lower() in include_extensions:
+        if (
+            to_relative(root, path) != policy_path
+            and path.is_file()
+            and (path.suffix.lower() in include_extensions or language_for_path(path) == "gitignore")
+        ):
             paths.append(path)
     return PathInventory(tuple(sorted(paths)), tuple(sorted(gaps, key=lambda gap: gap.path)))
 
@@ -51,13 +55,10 @@ def candidate_paths(root: Path, args: argparse.Namespace) -> list[Path]:
 
 def coverage_gap_for(root: Path, path: Path, config: dict, include_extensions: set[str]) -> CoverageGap | None:
     extension = path.suffix.lower()
+    language = language_for_path(path)
     surface = unsupported_surface(path)
-    unknown = (
-        unknown_text_surface(path)
-        if path.is_file() and extension not in LANGUAGE_BY_EXTENSION and surface is None
-        else None
-    )
-    source_like = extension in LANGUAGE_BY_EXTENSION or surface is not None or unknown is not None
+    unknown = unknown_text_surface(path) if path.is_file() and language is None and surface is None else None
+    source_like = language is not None or surface is not None or unknown is not None
     if path.is_symlink() and source_like:
         config_error(path, "Source symlinks are not allowed.")
     relative = to_relative(root, path)
@@ -73,7 +74,7 @@ def coverage_gap_for(root: Path, path: Path, config: dict, include_extensions: s
             f"Source-like file is skipped by ignore pattern(s): {', '.join(ignored_by)}.",
             ignored_by,
         )
-    if extension in LANGUAGE_BY_EXTENSION and extension not in include_extensions:
+    if language is not None and extension and extension not in include_extensions and language != "gitignore":
         return CoverageGap(
             relative,
             "excluded_extension",
