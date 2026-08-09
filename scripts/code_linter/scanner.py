@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from .javascript_templates import TemplateContext, consume_template_brace, consume_template_text
 from .literals import is_rust_lifetime
+from .php_heredoc import closes_marker, marker_at
 
 
 @dataclass
@@ -83,19 +84,19 @@ def starts_javascript_regex(output: Sequence[str]) -> bool:
     )
 
 
-def scan_heredoc(line: str, language: str, state: CStyleScanState) -> tuple[str, bool] | None:
+def scan_heredoc(line: str, language: str, state: CStyleScanState, index: int = 0) -> int | None:
     if state.quote and state.quote.startswith("php-heredoc:"):
         marker = state.quote.removeprefix("php-heredoc:")
-        if line.strip().rstrip(";") == marker:
+        if closes_marker(line, marker):
             state.quote = None
-        return "", False
+        return len(line)
     if language != "php":
         return None
-    heredoc = re.search(r"<<<[-~]?(?:['\"])?([A-Z][A-Za-z0-9_]*)", line)
-    if not heredoc:
+    marker = marker_at(line, index)
+    if marker is None:
         return None
-    state.quote = f"php-heredoc:{heredoc.group(1)}"
-    return line[: heredoc.start()], False
+    state.quote = f"php-heredoc:{marker}"
+    return len(line)
 
 
 def consume_block_comment(line: str, index: int, language: str, state: CStyleScanState) -> int:
@@ -199,23 +200,29 @@ def consume_quoted_literal(line: str, index: int) -> int:
 def start_special_region(
     line: str, index: int, language: str, state: CStyleScanState
 ) -> tuple[int | None, bool] | None:
+    special = None
     if line.startswith("//", index) or (language in {"php", "shell", "toml"} and line[index] == "#"):
-        return None, True
-    if line.startswith("/*", index):
+        special = (None, True)
+    elif line.startswith("/*", index):
         state.block_depth = 1
-        return index + 2, True
-    raw = raw_string_terminator(line, index, language)
-    if raw:
-        index, terminator = raw
-        state.raw_terminator = terminator
-        return index, False
-    if line.startswith('"""', index):
-        state.quote = '"""'
-        return index + 3, False
-    if language == "csharp" and line.startswith('@"', index):
-        state.quote = '@"'
-        return index + 2, False
-    return None
+        special = (index + 2, True)
+    else:
+        raw = raw_string_terminator(line, index, language)
+        if raw:
+            index, terminator = raw
+            state.raw_terminator = terminator
+            special = (index, False)
+        elif language == "php":
+            heredoc = scan_heredoc(line, language, state, index)
+            if heredoc is not None:
+                special = (heredoc, False)
+        if special is None and line.startswith('"""', index):
+            state.quote = '"""'
+            special = (index + 3, False)
+        if special is None and language == "csharp" and line.startswith('@"', index):
+            state.quote = '@"'
+            special = (index + 2, False)
+    return special
 
 
 def consume_template_region(
@@ -244,9 +251,9 @@ def consume_template_region(
 
 
 def scan_c_style_line(line: str, language: str, state: CStyleScanState) -> tuple[str, bool]:
-    heredoc = scan_heredoc(line, language, state)
-    if heredoc is not None:
-        return heredoc
+    if state.quote and state.quote.startswith("php-heredoc:"):
+        scan_heredoc(line, language, state)
+        return "", False
     output = []
     index = 0
     had_comment = False
