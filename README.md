@@ -8,7 +8,7 @@ pushing to `main` in this repo updates every project instantly.
 
 | Workflow | What it checks |
 |---|---|
-| `code-linter.yml` | Dependency-free structure checks for 13 languages: file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, prose comment block ≤ 5 lines, doc-comment block ≤ 50 lines, top-level types per file ≤ 2, plus Python syntax and lexical block-balance checks. |
+| `code-linter.yml` | Dependency-free structure checks for 13 languages: file ≤ 300 lines, function ≤ 50 lines, control-flow nesting ≤ 4, parameters ≤ 5, prose comment block ≤ 5 lines, doc-comment block ≤ 50 lines, top-level types per file ≤ 2, plus Python syntax and lexical block-balance checks. Blank lines inside a comment run do not reset its limit; recognized SPDX/license headers have a bounded allowance of 30 lines under the default policy. |
 | `swift-compile.yml` | Project compiles; fails on critical warnings (Swift 6 concurrency, Sendable, data races). |
 | `swift-quality.yml` | Build, `swift-format lint --strict`, dead code via Periphery. |
 | `web-quality.yml` | TS/JS: `tsc --noEmit`, ESLint (if the repo has a config), dead code + unused deps via knip, copy-paste via jscpd. |

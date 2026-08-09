@@ -10,6 +10,8 @@ from .model import Issue
 from .scanner import brace_events, scan_c_style_lines
 
 DOC_LINE_PREFIXES = ("///", "//!")
+LICENSE_HEADER_SCAN_LINES = 5
+LICENSE_HEADER_MAX_LINES = 30
 
 
 def python_comment_kinds(text: str) -> list[str | None]:
@@ -77,12 +79,22 @@ def comment_line_kinds(text: str, language: str) -> list[str | None]:
 
 
 def comment_line_flags(text: str, language: str) -> list[bool]:
+    """Return prose-comment flags; documentation comments are deliberately false."""
     return [kind == "prose" for kind in comment_line_kinds(text, language)]
 
 
 def is_license_header(lines: Sequence[str]) -> bool:
-    header = "\n".join(lines).lower()
-    return any(token in header for token in ("spdx-license-identifier", "copyright", "licensed under"))
+    header = "\n".join(lines[:LICENSE_HEADER_SCAN_LINES]).lower()
+    if re.search(r"\bspdx-license-identifier\s*:\s*\S+", header):
+        return True
+    return "copyright" in header and any(
+        phrase in header
+        for phrase in (
+            "licensed under",
+            "permission is hereby granted",
+            "redistribution and use",
+        )
+    )
 
 
 def check_comment_blocks(
@@ -92,6 +104,11 @@ def check_comment_blocks(
     max_comment_lines: int,
     max_doc_comment_lines: int = 50,
 ) -> list[Issue]:
+    """Flag comment runs over their configured limit.
+
+    Blank source lines inside a comment run do not reset its count, so prose
+    cannot evade the limit by splitting into smaller visual paragraphs.
+    """
     issues: list[Issue] = []
     current_start: int | None = None
     current_kind: str | None = None
@@ -102,14 +119,16 @@ def check_comment_blocks(
         if current_start is None or current_kind is None:
             return
         limit = max_doc_comment_lines if current_kind == "doc" else max_comment_lines
-        header_lines = lines[current_start - 1 : current_start - 1 + count]
-        if count > limit and not (current_start == 1 and is_license_header(header_lines)):
+        header_lines = lines[current_start - 1 : current_start - 1 + LICENSE_HEADER_SCAN_LINES]
+        is_bounded_license = current_start == 1 and is_license_header(header_lines)
+        allowed_limit = max(limit, LICENSE_HEADER_MAX_LINES) if is_bounded_license else limit
+        if count > allowed_limit:
             issues.append(
                 Issue(
                     path=relative,
                     line=current_start or 1,
                     kind="doc_comment_block" if current_kind == "doc" else "comment_block",
-                    message=f"{current_kind.title()} comment block has {count} lines; limit is {limit}.",
+                    message=f"{current_kind.title()} comment block has {count} lines; limit is {allowed_limit}.",
                 )
             )
 
