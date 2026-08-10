@@ -91,7 +91,7 @@ def detect_javascript_method(line: str, allow_method_fallback: bool, typescript:
     return method_name(line, typescript) or field_arrow_name(line, typescript)
 
 
-def is_typescript_method_declaration(signature: str, name: str) -> bool:
+def is_typescript_method_declaration(signature: str, name: str, allow_bare: bool = False) -> bool:
     if not name or "(" not in signature or ")" not in signature:
         return False
     if method_name(signature, typescript=True) != name:
@@ -106,7 +106,7 @@ def is_typescript_method_declaration(signature: str, name: str) -> bool:
     suffix = signature[close + 1 :].lstrip()
     if re.search(r"\b(?:public|private|protected|abstract|declare)\b", signature):
         return suffix.startswith((":", ";"))
-    return suffix.startswith(":")
+    return suffix.startswith((":", ";")) if allow_bare else suffix.startswith(":")
 
 
 def matching_parenthesis(signature: str, opening: int) -> int:

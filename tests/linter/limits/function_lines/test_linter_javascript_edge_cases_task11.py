@@ -117,6 +117,25 @@ declare class External {
         )
         self.assertEqual(self.lengths(source), [("run", 1, 1, 2), ("load", 2, 1, 2)])
 
+    def test_split_brace_class_and_interface_methods_are_measured(self):
+        source = """class Worker
+{
+  #run(first, second) { return first + second; }
+}
+interface Contract
+{
+  run(first, second);
+}
+"""
+        self.assertEqual(self.lengths(source), [("#run", 3, 1, 2), ("run", 7, 1, 2)])
+
+    def test_interface_overload_without_return_annotation_is_measured(self):
+        source = """interface Contract {
+  run(first, second);
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 2, 1, 2)])
+
 
 if __name__ == "__main__":
     unittest.main()

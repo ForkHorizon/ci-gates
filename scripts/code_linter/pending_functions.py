@@ -60,13 +60,13 @@ def finish_expression_body(
 def finish_declaration(
     state: FunctionScanState,
     signature: str,
-    context: tuple[str, int, int, int, str],
+    context: tuple[str, int, int, int, str, bool],
 ) -> None:
-    name, start, params, line_number, language = context
+    name, start, params, line_number, language, allow_bare = context
     declaration = bool(
         (language in {"csharp", "java"} and re.search(r"\b(?:abstract|extern|native)\b", signature))
         or (language == "typescript" and re.search(r"\bdeclare\s+function\b", signature))
-        or (language == "typescript" and is_typescript_method_declaration(signature, name))
+        or (language == "typescript" and is_typescript_method_declaration(signature, name, allow_bare))
     )
     if declaration:
         state.results.append((name, start, line_number - start + 1, params))
@@ -104,7 +104,18 @@ def finish_pending_line(
     ):
         finish_expression_body(state, stripped, name, start, params)
     elif stripped.endswith(";"):
-        finish_declaration(state, signature, (name, start, params, line_number, language))
+        finish_declaration(
+            state,
+            signature,
+            (
+                name,
+                start,
+                params,
+                line_number,
+                language,
+                state.brace_depth in state.javascript_declaration_scopes,
+            ),
+        )
     elif closes and not opens and (language != "csharp" or signature.count("(") == signature.count(")")):
         state.results.append((name, start, max(1, line_number - start), params))
         clear_pending(state)

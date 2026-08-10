@@ -10,7 +10,7 @@ from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
 from .objective_c import objective_c_method_start, objective_c_selector
-from .javascript_tracking import track_javascript_signature
+from .javascript_tracking import track_javascript_signature, track_split_type_context
 from .signatures import (
     count_params_in_signature,
     csharp_lambda_match,
@@ -42,6 +42,8 @@ class FunctionScanState:
     objective_c_candidate_start: int = 0
     javascript_candidate: list[str] = field(default_factory=list)
     javascript_candidate_start: int = 0
+    javascript_type_candidate: list[str] = field(default_factory=list)
+    javascript_declaration_scopes: list[int] = field(default_factory=list)
 
 
 def clear_objective_c_candidate(state: FunctionScanState) -> None:
@@ -89,6 +91,9 @@ def clear_csharp_candidate(state: FunctionScanState) -> None:
 def track_declaration_context(state: FunctionScanState, clean: str, language: str) -> None:
     state.type_scopes = [scope for scope in state.type_scopes if scope[0] <= state.brace_depth]
     state.method_scopes = [depth for depth in state.method_scopes if depth <= state.brace_depth]
+    state.javascript_declaration_scopes = [
+        depth for depth in state.javascript_declaration_scopes if depth <= state.brace_depth
+    ]
     if language in {
         "c",
         "cpp",
@@ -104,10 +109,14 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
             depth = state.brace_depth + clean[: match.end()].count("{")
             state.type_scopes.append((depth, match.group(1)))
     if language in {"javascript", "typescript"}:
+        track_split_type_context(state, clean)
         class_pattern = r"\b(?:class|interface)(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
         object_pattern = r"(?:\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)\{"
         if re.search(class_pattern, clean) or re.search(object_pattern, clean):
-            state.method_scopes.append(state.brace_depth + clean.count("{"))
+            depth = state.brace_depth + clean.count("{")
+            state.method_scopes.append(depth)
+            if re.search(r"\binterface\b|\bdeclare\s+class\b", clean):
+                state.javascript_declaration_scopes.append(depth)
 
 
 def set_pending_signature(

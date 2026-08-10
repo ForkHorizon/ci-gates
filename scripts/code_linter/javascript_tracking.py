@@ -15,6 +15,26 @@ def clear_javascript_candidate(state: FunctionScanState) -> None:
     state.javascript_candidate_start = 0
 
 
+def track_split_type_context(state: FunctionScanState, clean: str) -> None:
+    candidate = state.javascript_type_candidate
+    if candidate:
+        candidate.append(clean)
+        if "{" in clean:
+            depth = state.brace_depth + sum(line.count("{") for line in candidate)
+            state.method_scopes.append(depth)
+            text = " ".join(candidate)
+            if re.search(r"\binterface\b|\bdeclare\s+class\b", text):
+                state.javascript_declaration_scopes.append(depth)
+            state.javascript_type_candidate = []
+        elif "}" in clean or ";" in clean:
+            state.javascript_type_candidate = []
+    elif re.match(
+        r"^\s*(?:(?:export|declare|abstract)\s+)*(?:class|interface)\b[^{}]*$",
+        clean,
+    ):
+        state.javascript_type_candidate = [clean]
+
+
 def javascript_header_candidate(line: str) -> bool:
     stripped = line.strip()
     if not stripped or any(mark in stripped for mark in (";", "=", "{")):
