@@ -118,11 +118,23 @@ def run_focused_tests(root: Path, command_template: tuple[str, ...]) -> tuple[st
         )
     except subprocess.TimeoutExpired as exc:
         return "error", f"focused tests timed out after {exc.timeout}s"
+    except (OSError, UnicodeError) as exc:
+        return "error", f"focused tests could not execute or decode output: {exc}"
     combined = result.stdout + result.stderr
-    if result.returncode == 0:
-        return "passed", ""
     if not re.search(r"Ran [1-9][0-9]* tests?", combined):
         return "error", "focused tests did not complete a non-empty test run"
+    collection_errors = (
+        "_FailedTest",
+        "ImportError",
+        "ModuleNotFoundError",
+        "SyntaxError",
+        "setUpClass",
+        "setUpModule",
+    )
+    if any(marker in combined for marker in collection_errors):
+        return "error", "focused tests reported a collection or setup failure"
+    if result.returncode == 0:
+        return "passed", ""
     return "failed", combined[-2000:]
 
 
@@ -162,14 +174,14 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     killed = 0
-    baselines: dict[tuple[str, ...], str] = {}
+    baselines: set[tuple[str, ...]] = set()
     for mutation in mutations:
         if mutation.command not in baselines:
             status, detail = run_focused_tests(ROOT, mutation.command)
             if status != "passed":
                 print(f"{mutation.name}: baseline error: {detail}", file=sys.stderr)
                 return 1
-            baselines[mutation.command] = status
+            baselines.add(mutation.command)
         try:
             status, detail = run_mutation(ROOT, mutation)
         except MutationError as exc:

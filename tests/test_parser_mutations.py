@@ -110,6 +110,22 @@ class ParserMutationStageTests(unittest.TestCase):
         self.assertEqual(status, "error")
         self.assertIn("non-empty test run", detail)
 
+    def test_zero_test_success_is_not_a_valid_baseline(self):
+        status, detail = RUNNER.run_focused_tests(
+            ROOT,
+            ("{python}", "-m", "unittest"),
+        )
+        self.assertEqual(status, "error")
+        self.assertIn("non-empty test run", detail)
+
+    def test_failed_test_loader_is_not_a_killed_mutation(self):
+        status, detail = RUNNER.run_focused_tests(
+            ROOT,
+            ("{python}", "-m", "unittest", "tests.does_not_exist", "-q"),
+        )
+        self.assertEqual(status, "error")
+        self.assertIn("collection or setup", detail)
+
 
 if __name__ == "__main__":
     unittest.main()
