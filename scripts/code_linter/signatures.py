@@ -77,7 +77,10 @@ def parameter_start(signature: str, name: str | None, language: str) -> tuple[in
             signature,
         )
         if field_arrow:
-            return signature.find("(", field_arrow.start()), 0
+            parameters = field_arrow.group(0).split("=>", 1)[0].rstrip()
+            if parameters.endswith(")"):
+                return signature.find("(", field_arrow.start()), 0
+            return -1, 1
         anchored = re.search(
             re.escape(name) + r"\s*(?:<[^<>]*>|\[[^\[\]]*\])?\s*\(",
             signature,

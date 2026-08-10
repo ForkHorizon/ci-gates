@@ -40,6 +40,8 @@ class FunctionScanState:
     swift_candidate_open: bool = False
     objective_c_candidate: list[str] = field(default_factory=list)
     objective_c_candidate_start: int = 0
+    javascript_candidate: list[str] = field(default_factory=list)
+    javascript_candidate_start: int = 0
 
 
 def clear_objective_c_candidate(state: FunctionScanState) -> None:
@@ -102,7 +104,7 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
             depth = state.brace_depth + clean[: match.end()].count("{")
             state.type_scopes.append((depth, match.group(1)))
     if language in {"javascript", "typescript"}:
-        class_pattern = r"\bclass(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
+        class_pattern = r"\b(?:class|interface)(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
         object_pattern = r"(?:\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)\{"
         if re.search(class_pattern, clean) or re.search(object_pattern, clean):
             state.method_scopes.append(state.brace_depth + clean.count("{"))

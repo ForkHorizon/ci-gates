@@ -28,8 +28,9 @@ _METHOD_PATTERN = re.compile(
 )
 _FIELD_ARROW_PATTERN = re.compile(
     r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
-    r"(?P<name>#[A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s+)?"
-    r"(?:\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>"
+    r"(?P<name>#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"\s*=\s*(?:async\s+)?"
+    r"(?P<parameters>\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>"
 )
 
 
@@ -38,6 +39,8 @@ def method_name(line: str, typescript: bool = False) -> str | None:
     if not match:
         return None
     name = match.group("name")
+    if name.startswith("[") and name.endswith("]"):
+        name = "[" + " ".join(name[1:-1].split()) + "]"
     if name in CONTROL_WORDS:
         return None
     modifiers = set(match.group("prefix").split())
@@ -85,9 +88,32 @@ def detect_javascript_method(line: str, allow_method_fallback: bool, typescript:
 def is_typescript_method_declaration(signature: str, name: str) -> bool:
     if not name or "(" not in signature or ")" not in signature:
         return False
-    if not re.search(r"\b(?:public|private|protected|abstract|declare)\b", signature):
+    if method_name(signature, typescript=True) != name:
         return False
-    return method_name(signature, typescript=True) == name
+    if re.search(r"\b(?:public|private|protected|abstract|declare)\b", signature):
+        return True
+    name_start = signature.find(name)
+    opening = signature.find("(", max(0, name_start))
+    close = matching_parenthesis(signature, opening)
+    if close < 0:
+        return False
+    return signature[close + 1 :].lstrip().startswith(":")
+
+
+def matching_parenthesis(signature: str, opening: int) -> int:
+    if opening < 0:
+        return -1
+    depth = 0
+    for index in range(opening, len(signature)):
+        if signature[index] == "(":
+            depth += 1
+        elif signature[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+            if depth < 0:
+                return -1
+    return -1
 
 
 def has_complete_method_header(signature: str, name: str) -> bool:
