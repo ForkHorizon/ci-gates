@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import importlib
 import importlib.util
 import io
 import subprocess
@@ -13,12 +14,12 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
+runner = importlib.import_module("code_linter.runner")
 spec = importlib.util.spec_from_file_location("coverage_enforcement_linter", SCRIPTS / "code-linter.py")
 linter = importlib.util.module_from_spec(spec)
 sys.modules["coverage_enforcement_linter"] = linter
 assert spec.loader is not None
 spec.loader.exec_module(linter)
-from code_linter import runner
 
 
 class CoverageEnforcementTestCase(unittest.TestCase):
@@ -56,7 +57,10 @@ class CoverageEnforcementTests(CoverageEnforcementTestCase):
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].kind, "coverage_gap")
         self.assertEqual(issues[0].path, "src/custom.dsl")
-        self.assertIn("Unable to read unknown coverage input", issues[0].message)
+        self.assertEqual(
+            issues[0].message,
+            "Unable to read unknown coverage input. Code Linter cannot determine whether this tracked input is covered.",
+        )
 
     def test_report_cli_warns_for_unreadable_unknown_input_without_traceback(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -75,6 +79,7 @@ class CoverageEnforcementTests(CoverageEnforcementTestCase):
         self.assertIn("coverage_gap", report)
         self.assertIn("file=custom.dsl", report)
         self.assertIn("Unable to read unknown coverage input", report)
+        self.assertNotIn("denied", report)
         self.assertNotIn("Traceback", report)
 
     def test_strict_cli_fails_for_unreadable_extensionless_input_without_traceback(self):
@@ -93,7 +98,8 @@ class CoverageEnforcementTests(CoverageEnforcementTestCase):
         self.assertEqual(result, 1)
         self.assertIn("coverage_gap", report)
         self.assertIn("file=custom", report)
-        self.assertIn("I/O unavailable", report)
+        self.assertIn("Unable to read unknown coverage input", report)
+        self.assertNotIn("I/O unavailable", report)
         self.assertNotIn("Traceback", report)
 
     def test_known_language_read_errors_remain_file_read_issues(self):

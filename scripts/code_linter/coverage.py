@@ -110,13 +110,13 @@ def unknown_text_surface(path: Path) -> tuple[str, str] | CoverageGap | None:
         return None
     try:
         sample = path.read_bytes()[:8192]
-    except OSError as exc:
+    except OSError:
         extension = path.suffix.lower() or "extensionless"
         return CoverageGap(
             path.as_posix(),
             "coverage_read_error",
             extension,
-            f"Unable to read unknown coverage input: {exc}.",
+            "Unable to read unknown coverage input.",
         )
     if b"\x00" in sample:
         return None

@@ -60,7 +60,7 @@ class CoverageInventoryTests(CoverageInventoryTestCase):
         self.assertEqual(gap.category, "coverage_read_error")
         self.assertEqual(gap.extension, ".dsl")
         self.assertIn("Unable to read unknown coverage input", gap.message)
-        self.assertIn("denied", gap.message)
+        self.assertNotIn("denied", gap.message)
 
     def test_extensionless_os_error_is_a_structured_coverage_read_gap(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -74,7 +74,7 @@ class CoverageInventoryTests(CoverageInventoryTestCase):
         self.assertEqual(gap.category, "coverage_read_error")
         self.assertEqual(gap.extension, "extensionless")
         self.assertEqual(gap.path, "src/custom")
-        self.assertIn("I/O unavailable", gap.message)
+        self.assertEqual(gap.message, "Unable to read unknown coverage input.")
 
     def test_unknown_text_surface_returns_structured_read_error_for_permission_failures(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -84,7 +84,7 @@ class CoverageInventoryTests(CoverageInventoryTestCase):
                 result = linter.unknown_text_surface(path)
         self.assertEqual(getattr(result, "category", None), "coverage_read_error")
         self.assertEqual(getattr(result, "path", None), path.as_posix())
-        self.assertIn("denied", getattr(result, "message", ""))
+        self.assertEqual(getattr(result, "message", None), "Unable to read unknown coverage input.")
 
     def test_unknown_text_surface_keeps_normal_unknown_text_as_unknown_surface(self):
         with tempfile.TemporaryDirectory() as directory:
