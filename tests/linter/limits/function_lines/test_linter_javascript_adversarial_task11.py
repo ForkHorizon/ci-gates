@@ -226,6 +226,40 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
         for source in sources:
             self.assertEqual(self.lengths(source), [("run", 1, 1, 3)])
 
+    def test_split_export_const_and_call_object_contexts_are_measured(self):
+        sources = (
+            "export const object =\n{\n run(a,b,c) {}\n};\n",
+            "consume(\n{\n run(a,b,c) {}\n}\n);\n",
+        )
+        for source in sources:
+            self.assertEqual(self.lengths(source), [("run", 3, 1, 3)])
+
+    def test_nested_multiline_generic_constraints_preserve_outer_metadata(self):
+        method = """class C {
+  run<T extends {
+    f: (x: X) => { y: Z }
+  }>(a,b,c) {
+    return a;
+  }
+}
+"""
+        arrow = """class C {
+  run = <T extends {
+    f: (x: X) => { y: Z }
+  }>(a,b,c) => a;
+}
+"""
+        self.assertEqual(self.lengths(method), [("run", 2, 3, 3)])
+        self.assertEqual(self.lengths(arrow), [("run", 2, 1, 3)])
+
+    def test_malformed_candidate_does_not_swallow_following_method(self):
+        source = """class C {
+  private #broken
+  run(a,b,c) {}
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 3, 1, 3)])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,13 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from .javascript_candidates import (
+    javascript_candidate_continues,
+    javascript_header_candidate,
+    javascript_new_method_start,
+)
 from .javascript_methods import detect_javascript_method
+from .javascript_generics import generic_parameter_opening
 from .signatures import count_params_in_signature, detect_brace_function
 
 
@@ -92,72 +98,12 @@ def track_split_type_context(state: FunctionScanState, clean: str) -> None:
             state.javascript_type_candidate = []
     elif re.match(
         r"^\s*(?:(?:export|declare|abstract)\s+)*(?:class|interface)\b[^{}]*$|"
-        r"^\s*(?:(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=|export\s+default|module\.exports\s*=)\s*$",
+        r"^\s*(?:(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=|"
+        r"export\s+default|module\.exports\s*=|return\s*\(|"
+        r"[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?\s*\()\s*$",
         clean,
     ):
         state.javascript_type_candidate = [clean]
-
-
-def javascript_header_candidate(line: str) -> bool:
-    stripped = line.strip()
-    if not stripped or ";" in stripped:
-        return False
-    field_start = re.match(
-        r"^(?:(?:async|static|abstract|declare|override|public|private|protected|readonly)\s+)*"
-        r"#?[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\(|<)",
-        stripped,
-    )
-    if "{" in stripped and not field_start:
-        return False
-    if "=" in stripped and not re.match(
-        r"^(?:(?:async|static|abstract|declare|override|public|private|protected|readonly)\s+)*"
-        r"#?[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\(|<)",
-        stripped,
-    ):
-        return False
-    return bool(
-        re.match(
-            r"^(?:async|static|get|set|abstract|declare|override|public|private|"
-            r"protected|readonly|\*|#|\[|\(|\]|[A-Za-z_$][A-Za-z0-9_$]*$)",
-            stripped,
-        )
-        or stripped.endswith("<")
-        or field_start
-    )
-
-
-def javascript_candidate_continues(candidate: list[str], clean: str) -> bool:
-    stripped = clean.strip()
-    if not stripped or ";" in stripped:
-        return False
-    if "{" in " ".join(candidate) and "}" not in " ".join(candidate):
-        return True
-    if "=" in stripped and "=>" not in stripped:
-        return False
-    text = " ".join(candidate).lstrip()
-    if text.startswith("["):
-        return True
-    if "<" in text and re.match(r"[A-Za-z_$][A-Za-z0-9_$]*\s*<", text):
-        return True
-    return javascript_header_candidate(clean)
-
-
-def javascript_new_method_start(line: str, signature: str = "") -> bool:
-    stripped = line.strip()
-    if signature.count("(") > signature.count(")") or signature.count("[") > signature.count("]"):
-        return False
-    header = stripped.split("{", 1)[0].split(";", 1)[0].rstrip()
-    if not header or "=" in header:
-        return False
-    method_start = bool(
-        re.match(
-            r"^(?:(?:async|static|get|set|abstract|declare|override|public|private|"
-            r"protected|readonly)\b\s+|\*\s*|#|\[)",
-            header,
-        )
-        or re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*\s*\(", header)
-    )
-    return method_start
 
 
 def continue_pending_javascript(state: FunctionScanState, clean: str, language: str) -> bool:
@@ -243,6 +189,35 @@ def javascript_arrow_method(detected: str, clean: str) -> bool:
     )
 
 
+def track_javascript_candidate(
+    state: FunctionScanState,
+    clean: str,
+    language: str,
+    enclosing_types: frozenset[str],
+    allow_method_fallback: bool,
+) -> bool:
+    state.javascript_candidate.append(clean)
+    candidate = "\n".join(state.javascript_candidate)
+    detected = detect_brace_function(candidate, language, enclosing_types, allow_method_fallback)
+    generic_incomplete = (
+        language == "typescript" and "<" in candidate and generic_parameter_opening(candidate, candidate.find("<")) < 0
+    )
+    complete = detected is not None and (
+        "{" in candidate or (language == "typescript" and ":" in candidate and candidate.rstrip().endswith(";"))
+    )
+    if complete and not generic_incomplete:
+        state.pending_signature = candidate.splitlines()
+        params = count_params_in_signature(candidate, detected, language)
+        arrow = javascript_arrow_method(detected, candidate)
+        state.pending = (detected, state.javascript_candidate_start, params, arrow)
+        clear_javascript_candidate(state)
+        return True
+    if javascript_candidate_continues(state.javascript_candidate, clean):
+        return True
+    clear_javascript_candidate(state)
+    return False
+
+
 def track_javascript_signature(
     state: FunctionScanState,
     clean: str,
@@ -262,24 +237,20 @@ def track_javascript_signature(
             state.pending, state.pending_signature, clean, raw = None, [], tail, tail
     if continue_pending_javascript(state, clean, language):
         return
-    if state.javascript_candidate:
-        state.javascript_candidate.append(clean)
-        candidate = "\n".join(state.javascript_candidate)
-        detected = detect_brace_function(candidate, language, enclosing_types, allow_method_fallback)
-        if detected and (
-            "{" in candidate or (language == "typescript" and ":" in candidate and candidate.rstrip().endswith(";"))
-        ):
-            state.pending_signature = candidate.splitlines()
-            params = count_params_in_signature(candidate, detected, language)
-            state.pending = (detected, state.javascript_candidate_start, params, False)
-            clear_javascript_candidate(state)
-        elif not javascript_candidate_continues(state.javascript_candidate, clean):
-            clear_javascript_candidate(state)
+    if state.javascript_candidate and track_javascript_candidate(
+        state, clean, language, enclosing_types, allow_method_fallback
+    ):
         return
     detection_line = javascript_detection_line(clean, raw, language, enclosing_types, allow_method_fallback)
     detected = detect_brace_function(detection_line.strip(), language, enclosing_types, allow_method_fallback)
     call_without_body = state.active and clean.rstrip().endswith("(") and "{" not in detection_line
-    if detected and not call_without_body:
+    generic_header_incomplete = (
+        language == "typescript"
+        and "<" in clean
+        and "{" in clean
+        and generic_parameter_opening(clean, clean.find("<")) < 0
+    )
+    if detected and not call_without_body and not generic_header_incomplete:
         arrow = javascript_arrow_method(detected, clean)
         state.pending_signature = [detection_line]
         params = count_params_in_signature(detection_line, detected, language)

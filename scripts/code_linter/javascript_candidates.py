@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+import re
+
+from .javascript_generics import generic_parameter_opening
+
+
+def javascript_header_candidate(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or ";" in stripped:
+        return False
+    field_start = re.match(
+        r"^(?:(?:async|static|abstract|declare|override|public|private|protected|readonly)\s+)*"
+        r"#?[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\(|<)",
+        stripped,
+    )
+    generic_start = re.match(
+        r"^(?:(?:async|static|get|set|abstract|declare|override|public|private|protected|readonly)\s+)*"
+        r"#?[A-Za-z_$][A-Za-z0-9_$]*\s*<",
+        stripped,
+    )
+    if "{" in stripped and not field_start and not generic_start:
+        return False
+    if "=" in stripped and not field_start:
+        return False
+    return bool(
+        re.match(
+            r"^(?:async|static|get|set|abstract|declare|override|public|private|"
+            r"protected|readonly|\*|#|\[|\(|\]|[A-Za-z_$][A-Za-z0-9_$]*$)",
+            stripped,
+        )
+        or stripped.endswith("<")
+        or field_start
+        or generic_start
+    )
+
+
+def javascript_candidate_continues(candidate: list[str], clean: str) -> bool:
+    stripped = clean.strip()
+    if not stripped or ";" in stripped:
+        return False
+    text = " ".join(candidate)
+    if "<" in text and generic_parameter_opening(text, text.find("<")) < 0:
+        return True
+    if "{" in text and "}" not in text:
+        return True
+    if "=" in stripped and "=>" not in stripped:
+        return False
+    text = text.lstrip()
+    return bool(
+        text.startswith("[")
+        or ("<" in text and re.match(r"[A-Za-z_$][A-Za-z0-9_$]*\s*<", text))
+        or javascript_header_candidate(clean)
+    )
+
+
+def javascript_new_method_start(line: str, signature: str = "") -> bool:
+    stripped = line.strip()
+    if signature.count("(") > signature.count(")") or signature.count("[") > signature.count("]"):
+        return False
+    header = stripped.split("{", 1)[0].split(";", 1)[0].rstrip()
+    if not header or "=" in header:
+        return False
+    method_start = bool(
+        re.match(
+            r"^(?:(?:async|static|get|set|abstract|declare|override|public|private|"
+            r"protected|readonly)\b\s+|\*\s*|#|\[)",
+            header,
+        )
+        or re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*\s*\(", header)
+    )
+    return method_start
