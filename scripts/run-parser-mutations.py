@@ -29,13 +29,6 @@ class Mutation:
         return self.command[3]
 
 
-@dataclass(frozen=True)
-class MutationResult:
-    mutation: Mutation
-    status: str
-    detail: str = ""
-
-
 class MutationError(RuntimeError):
     pass
 
@@ -111,7 +104,7 @@ def apply_mutation(root: Path, mutation: Mutation) -> None:
     target.write_text(source.replace(mutation.old, mutation.new, 1), encoding="utf-8")
 
 
-def run_mutation(root: Path, mutation: Mutation) -> MutationResult:
+def run_mutation(root: Path, mutation: Mutation) -> tuple[str, str]:
     ignore = shutil.ignore_patterns(".git", ".coverage", ".ruff_cache", "graphify-out", "__pycache__")
     with tempfile.TemporaryDirectory(prefix="parser-mutation-") as directory:
         worktree = Path(directory) / "repo"
@@ -128,10 +121,10 @@ def run_mutation(root: Path, mutation: Mutation) -> MutationResult:
                 timeout=MUTATION_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired as exc:
-            return MutationResult(mutation, "error", f"focused tests timed out after {exc.timeout}s")
+            return "error", f"focused tests timed out after {exc.timeout}s"
         if result.returncode == 0:
-            return MutationResult(mutation, "survived", result.stdout[-2000:])
-        return MutationResult(mutation, "killed")
+            return "survived", result.stdout[-2000:]
+        return "killed", ""
 
 
 def selected_mutations(names: list[str] | None) -> tuple[Mutation, ...]:
@@ -158,15 +151,15 @@ def main(argv: list[str] | None = None) -> int:
     killed = 0
     for mutation in mutations:
         try:
-            result = run_mutation(ROOT, mutation)
+            status, detail = run_mutation(ROOT, mutation)
         except MutationError as exc:
             print(f"{mutation.name}: error: {exc}", file=sys.stderr)
             return 1
-        print(f"{mutation.name}: {result.status}")
-        if result.status == "killed":
+        print(f"{mutation.name}: {status}")
+        if status == "killed":
             killed += 1
-        elif result.detail:
-            print(result.detail, file=sys.stderr)
+        elif detail:
+            print(detail, file=sys.stderr)
     if killed != len(mutations):
         print(f"Parser mutation testing failed: {killed}/{len(mutations)} killed.", file=sys.stderr)
         return 1
