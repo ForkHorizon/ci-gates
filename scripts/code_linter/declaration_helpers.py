@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from .cpp_operators import detect_cpp_operator
+
 
 CONTROL_WORDS = {
     "catch",
@@ -100,6 +102,10 @@ def detect_c_family(
 ) -> str | None:
     if "(" not in line:
         return None
+    if language == "cpp":
+        operator = detect_cpp_operator(line)
+        if operator:
+            return operator
     if language == "csharp":
         explicit = detect_csharp_explicit_interface(line)
         if explicit:
