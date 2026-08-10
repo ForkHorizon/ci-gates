@@ -194,6 +194,38 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
         source = "declare namespace N { interface I { run(a,b,c); } }\n"
         self.assertEqual(self.lengths(source, "typescript"), [("run", 1, 1, 3)])
 
+    def test_multiline_object_literal_scopes_are_measured(self):
+        sources = (
+            "const object =\n{\n run(a,b,c) {}\n};\n",
+            "export default\n{\n run(a,b,c) {}\n};\n",
+            "module.exports =\n{\n run(a,b,c) {}\n};\n",
+        )
+        for source in sources:
+            self.assertEqual(self.lengths(source, "javascript"), [("run", 3, 1, 3)])
+
+    def test_multiline_nested_object_inside_active_method_is_measured(self):
+        source = """class C {
+  outer(a,b,c) {
+    consume(
+      { inner(a,b,c) {} }
+    );
+  }
+}
+"""
+        self.assertEqual(
+            self.lengths(source, "javascript"),
+            [("inner", 4, 1, 3), ("outer", 2, 5, 3)],
+        )
+
+    def test_generic_constraints_do_not_corrupt_method_or_arrow_parameters(self):
+        sources = (
+            "class X { run<T extends Fn<() => void>>(a,b,c) {} }\n",
+            "class X { run = <T extends Fn<() => void>>(a,b,c) => a; }\n",
+            "class X { run = <T extends { f: () => void }>(a,b,c) => a; }\n",
+        )
+        for source in sources:
+            self.assertEqual(self.lengths(source), [("run", 1, 1, 3)])
+
 
 if __name__ == "__main__":
     unittest.main()

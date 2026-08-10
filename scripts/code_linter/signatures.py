@@ -9,6 +9,7 @@ from .declaration_helpers import (
     detect_with_context,
 )
 from .literals import strip_strings
+from .javascript_generics import method_generic_parameter_opening
 from .objective_c import objective_c_parameter_count, objective_c_selector
 from .php_signatures import detect_php, php_parameter_start
 from .swift_syntax import detect_swift
@@ -88,7 +89,8 @@ def _named_parameter_start(signature: str, name: str) -> tuple[int, int]:
     )
     if anchored:
         return anchored.end() - 1, 0
-    return signature.find("("), 0
+    generic_opening = method_generic_parameter_opening(signature, name)
+    return (generic_opening if generic_opening >= 0 else signature.find("(")), 0
 
 
 def parameter_start(signature: str, name: str | None, language: str) -> tuple[int, int]:

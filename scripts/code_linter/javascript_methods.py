@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from .declaration_helpers import CONTROL_WORDS
+from .javascript_generics import method_generic_parameter_opening
 
 JAVASCRIPT_METHOD_MODIFIERS = {
     "async",
@@ -30,7 +31,7 @@ _METHOD_NAME = (
 _METHOD_PATTERN = re.compile(
     r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
     r"(?P<generator>\*)?\s*(?P<name>" + _METHOD_NAME + r")"
-    r"\s*(?:<[^();]*>)?\s*\("
+    r"\s*(?:<[\s\S]*>)?\s*\("
 )
 _FIELD_ARROW_PATTERN = re.compile(
     r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
@@ -181,6 +182,9 @@ def method_parameter_opening(signature: str, name: str) -> int:
     start = signature.find("[") if name.startswith("[") else signature.find(name)
     if start < 0:
         return -1
+    generic_opening = method_generic_parameter_opening(signature, name)
+    if generic_opening >= 0:
+        return generic_opening
     if name.startswith("["):
         depth = 0
         for index in range(start, len(signature)):
@@ -291,7 +295,6 @@ def detect_javascript(line: str, allow_method_fallback: bool = False) -> str | N
 
 
 def detect_typescript(line: str, allow_method_fallback: bool = False) -> str | None:
-    modern_method = detect_javascript_method(line, allow_method_fallback, typescript=True)
-    if modern_method:
-        return modern_method
-    return detect_javascript(line, allow_method_fallback)
+    return detect_javascript_method(line, allow_method_fallback, typescript=True) or detect_javascript(
+        line, allow_method_fallback
+    )

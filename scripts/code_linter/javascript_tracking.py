@@ -91,7 +91,8 @@ def track_split_type_context(state: FunctionScanState, clean: str) -> None:
         elif "}" in clean or ";" in clean:
             state.javascript_type_candidate = []
     elif re.match(
-        r"^\s*(?:(?:export|declare|abstract)\s+)*(?:class|interface)\b[^{}]*$",
+        r"^\s*(?:(?:export|declare|abstract)\s+)*(?:class|interface)\b[^{}]*$|"
+        r"^\s*(?:(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=|export\s+default|module\.exports\s*=)\s*$",
         clean,
     ):
         state.javascript_type_candidate = [clean]
@@ -277,7 +278,7 @@ def track_javascript_signature(
         return
     detection_line = javascript_detection_line(clean, raw, language, enclosing_types, allow_method_fallback)
     detected = detect_brace_function(detection_line.strip(), language, enclosing_types, allow_method_fallback)
-    call_without_body = state.active and not state.method_scopes and "{" not in detection_line
+    call_without_body = state.active and clean.rstrip().endswith("(") and "{" not in detection_line
     if detected and not call_without_body:
         arrow = javascript_arrow_method(detected, clean)
         state.pending_signature = [detection_line]
