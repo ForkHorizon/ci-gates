@@ -48,7 +48,7 @@ class ConfigReadErrorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".code-linter.json"
             path.write_text("{}\n", encoding="utf-8")
-            with patch.object(Path, "read_text", side_effect=PermissionError(13, "Permission denied")):
+            with patch.object(Path, "open", side_effect=PermissionError(13, "Permission denied")):
                 self.assert_config_error(
                     path,
                     lambda: code_linter.load_config(path),
@@ -61,7 +61,7 @@ class ConfigReadErrorTests(unittest.TestCase):
             path = Path(directory) / ".code-linter.json"
             path.write_text("{}\n", encoding="utf-8")
             secret = "super-secret-config-token"
-            with patch.object(Path, "read_text", side_effect=OSError(secret)):
+            with patch.object(Path, "open", side_effect=OSError(secret)):
                 report = self.assert_config_error(
                     path,
                     lambda: code_linter.load_config(path),
@@ -95,7 +95,7 @@ class ConfigReadErrorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".code-linter.json"
             path.write_text("{}\n", encoding="utf-8")
-            with patch.object(Path, "read_text", side_effect=OSError(5, "Input/output error")):
+            with patch.object(Path, "open", side_effect=OSError(5, "Input/output error")):
                 self.assert_config_error(
                     path,
                     lambda: code_linter.load_config(path),

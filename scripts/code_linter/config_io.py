@@ -7,6 +7,7 @@ from pathlib import Path
 from .github import format_github_command
 
 ConfigErrorReporter = Callable[[Path, str], None]
+MAX_CONFIG_BYTES = 1_000_000
 
 
 def config_read_error(error: OSError | UnicodeError) -> str:
@@ -18,7 +19,12 @@ def config_read_error(error: OSError | UnicodeError) -> str:
 
 def read_config_text(path: Path, report_error: ConfigErrorReporter) -> str:
     try:
-        return path.read_text(encoding="utf-8")
+        with path.open("rb") as source:
+            raw = source.read(MAX_CONFIG_BYTES + 1)
+        if len(raw) > MAX_CONFIG_BYTES:
+            report_error(path, f"Code Linter config exceeds safety limit of {MAX_CONFIG_BYTES} bytes.")
+            raise AssertionError("config error reporter returned without terminating")
+        return raw.decode("utf-8")
     except (OSError, UnicodeError) as error:
         report_error(path, config_read_error(error))
     raise AssertionError("config error reporter returned without terminating")
