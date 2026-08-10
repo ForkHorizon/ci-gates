@@ -98,6 +98,30 @@ class ObjectiveCMethodDetectionTests(unittest.TestCase):
 """
         self.assertEqual(self.lengths(source), [("refresh:", 1, 5, 1)])
 
+    def test_method_prefix_can_span_lines(self):
+        source = """-
+(void)reset {
+    clear_state();
+}
+"""
+        self.assertEqual(self.lengths(source), [("reset", 1, 4, 0)])
+
+    def test_method_return_type_can_span_lines(self):
+        source = """- (
+void
+)reset {
+    clear_state();
+}
+"""
+        self.assertEqual(self.lengths(source), [("reset", 1, 5, 0)])
+
+    def test_unary_selector_with_trailing_attribute_is_detected(self):
+        source = """- (void)reset __attribute__((objc_requires_super)) {
+    clear_state();
+}
+"""
+        self.assertEqual(self.lengths(source), [("reset", 1, 3, 0)])
+
     def test_category_method_is_detected_without_class_scope_heuristics(self):
         source = """@implementation Widget (Private)
 - (void)privateWork:(id)value {
@@ -133,6 +157,12 @@ const char *text = "- (void)alsoFake:(id)value { bogus(); }";
 }
 """
         self.assertEqual(self.lengths(source), [("real", 2, 3, 0)])
+
+    def test_label_continuation_after_incomplete_header_fails_closed(self):
+        source = """- (void)missing:(id)value
+cleanup: { clear_state(); }
+"""
+        self.assertEqual(self.lengths(source), [])
 
     def test_malformed_or_incomplete_method_headers_are_not_detected(self):
         source = """- (void)missingBody:(id)value;

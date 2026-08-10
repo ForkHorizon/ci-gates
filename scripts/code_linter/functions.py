@@ -37,6 +37,13 @@ class FunctionScanState:
     swift_candidate_start: int = 0
     swift_candidate_parent_depth: int = 0
     swift_candidate_open: bool = False
+    objective_c_candidate: list[str] = field(default_factory=list)
+    objective_c_candidate_start: int = 0
+
+
+def clear_objective_c_candidate(state: FunctionScanState) -> None:
+    state.objective_c_candidate = []
+    state.objective_c_candidate_start = 0
 
 
 def function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
@@ -164,6 +171,50 @@ def track_csharp_signature(
         state.csharp_candidate_start = line_number
 
 
+def track_objective_c_signature(
+    state: FunctionScanState,
+    clean: str,
+    line_number: int,
+) -> bool:
+    if state.pending:
+        if objective_c_method_start(clean):
+            state.pending = None
+            state.pending_signature = []
+        else:
+            state.pending_signature.append(clean)
+            signature = "\n".join(state.pending_signature)
+            detected = objective_c_selector(signature)
+            if detected is None and ("{" in clean or ";" in clean):
+                state.pending = None
+                state.pending_signature = []
+            else:
+                params = count_params_in_signature(signature, detected, "objective_c")
+                state.pending = (
+                    detected or state.pending[0],
+                    state.pending[1],
+                    params,
+                    state.pending[3],
+                )
+            return True
+    if state.objective_c_candidate and objective_c_method_start(clean):
+        clear_objective_c_candidate(state)
+    if not (state.objective_c_candidate or objective_c_method_start(clean)):
+        return False
+    if not state.objective_c_candidate:
+        state.objective_c_candidate_start = line_number
+    state.objective_c_candidate.append(clean)
+    signature = "\n".join(state.objective_c_candidate)
+    detected = objective_c_selector(signature)
+    if detected:
+        state.pending_signature = signature.splitlines()
+        params = count_params_in_signature(signature, detected, "objective_c")
+        state.pending = (detected, state.objective_c_candidate_start, params, False)
+        clear_objective_c_candidate(state)
+    elif "{" in clean or ";" in clean:
+        clear_objective_c_candidate(state)
+    return True
+
+
 def track_signature(
     state: FunctionScanState,
     clean: str,
@@ -178,17 +229,8 @@ def track_signature(
         track_swift_signature(state, clean, line_number)
         return
     allow_method_fallback = language in {"javascript", "typescript"} and bool(state.method_scopes)
-    if language == "objective_c" and state.pending:
-        if objective_c_method_start(clean):
-            state.pending = None
-            state.pending_signature = []
-        else:
-            state.pending_signature.append(clean)
-            signature = "\n".join(state.pending_signature)
-            detected = objective_c_selector(signature)
-            params = count_params_in_signature(signature, detected, language)
-            state.pending = (detected or state.pending[0], state.pending[1], params, state.pending[3])
-            return
+    if language == "objective_c" and track_objective_c_signature(state, clean, line_number):
+        return
     detected = detect_brace_function(
         clean.strip(),
         language,
