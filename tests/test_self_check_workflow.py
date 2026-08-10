@@ -47,6 +47,8 @@ def run_commands(workflow):
         line = lines[index]
         stripped = line.strip()
         indent = len(line) - len(line.lstrip())
+        if stripped.startswith("- ") and indent != step_indent:
+            raise ValueError("workflow step list items have inconsistent indentation")
         if indent == step_indent and stripped.startswith("- "):
             value = stripped[2:].strip()
             if value.startswith("run:"):
@@ -156,6 +158,13 @@ class SelfCheckWorkflowTests(unittest.TestCase):
             workflow_job_commands(duplicate_steps, "self-check")
         with self.assertRaises(ValueError):
             workflow_job_commands(duplicate_job, "self-check")
+
+    def test_workflow_parser_rejects_malformed_step_indentation(self):
+        malformed = self.workflow.replace(
+            "      - name: Check test discovery", "       - name: Check test discovery", 1
+        )
+        with self.assertRaises(ValueError):
+            workflow_job_commands(malformed, "self-check")
 
     def test_repository_uses_default_linter_policy(self):
         config = json.loads((ROOT / ".code-linter.json").read_text(encoding="utf-8"))
