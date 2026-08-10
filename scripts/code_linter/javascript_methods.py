@@ -90,16 +90,30 @@ def is_typescript_method_declaration(signature: str, name: str) -> bool:
     return method_name(signature, typescript=True) == name
 
 
-def has_complete_method_header(signature: str) -> bool:
-    if signature.count("(") != signature.count(")"):
+def has_complete_method_header(signature: str, name: str) -> bool:
+    name_start = signature.find(name)
+    opening = signature.find("(", max(0, name_start))
+    if opening < 0:
         return False
-    close = signature.rfind(")")
-    if close < 0:
+    depth = 0
+    close = -1
+    for index in range(opening, len(signature)):
+        if signature[index] == "(":
+            depth += 1
+        elif signature[index] == ")":
+            depth -= 1
+            if depth == 0:
+                close = index
+                break
+            if depth < 0:
+                return False
+    if close < 0 or depth != 0:
         return False
-    suffix = signature[close + 1 :].strip()
-    if suffix.endswith("{"):
-        suffix = suffix[:-1].rstrip()
-    return not suffix or suffix.startswith(":")
+    suffix = signature[close + 1 :]
+    body = suffix.find("{")
+    header = suffix[:body] if body >= 0 else suffix
+    header = header.strip()
+    return not header or header.startswith(":")
 
 
 def should_reject_incomplete_method(
@@ -114,8 +128,7 @@ def should_reject_incomplete_method(
         and not pending_arrow
         and name != "<anonymous>"
         and bool(braces[0])
-        and not bool(braces[1])
-        and not has_complete_method_header(signature)
+        and not has_complete_method_header(signature, name)
     )
 
 

@@ -171,6 +171,14 @@ class Real {
 """
         self.assertEqual(self.lengths(source, "typescript"), [])
 
+    def test_malformed_label_with_same_line_body_does_not_create_phantom_method(self):
+        source = """class Broken {
+  private #missing(a, b)
+  cleanup: { work(); }
+}
+"""
+        self.assertEqual(self.lengths(source, "typescript"), [])
+
     def test_private_method_function_and_parameter_limits_are_enforced(self):
         source = "class Worker {\n  #run(a, b, c) {\n    work();\n    work();\n    work();\n  }\n}\n"
         found = self.issues("worker.js", source)
