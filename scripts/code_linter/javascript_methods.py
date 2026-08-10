@@ -141,7 +141,7 @@ def matching_parenthesis(signature: str, opening: int) -> int:
 
 
 def method_parameter_opening(signature: str, name: str) -> int:
-    start = signature.find(name)
+    start = signature.find("[") if name.startswith("[") else signature.find(name)
     if start < 0:
         return -1
     if name.startswith("["):

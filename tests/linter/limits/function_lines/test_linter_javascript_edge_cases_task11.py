@@ -239,6 +239,43 @@ interface Contract
             [("0x1", 2, 1, 3), ("1e3", 3, 1, 3), ("1n", 4, 1, 3), (".5", 5, 1, 3)],
         )
 
+    def test_same_line_method_with_body_assignment_is_not_an_arrow(self):
+        source = "class Worker { run(first, second, third) { const value = first; return value; } }\n"
+        self.assertEqual(self.lengths(source, "javascript"), [("run", 1, 1, 3)])
+
+    def test_same_line_private_arrow_fields_are_named_and_measured(self):
+        source = """class Worker {
+  #run = (first, second, third) => first + second + third;
+  #typed = (first, second, third): { result: number } => ({ result: first });
+}
+"""
+        self.assertEqual(
+            self.lengths(source, "typescript"),
+            [("#run", 2, 1, 3), ("#typed", 3, 1, 3)],
+        )
+
+    def test_multiline_generic_object_constraint_is_measured(self):
+        source = """class Worker {
+  run<
+    T extends { enabled: boolean }
+  >(first, second, third) {
+    return first;
+  }
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 2, 5, 3)])
+
+    def test_multiline_computed_call_name_is_measured(self):
+        source = """class Worker {
+  [
+    factory()
+  ](first, second, third) {
+    return first;
+  }
+}
+"""
+        self.assertEqual(self.lengths(source, "javascript"), [("[factory()]", 2, 5, 3)])
+
 
 if __name__ == "__main__":
     unittest.main()

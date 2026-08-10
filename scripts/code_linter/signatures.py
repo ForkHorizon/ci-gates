@@ -12,7 +12,11 @@ from .literals import strip_strings
 from .objective_c import objective_c_parameter_count, objective_c_selector
 from .php_signatures import detect_php, php_parameter_start
 from .swift_syntax import detect_swift
-from .javascript_methods import detect_javascript, detect_typescript
+from .javascript_methods import (
+    detect_javascript,
+    detect_typescript,
+    method_parameter_opening,
+)
 
 
 def _javascript_parameter_start(signature: str) -> tuple[int, int]:
@@ -62,29 +66,38 @@ ANONYMOUS_PARAMETER_START = {
 }
 
 
+def _named_parameter_start(signature: str, name: str) -> tuple[int, int]:
+    if name.startswith("operator"):
+        operator_start = cpp_operator_parameter_start(signature, name)
+        if operator_start >= 0:
+            return operator_start, 0
+    if name.startswith("["):
+        computed_opening = method_parameter_opening(signature, name)
+        if computed_opening >= 0:
+            return computed_opening, 0
+    field_arrow = re.search(re.escape(name) + r"\s*=\s*(?:async\s+)?", signature)
+    if field_arrow and "=>" in signature[field_arrow.end() :]:
+        remainder = signature[field_arrow.end() :].lstrip()
+        if remainder.startswith("("):
+            return signature.find("(", field_arrow.end()), 0
+        if re.match(r"[A-Za-z_$][A-Za-z0-9_$]*\s*=>", remainder):
+            return -1, 1
+    anchored = re.search(
+        re.escape(name) + r"\s*(?:<[^<>]*>|\[[^\[\]]*\])?\s*\(",
+        signature,
+    )
+    if anchored:
+        return anchored.end() - 1, 0
+    return signature.find("("), 0
+
+
 def parameter_start(signature: str, name: str | None, language: str) -> tuple[int, int]:
     if name == "<anonymous>":
         parser = ANONYMOUS_PARAMETER_START.get(language)
         if parser:
             return parser(signature)
-    if name and name.startswith("operator"):
-        operator_start = cpp_operator_parameter_start(signature, name)
-        if operator_start >= 0:
-            return operator_start, 0
     if name and name != "<anonymous>":
-        field_arrow = re.search(re.escape(name) + r"\s*=\s*(?:async\s+)?", signature)
-        if field_arrow and "=>" in signature[field_arrow.end() :]:
-            remainder = signature[field_arrow.end() :].lstrip()
-            if remainder.startswith("("):
-                return signature.find("(", field_arrow.end()), 0
-            if re.match(r"[A-Za-z_$][A-Za-z0-9_$]*\s*=>", remainder):
-                return -1, 1
-        anchored = re.search(
-            re.escape(name) + r"\s*(?:<[^<>]*>|\[[^\[\]]*\])?\s*\(",
-            signature,
-        )
-        if anchored:
-            return anchored.end() - 1, 0
+        return _named_parameter_start(signature, name)
     return signature.find("("), 0
 
 

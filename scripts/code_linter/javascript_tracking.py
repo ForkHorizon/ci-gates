@@ -45,7 +45,20 @@ def javascript_header_candidate(line: str) -> bool:
             r"protected|readonly|\*|#|\[|\(|\]|[A-Za-z_$][A-Za-z0-9_$]*$)",
             stripped,
         )
+        or stripped.endswith("<")
     )
+
+
+def javascript_candidate_continues(candidate: list[str], clean: str) -> bool:
+    stripped = clean.strip()
+    if not stripped or any(mark in stripped for mark in (";", "=")):
+        return False
+    text = " ".join(candidate).lstrip()
+    if text.startswith("["):
+        return True
+    if "<" in text and re.match(r"[A-Za-z_$][A-Za-z0-9_$]*\s*<", text):
+        return True
+    return javascript_header_candidate(clean)
 
 
 def javascript_new_method_start(line: str, signature: str = "") -> bool:
@@ -109,6 +122,7 @@ def javascript_arrow_method(detected: str, clean: str) -> bool:
             and "function" not in clean
             and re.search(r"\b(?:const|let|var)\s+\w+\s*=", clean)
             and not re.search(r"=\s*\{", clean)
+            and not re.search(r"\)\s*\{", clean)
         )
     )
 
@@ -138,7 +152,7 @@ def track_javascript_signature(
                 False,
             )
             clear_javascript_candidate(state)
-        elif "{" in clean or ";" in clean or "}" in clean or not javascript_header_candidate(clean):
+        elif not javascript_candidate_continues(state.javascript_candidate, clean):
             clear_javascript_candidate(state)
         return
     detection_line = javascript_detection_line(clean, raw, language, enclosing_types, allow_method_fallback)
