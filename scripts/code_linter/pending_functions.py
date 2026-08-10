@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from .cpp_operators import cpp_operator_signature_complete
 from .model import FunctionBlock
 from .signatures import pending_body_braces
 
@@ -27,6 +28,14 @@ def finish_pending_line(
     signature = "\n".join(state.pending_signature)
     confirmed = not state.pending[3] or "=>" in signature
     name, start, params, _ = state.pending
+    if (
+        language == "cpp"
+        and name.startswith("operator")
+        and (braces[0] or braces[1])
+        and not cpp_operator_signature_complete(signature)
+    ):
+        clear_pending(state)
+        return
     (opens, closes), waiting_for_function_body = pending_body_braces(signature, name, language, braces)
     if confirmed and opens:
         state.active.append(FunctionBlock(name, start, state.brace_depth, params))

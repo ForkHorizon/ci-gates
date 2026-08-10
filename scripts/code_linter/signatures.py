@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from .cpp_operators import cpp_operator_parameter_start
 from .declaration_helpers import (
     CONTROL_WORDS,
     detect_c_family,
@@ -64,6 +65,10 @@ def parameter_start(signature: str, name: str | None, language: str) -> tuple[in
         parser = ANONYMOUS_PARAMETER_START.get(language)
         if parser:
             return parser(signature)
+    if name and name.startswith("operator"):
+        operator_start = cpp_operator_parameter_start(signature, name)
+        if operator_start >= 0:
+            return operator_start, 0
     if name and name.isidentifier():
         anchored = re.search(
             r"\b" + re.escape(name) + r"\b\s*(?:<[^<>]*>|\[[^\[\]]*\])?\s*\(",
