@@ -33,6 +33,11 @@ jobs:
     # persistent cached clone (with its Library) under ~/Library/Caches/ci-gates
     # and only fetches the new commits each run.
     steps:
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.9.6"
+
       - name: Fetch ci-gates
         shell: bash
         run: |

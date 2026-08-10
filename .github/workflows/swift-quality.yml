@@ -34,6 +34,11 @@ jobs:
     runs-on: ${{ fromJSON(inputs['runs-on']) }}
 
     steps:
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.9.6"
+
       - name: Checkout project
         uses: actions/checkout@v6
         with:
