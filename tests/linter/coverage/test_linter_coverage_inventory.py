@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -47,6 +48,67 @@ class CoverageInventoryTestCase(unittest.TestCase):
 
 
 class CoverageInventoryTests(CoverageInventoryTestCase):
+    def test_unknown_extension_permission_error_is_a_structured_coverage_read_gap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root, {"src/custom.dsl": "rule allow\n"})
+            with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+                gaps = self.inventory(root).gaps
+        gap_by_path = {gap.path: gap for gap in gaps}
+        self.assertIn("src/custom.dsl", gap_by_path)
+        gap = gap_by_path["src/custom.dsl"]
+        self.assertEqual(gap.category, "coverage_read_error")
+        self.assertEqual(gap.extension, ".dsl")
+        self.assertIn("Unable to read unknown coverage input", gap.message)
+        self.assertIn("denied", gap.message)
+
+    def test_extensionless_os_error_is_a_structured_coverage_read_gap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root, {"src/custom": "run()\n"})
+            with patch.object(Path, "read_bytes", side_effect=OSError("I/O unavailable")):
+                gaps = self.inventory(root).gaps
+        gap_by_path = {gap.path: gap for gap in gaps}
+        self.assertIn("src/custom", gap_by_path)
+        gap = gap_by_path["src/custom"]
+        self.assertEqual(gap.category, "coverage_read_error")
+        self.assertEqual(gap.extension, "extensionless")
+        self.assertEqual(gap.path, "src/custom")
+        self.assertIn("I/O unavailable", gap.message)
+
+    def test_unknown_text_surface_returns_structured_read_error_for_permission_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "custom.dsl"
+            path.write_text("rule allow\n", encoding="utf-8")
+            with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+                result = linter.unknown_text_surface(path)
+        self.assertEqual(getattr(result, "category", None), "coverage_read_error")
+        self.assertEqual(getattr(result, "path", None), path.as_posix())
+        self.assertIn("denied", getattr(result, "message", ""))
+
+    def test_unknown_text_surface_keeps_normal_unknown_text_as_unknown_surface(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "custom.dsl"
+            path.write_text("rule allow\n", encoding="utf-8")
+            result = linter.unknown_text_surface(path)
+        self.assertEqual(result, ("unknown text/config", ".dsl"))
+
+    def test_documentary_files_are_not_read_errors_when_they_are_unreadable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root, {"README": "project notes\n", "docs/guide.md": "# guide\n"})
+            with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+                gaps = self.inventory(root).gaps
+        self.assertNotIn("README", {gap.path for gap in gaps})
+        self.assertNotIn("docs/guide.md", {gap.path for gap in gaps})
+
+    def test_binary_files_are_not_coverage_read_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root, {"assets/data.bin": "\x00\xff\x00"})
+            gaps = self.inventory(root).gaps
+        self.assertNotIn("assets/data.bin", {gap.path for gap in gaps})
+
     def test_structural_families_are_mapped_and_residual_surfaces_catalogued(self):
         mapped = {".c", ".cpp", ".h", ".m", ".mm", ".dart", ".scala", ".gradle"}
         residual = {".zsh", ".sql", ".jsonc", ".html", ".proto", ".lua", ".fs"}

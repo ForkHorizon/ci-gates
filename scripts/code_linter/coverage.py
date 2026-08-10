@@ -104,14 +104,20 @@ class PathInventory:
     gaps: tuple[CoverageGap, ...]
 
 
-def unknown_text_surface(path: Path) -> tuple[str, str] | None:
+def unknown_text_surface(path: Path) -> tuple[str, str] | CoverageGap | None:
     """Return an auditable gap for text files outside known surface lists."""
     if path.suffix.lower() in NON_SOURCE_TEXT_EXTENSIONS or path.name.lower() in NON_SOURCE_TEXT_FILENAMES:
         return None
     try:
         sample = path.read_bytes()[:8192]
-    except OSError:
-        return None
+    except OSError as exc:
+        extension = path.suffix.lower() or "extensionless"
+        return CoverageGap(
+            path.as_posix(),
+            "coverage_read_error",
+            extension,
+            f"Unable to read unknown coverage input: {exc}.",
+        )
     if b"\x00" in sample:
         return None
     try:
