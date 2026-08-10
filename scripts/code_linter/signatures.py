@@ -75,7 +75,7 @@ def parameter_start(signature: str, name: str | None, language: str) -> tuple[in
         field_arrow = re.search(
             re.escape(name)
             + r"\s*=\s*(?:async\s+)?(?:\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)"
-            + r"(?:\s*:\s*[^=,{]+)?\s*=>",
+            + r"(?:\s*:\s*[^=]+?)?\s*=>",
             signature,
         )
         if field_arrow:

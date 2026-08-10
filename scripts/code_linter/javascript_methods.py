@@ -27,14 +27,14 @@ _METHOD_NAME = (
 _METHOD_PATTERN = re.compile(
     r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
     r"(?P<generator>\*)?\s*(?P<name>" + _METHOD_NAME + r")"
-    r"\s*(?:<[^(){};]*>)?\s*\("
+    r"\s*(?:<[^();]*>)?\s*\("
 )
 _FIELD_ARROW_PATTERN = re.compile(
     r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
     r"(?P<name>#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\s*=\s*(?:async\s+)?"
     r"(?P<parameters>\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)"
-    r"(?:\s*:\s*[^=,{]+)?\s*=>"
+    r"(?:\s*:\s*[^=]+?)?\s*=>"
 )
 
 

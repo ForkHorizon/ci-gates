@@ -163,6 +163,37 @@ interface Contract
             [('"run"', 2, 1, 3), ("1", 3, 1, 3)],
         )
 
+    def test_generic_method_constraint_with_object_type_is_measured(self):
+        source = """class Worker {
+  run<T extends { enabled: boolean }>(first, second) {
+    return first;
+  }
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 2, 3, 2)])
+
+    def test_private_arrow_field_object_return_annotation_is_measured(self):
+        source = """class Worker {
+  #run = (value: number, other: number): { result: number } => ({ result: value + other });
+}
+"""
+        self.assertEqual(self.lengths(source), [("#run", 2, 1, 2)])
+
+    def test_call_like_line_without_body_is_not_a_method(self):
+        source = """class Worker {
+  helper(first, second)
+}
+"""
+        self.assertEqual(self.lengths(source), [])
+
+    def test_malformed_pending_header_resets_before_valid_method(self):
+        source = """class Worker {
+  private #broken(first, second)
+  run(first, second) { return first + second; }
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 3, 1, 2)])
+
 
 if __name__ == "__main__":
     unittest.main()

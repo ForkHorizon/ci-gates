@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from .cpp_operators import cpp_operator_signature_complete
 from .cpp_destructors import cpp_destructor_has_body, cpp_destructor_signature_complete
 from .javascript_methods import (
+    has_method_body_brace,
     is_typescript_method_declaration,
     should_reject_incomplete_method,
 )
@@ -73,6 +74,59 @@ def finish_declaration(
     clear_pending(state)
 
 
+def declaration_scope_active(state: FunctionScanState) -> bool:
+    return state.brace_depth in state.javascript_declaration_scopes or (
+        state.brace_depth + 1 in state.javascript_declaration_scopes
+    )
+
+
+def finish_pending_declaration(
+    state: FunctionScanState,
+    stripped: str,
+    pending: tuple[str, int, int, bool],
+    line_number: int,
+    language: str,
+) -> bool:
+    signature = "\n".join(state.pending_signature)
+    name, start, params, _ = pending
+    if not stripped.endswith(";") and not (
+        language == "typescript"
+        and ";" in signature
+        and is_typescript_method_declaration(signature, name, declaration_scope_active(state))
+    ):
+        return False
+    finish_declaration(
+        state,
+        signature,
+        (name, start, params, line_number, language, declaration_scope_active(state)),
+    )
+    return True
+
+
+def finish_pending_closing_brace(
+    state: FunctionScanState,
+    pending: tuple[str, int, int, bool],
+    line_number: int,
+    language: str,
+    braces: tuple[int, int],
+) -> bool:
+    signature = "\n".join(state.pending_signature)
+    name, start, params, _ = pending
+    opens, closes = braces
+    if not closes or opens or (language == "csharp" and signature.count("(") != signature.count(")")):
+        return False
+    if (
+        language in {"javascript", "typescript"}
+        and name != "<anonymous>"
+        and not has_method_body_brace(signature, name)
+    ):
+        clear_pending(state)
+        return True
+    state.results.append((name, start, max(1, line_number - start), params))
+    clear_pending(state)
+    return True
+
+
 def finish_pending_line(
     state: FunctionScanState,
     stripped: str,
@@ -103,19 +157,7 @@ def finish_pending_line(
         and ("=" in stripped or "=>" in stripped)
     ):
         finish_expression_body(state, stripped, name, start, params)
-    elif stripped.endswith(";"):
-        finish_declaration(
-            state,
-            signature,
-            (
-                name,
-                start,
-                params,
-                line_number,
-                language,
-                state.brace_depth in state.javascript_declaration_scopes,
-            ),
-        )
-    elif closes and not opens and (language != "csharp" or signature.count("(") == signature.count(")")):
-        state.results.append((name, start, max(1, line_number - start), params))
-        clear_pending(state)
+    elif finish_pending_declaration(
+        state, stripped, state.pending, line_number, language
+    ) or finish_pending_closing_brace(state, state.pending, line_number, language, (opens, closes)):
+        return
