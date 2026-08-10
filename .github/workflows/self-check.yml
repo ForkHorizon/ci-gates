@@ -34,6 +34,9 @@ jobs:
       - name: Check Python syntax
         run: python3 -m compileall -q scripts tests
 
+      - name: Check test discovery
+        run: python3 scripts/check-test-discovery.py --start-directory tests --pattern 'test_*.py'
+
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -q
 

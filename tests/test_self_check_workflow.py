@@ -30,6 +30,7 @@ class SelfCheckWorkflowTests(unittest.TestCase):
     def test_runs_all_local_validation_layers(self):
         expected_commands = (
             "python3 -m compileall",
+            "python3 scripts/check-test-discovery.py",
             "python3 -m unittest discover",
             "python3 scripts/code-linter.py",
             "ruff check",
