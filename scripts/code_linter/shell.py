@@ -15,6 +15,18 @@ SHELL_OPEN = re.compile(r"^(?:if|for|while|until|case|select)\b")
 SHELL_CLOSE = re.compile(r"^(?:fi|done|esac)\b")
 
 
+def shell_logical_statement(
+    raw: str, clean: str, line_number: int, continuation: tuple[str, int] | None
+) -> tuple[str, int]:
+    statement = clean.strip()
+    if continuation is None:
+        return statement, line_number
+    prefix, start_line = continuation
+    if statement and not raw.lstrip().startswith("#"):
+        return f"{prefix} {statement}", start_line
+    return "", start_line
+
+
 def shell_syntax_issues(relative: str, text: str) -> list[Issue]:
     bash = shutil.which("bash")
     if bash is None:
@@ -36,14 +48,16 @@ def shell_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
     results: list[tuple[str, int, int, int]] = []
     active: list[tuple[str, int, int]] = []
     pending: tuple[str, int] | None = None
+    continuation: tuple[str, int] | None = None
     brace_depth = 0
     for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, "shell"), start=1):
-        statement = clean.strip()
+        statement, start_line = shell_logical_statement(raw, clean, line_number, continuation)
+        continuation = None
         match = SHELL_FUNCTION.match(statement)
         start_depth = brace_depth
         if match:
             pending = None
-            active.append((match.group(1), line_number, start_depth))
+            active.append((match.group(1), start_line, start_depth))
         elif pending is not None and statement == "{":
             name, start = pending
             active.append((name, start, start_depth))
@@ -51,10 +65,12 @@ def shell_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
         elif statement or not (not raw.strip() or raw.lstrip().startswith("#")):
             pending = None
         if not match and pending is None:
-            declaration_statement = statement.removesuffix("\\").rstrip()
-            declaration = SHELL_FUNCTION_DECLARATION.fullmatch(declaration_statement)
-            if declaration:
-                pending = (declaration.group(1) or declaration.group(2), line_number)
+            if statement.endswith("\\"):
+                continuation = (statement.removesuffix("\\").rstrip(), start_line)
+            else:
+                declaration = SHELL_FUNCTION_DECLARATION.fullmatch(statement)
+                if declaration:
+                    pending = (declaration.group(1) or declaration.group(2), start_line)
         brace_depth += clean.count("{") - clean.count("}")
         while active and brace_depth <= active[-1][2]:
             name, start, _ = active.pop()
