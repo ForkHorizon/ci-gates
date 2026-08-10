@@ -34,6 +34,15 @@ class ModernJavaScriptReview7Tests(unittest.TestCase):
         source = "declare namespace N { interface I { run(a,b,c); } } declare class E { load(a,b,c): Promise<void>; }\n"
         self.assertEqual(self.lengths(source), [("run", 1, 1, 3), ("load", 1, 1, 3)])
 
+    def test_comparison_before_nested_block_counts_as_body(self):
+        source = """function outer() {
+  if (a < b) {
+    work();
+  }
+}
+"""
+        self.assertEqual(self.lengths(source, "javascript"), [("outer", 1, 5, 0)])
+
 
 if __name__ == "__main__":
     unittest.main()
