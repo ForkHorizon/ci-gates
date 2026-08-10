@@ -62,6 +62,55 @@ def _has_return_type(prefix: str) -> bool:
     return any(word not in DECLARATION_MODIFIERS for word in words)
 
 
+def _matching_java_annotation_delimiter(text: str, start: int) -> int:
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    opening = text[start]
+    stack = [opening]
+    quote = None
+    escaped = False
+    for index in range(start + 1, len(text)):
+        char = text[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char in pairs:
+            stack.append(char)
+        elif char in pairs.values():
+            if not stack or pairs[stack[-1]] != char:
+                return -1
+            stack.pop()
+            if not stack:
+                return index
+    return -1
+
+
+def _strip_java_inline_annotations(line: str) -> str | None:
+    remainder = line.lstrip()
+    if not remainder.startswith("@"):
+        return remainder
+    while remainder.startswith("@"):
+        annotation = re.match(r"@[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*", remainder)
+        if not annotation:
+            return None
+        index = annotation.end()
+        while index < len(remainder) and remainder[index].isspace():
+            index += 1
+        if index < len(remainder) and remainder[index] == "(":
+            end = _matching_java_annotation_delimiter(remainder, index)
+            if end < 0:
+                return None
+            index = end + 1
+        remainder = remainder[index:].lstrip()
+    return remainder
+
+
 def is_c_family_declaration(
     line: str,
     match: re.Match[str],
@@ -72,6 +121,36 @@ def is_c_family_declaration(
     if _has_return_type(prefix):
         return True
     return language in C_FAMILY_LANGUAGES and match.group(1) in enclosing_types and not prefix.endswith(".")
+
+
+def _matching_java_generic_delimiter(text: str, start: int) -> int:
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == "<":
+            depth += 1
+        elif text[index] == ">":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def _detect_java_generic_method(line: str, prefix: str) -> str | None:
+    opening = re.match(prefix + r"<", line)
+    if not opening or "(" not in line:
+        return None
+    generic_end = _matching_java_generic_delimiter(line, opening.end() - 1)
+    if generic_end < 0:
+        return None
+    before_parameters = line[: line.find("(")].rstrip()
+    remainder = before_parameters[generic_end + 1 :]
+    method = re.search(r"([A-Za-z_$][A-Za-z0-9_$]*)\s*$", remainder)
+    if not method:
+        return None
+    return_type = remainder[: method.start()].strip()
+    if not return_type or "." in return_type:
+        return None
+    return method.group(1)
 
 
 _CSHARP_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
@@ -102,13 +181,14 @@ def detect_c_family(
     language: str = "",
     enclosing_types: frozenset[str] = frozenset(),
 ) -> str | None:
-    if "(" not in line:
+    candidate = _strip_java_inline_annotations(line) if language == "java" else line
+    if candidate is None or "(" not in candidate:
         return None
-    special = objective_c_selector(line) if language == "objective_c" else None
+    special = objective_c_selector(candidate) if language == "objective_c" else None
     if language == "cpp":
-        special = detect_cpp_destructor(line) or detect_cpp_operator(line)
+        special = detect_cpp_destructor(candidate) or detect_cpp_operator(candidate)
     elif language == "csharp":
-        special = detect_csharp_explicit_interface(line)
+        special = detect_csharp_explicit_interface(candidate)
     if special:
         return special
     prefix = (
@@ -116,6 +196,10 @@ def detect_c_family(
         r"(?:(?:public|private|protected|internal|static|virtual|override|async|"
         r"sealed|extern|unsafe|partial|new|final|synchronized|abstract)\s+)*"
     )
+    if language == "java":
+        generic_method = _detect_java_generic_method(candidate, prefix)
+        if generic_method and generic_method not in CONTROL_WORDS:
+            return generic_method
     patterns = (
         prefix + r"\S+\s+([A-Za-z_][A-Za-z0-9_]*)\s*<[^>]+>\s*\(",
         prefix + r"<[^>]+>\s+\S+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
@@ -123,11 +207,11 @@ def detect_c_family(
         r"([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^>]+>)?\s*\(",
     )
     for pattern in patterns:
-        match = re.match(pattern, line)
+        match = re.match(pattern, candidate)
         if (
             match
             and match.group(1) not in CONTROL_WORDS
-            and is_c_family_declaration(line, match, language, enclosing_types)
+            and is_c_family_declaration(candidate, match, language, enclosing_types)
         ):
             return match.group(1)
     return None
