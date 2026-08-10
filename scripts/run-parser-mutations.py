@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -104,27 +105,39 @@ def apply_mutation(root: Path, mutation: Mutation) -> None:
     target.write_text(source.replace(mutation.old, mutation.new, 1), encoding="utf-8")
 
 
+def run_focused_tests(root: Path, command_template: tuple[str, ...]) -> tuple[str, str]:
+    command = [sys.executable if item == "{python}" else item for item in command_template]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=MUTATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return "error", f"focused tests timed out after {exc.timeout}s"
+    combined = result.stdout + result.stderr
+    if result.returncode == 0:
+        return "passed", ""
+    if not re.search(r"Ran [1-9][0-9]* tests?", combined):
+        return "error", "focused tests did not complete a non-empty test run"
+    return "failed", combined[-2000:]
+
+
 def run_mutation(root: Path, mutation: Mutation) -> tuple[str, str]:
     ignore = shutil.ignore_patterns(".git", ".coverage", ".ruff_cache", "graphify-out", "__pycache__")
     with tempfile.TemporaryDirectory(prefix="parser-mutation-") as directory:
         worktree = Path(directory) / "repo"
         shutil.copytree(root, worktree, ignore=ignore)
         apply_mutation(worktree, mutation)
-        command = [sys.executable if item == "{python}" else item for item in mutation.command]
-        try:
-            result = subprocess.run(
-                command,
-                cwd=worktree,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=MUTATION_TIMEOUT_SECONDS,
-            )
-        except subprocess.TimeoutExpired as exc:
-            return "error", f"focused tests timed out after {exc.timeout}s"
-        if result.returncode == 0:
-            return "survived", result.stdout[-2000:]
-        return "killed", ""
+        status, detail = run_focused_tests(worktree, mutation.command)
+        if status == "passed":
+            return "survived", ""
+        if status == "failed":
+            return "killed", ""
+        return "error", detail
 
 
 def selected_mutations(names: list[str] | None) -> tuple[Mutation, ...]:
@@ -149,7 +162,14 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     killed = 0
+    baselines: dict[tuple[str, ...], str] = {}
     for mutation in mutations:
+        if mutation.command not in baselines:
+            status, detail = run_focused_tests(ROOT, mutation.command)
+            if status != "passed":
+                print(f"{mutation.name}: baseline error: {detail}", file=sys.stderr)
+                return 1
+            baselines[mutation.command] = status
         try:
             status, detail = run_mutation(ROOT, mutation)
         except MutationError as exc:

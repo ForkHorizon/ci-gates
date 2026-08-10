@@ -16,10 +16,19 @@ RUNNER = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = RUNNER
 SPEC.loader.exec_module(RUNNER)
 
+EXPECTED_MUTATIONS = (
+    "json-depth-boundary",
+    "raw-string-masking",
+    "specialized-syntax-dispatch",
+    "syntax-only-routing",
+    "template-interpolation-state",
+    "yaml-duplicate-key",
+)
+
 
 class ParserMutationStageTests(unittest.TestCase):
     def test_stage_has_six_targeted_mutations(self):
-        self.assertGreaterEqual(len(RUNNER.MUTATIONS), 6)
+        self.assertEqual(tuple(mutation.name for mutation in RUNNER.MUTATIONS), EXPECTED_MUTATIONS)
 
     def test_mutation_names_are_unique_and_stable(self):
         names = [mutation.name for mutation in RUNNER.MUTATIONS]
@@ -88,6 +97,18 @@ class ParserMutationStageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"{RUNNER.MUTATIONS[0].name}: killed", result.stdout)
         self.assertIn("1/1 killed", result.stdout)
+
+    def test_focused_baseline_requires_a_non_empty_successful_run(self):
+        status, detail = RUNNER.run_focused_tests(ROOT, RUNNER.MUTATIONS[0].command)
+        self.assertEqual((status, detail), ("passed", ""))
+
+    def test_collection_or_setup_failure_is_not_a_killed_mutation(self):
+        status, detail = RUNNER.run_focused_tests(
+            ROOT,
+            ("{python}", "-c", "raise SystemExit(1)"),
+        )
+        self.assertEqual(status, "error")
+        self.assertIn("non-empty test run", detail)
 
 
 if __name__ == "__main__":
