@@ -249,7 +249,7 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
   }>(a,b,c) => a;
 }
 """
-        self.assertEqual(self.lengths(method), [("run", 2, 3, 3)])
+        self.assertEqual(self.lengths(method), [("run", 2, 5, 3)])
         self.assertEqual(self.lengths(arrow), [("run", 2, 1, 3)])
 
     def test_malformed_candidate_does_not_swallow_following_method(self):

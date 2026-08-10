@@ -9,20 +9,16 @@ from .pending_functions import close_functions, finish_pending_line
 from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
-from .objective_c import objective_c_method_start, objective_c_selector
+from .objective_c import clear_objective_c_candidate, objective_c_method_start, objective_c_selector
 from . import javascript_ordering, javascript_tracking, signatures
 from .swift_closures import track_swift_signature
 
 
-FunctionResult = tuple[str, int, int, int]
-PendingFunction = tuple[str, int, int, bool]
-
-
 @dataclass
 class FunctionScanState:
-    results: list[FunctionResult] = field(default_factory=list)
+    results: list[tuple[str, int, int, int]] = field(default_factory=list)
     active: list[FunctionBlock] = field(default_factory=list)
-    pending: PendingFunction | None = None
+    pending: tuple[str, int, int, bool] | None = None
     pending_signature: list[str] = field(default_factory=list)
     brace_depth: int = 0
     type_scopes: list[tuple[int, str]] = field(default_factory=list)
@@ -42,11 +38,6 @@ class FunctionScanState:
     result_positions: list[tuple[int, int]] = field(default_factory=list)
     active_columns: dict[int, int] = field(default_factory=dict)
     current_source_column: int = 0
-
-
-def clear_objective_c_candidate(state: FunctionScanState) -> None:
-    state.objective_c_candidate = []
-    state.objective_c_candidate_start = 0
 
 
 def function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
@@ -120,7 +111,9 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
         for scope_match in scope_matches:
             depth = state.brace_depth + clean[: scope_match.end()].count("{")
             state.method_scopes.append(depth)
-            if re.search(r"\binterface\b|\bdeclare\s+class\b", scope_match.group()):
+            if re.search(r"\binterface\b|\bdeclare\s+class\b", scope_match.group()) or (
+                re.search(r"\bdeclare\b", clean) and "class" in scope_match.group()
+            ):
                 state.javascript_declaration_scopes.append(depth)
 
 
@@ -270,7 +263,7 @@ def track_signature(
         state.pending = (*state.pending[:2], params, state.pending[3])
 
 
-def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
+def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
     state = FunctionScanState()
     for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
         fragments = javascript_tracking.javascript_fragments_for_line(clean, language, state.method_scopes)
@@ -284,9 +277,14 @@ def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
             state.current_source_column = max(0, clean.find(fragment, fragment_search_start))
             fragment_search_start = state.current_source_column + len(fragment)
             track_declaration_context(state, fragment, language)
-            fragment_raw = raw_fragments[index] if len(raw_fragments) == len(fragments) else fragment
-            track_signature(state, fragment, line_number, language, fragment_raw)
-            opens, closes = fragment.count("{"), fragment.count("}")
+            opens, closes = signatures.source_brace_counts(fragment, language, state.javascript_candidate)
+            track_signature(
+                state,
+                fragment,
+                line_number,
+                language,
+                raw_fragments[index] if len(raw_fragments) == len(fragments) else fragment,
+            )
             finish_pending_line(state, fragment.strip(), line_number, language, (opens, closes))
             state.brace_depth = max(0, state.brace_depth + opens - closes)
             close_functions(state, line_number)

@@ -8,6 +8,11 @@ _METHOD_PREFIX = re.compile(r"^\s*[-+](?:\s*\(|\s*$)")
 _IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 
 
+def clear_objective_c_candidate(state) -> None:
+    state.objective_c_candidate = []
+    state.objective_c_candidate_start = 0
+
+
 def objective_c_method_start(line: str) -> bool:
     return bool(_METHOD_PREFIX.match(line))
 

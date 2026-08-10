@@ -22,6 +22,30 @@ def javascript_assignment_name(line: str) -> str | None:
     return match.group(1) if match and match.group(1) else None
 
 
+def javascript_semicolon_fragments(clean: str, allow_continuation: bool = False) -> list[str]:
+    if allow_continuation or ("{" in clean and not re.search(r"\bdeclare\b", clean)):
+        return [clean]
+    parts: list[str] = []
+    start = 0
+    depths = {"(": 0, "[": 0, "{": 0}
+    for index, char in enumerate(clean):
+        if char in depths:
+            depths[char] += 1
+        elif char == ")":
+            depths["("] = max(0, depths["("] - 1)
+        elif char == "]":
+            depths["["] = max(0, depths["["] - 1)
+        elif char == "}":
+            depths["{"] = max(0, depths["{"] - 1)
+        elif char == ";" and not depths["("] and not depths["["]:
+            parts.append(clean[start : index + 1].strip())
+            start = index + 1
+    remainder = clean[start:].strip()
+    if remainder:
+        parts.append(remainder)
+    return parts or [clean]
+
+
 def javascript_header_candidate(line: str) -> bool:
     stripped = line.strip()
     if not stripped or ";" in stripped:

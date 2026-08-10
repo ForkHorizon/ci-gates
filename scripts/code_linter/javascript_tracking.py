@@ -9,8 +9,10 @@ from .javascript_candidates import (
     javascript_candidate_continues,
     javascript_header_candidate,
     javascript_new_method_start,
+    javascript_semicolon_fragments,
 )
 from .javascript_methods import detect_javascript_method
+from .javascript_objects import javascript_object_detection_tail
 from .javascript_generics import generic_parameter_opening
 from .signatures import count_params_in_signature, detect_brace_function
 
@@ -27,7 +29,7 @@ def javascript_method_body_header(text: str) -> bool:
     return bool(detect_javascript_method(text.rsplit("{", 1)[-1], True))
 
 
-def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> list[str]:
+def javascript_leading_close_fragments(clean: str) -> list[str] | None:
     leading_close = clean.find("}")
     if (
         leading_close >= 0
@@ -35,15 +37,26 @@ def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> l
         and re.search(r"(?:#?[A-Za-z_$][A-Za-z0-9_$]*|\[[^]]+\])\s*\(", clean[leading_close + 1 :])
     ):
         return [clean[: leading_close + 1], clean[leading_close + 1 :]]
-    if not allow_continuation and not re.search(
-        r"\bclass\b|\binterface\b|\bnamespace\b|\bexport\s+default\b|\bmodule\.exports\b|"
-        r"\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\{|"
-        r"\breturn\s*\{|\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{",
-        clean,
-    ):
-        return [clean]
+    return None
+
+
+def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> list[str]:
+    fragments = javascript_semicolon_fragments(clean, allow_continuation)
+    if len(fragments) > 1:
+        return fragments
+    leading_fragments = javascript_leading_close_fragments(clean)
+    if leading_fragments is not None:
+        return leading_fragments
     opening = clean.find("{")
-    if opening < 0:
+    if opening < 0 or (
+        not allow_continuation
+        and not re.search(
+            r"\bclass\b|\binterface\b|\bnamespace\b|\bexport\s+default\b|\bmodule\.exports\b|"
+            r"\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\{|"
+            r"\breturn\s*\{|\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{",
+            clean,
+        )
+    ):
         return [clean]
     initial_function = re.search(r"\bfunction\s*\*?\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\([^{}]*\)\s*$", clean[:opening])
     fragments = [clean[: opening + 1]] if initial_function else []
@@ -147,31 +160,9 @@ def javascript_detection_line(
     detected = detect_brace_function(source.strip(), language, enclosing_types, allow_method_fallback)
     if detected and (detected[0] in "'\"." or detected[0].isdigit()):
         return source
-    opening = source.find("{")
-    if opening >= 0:
-        tail = source[opening + 1 :].lstrip()
-        tail_detected = detect_brace_function(tail, language, enclosing_types, allow_method_fallback)
-        object_prefix = re.match(
-            r"^(?:[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{|\{\s*|class\s|interface\s|declare\s+namespace\s|export\s+default\s|module\.exports)",
-            source.lstrip(),
-        )
-        if (
-            tail_detected
-            and object_prefix
-            and (
-                tail_detected != detected
-                or re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{", source.lstrip())
-                or source.lstrip().startswith(
-                    ("{", "class ", "interface ", "declare namespace ", "export default ", "module.exports")
-                )
-            )
-        ):
-            declaration_prefix = source.lstrip().startswith(
-                ("class ", "interface ", "declare namespace ", "export default ", "module.exports")
-            )
-            if declaration_prefix and tail.count("}") > tail.count("{") and tail.rstrip().endswith("}"):
-                tail = tail.rstrip()[:-1].rstrip()
-            return tail
+    tail = javascript_object_detection_tail(source, detected, language, enclosing_types, allow_method_fallback)
+    if tail is not None:
+        return tail
     return source
 
 
@@ -259,8 +250,9 @@ def track_javascript_signature(
     call_without_body = state.active and clean.rstrip().endswith("(") and "{" not in detection_line
     generic_header_incomplete = (
         language == "typescript"
-        and "<" in clean
         and "{" in clean
+        and clean.find("<") >= 0
+        and clean.find("<") < clean.find("(")
         and generic_parameter_opening(clean, clean.find("<")) < 0
     )
     if detected and not call_without_body and not generic_header_incomplete:

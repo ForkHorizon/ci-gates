@@ -262,3 +262,30 @@ BRACE_FUNCTION_DETECTORS = {
     "swift": detect_swift,
     "typescript": detect_typescript,
 }
+
+
+def javascript_brace_counts(fragment: str, context: str | list[str] = "") -> tuple[int, int]:
+    context = " ".join(context) if isinstance(context, list) else context
+    angles = 0
+    for index, char in enumerate(context):
+        if char == "<":
+            angles += 1
+        elif char == ">" and (index == 0 or context[index - 1] != "="):
+            angles = max(0, angles - 1)
+    opens = closes = 0
+    for index, char in enumerate(fragment):
+        if char == "<":
+            angles += 1
+        elif char == ">" and (index == 0 or fragment[index - 1] != "="):
+            angles = max(0, angles - 1)
+        elif angles == 0 and char == "{":
+            opens += 1
+        elif angles == 0 and char == "}":
+            closes += 1
+    return opens, closes
+
+
+def source_brace_counts(fragment: str, language: str, context: str | list[str] = "") -> tuple[int, int]:
+    if language in {"javascript", "typescript"}:
+        return javascript_brace_counts(fragment, context)
+    return fragment.count("{"), fragment.count("}")
