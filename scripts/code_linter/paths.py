@@ -17,6 +17,7 @@ from .coverage import (
     unknown_text_surface,
 )
 from .github import format_github_command
+from git_paths import git_output_text, split_git_paths
 
 
 def collect_paths(root: Path, config: dict, args: argparse.Namespace) -> list[Path]:
@@ -112,7 +113,7 @@ def changed_paths(root: Path, base: str, head: str) -> list[Path]:
         "--diff-filter=ACMRT",
         f"{base}...{head}",
     ]
-    result = subprocess.run(diff_args, cwd=root, text=True, capture_output=True, check=False)
+    result = subprocess.run(diff_args, cwd=root, text=False, capture_output=True, check=False)
     if result.returncode != 0:
         diff_args = [
             "git",
@@ -123,25 +124,25 @@ def changed_paths(root: Path, base: str, head: str) -> list[Path]:
             base,
             head,
         ]
-        result = subprocess.run(diff_args, cwd=root, text=True, capture_output=True, check=False)
+        result = subprocess.run(diff_args, cwd=root, text=False, capture_output=True, check=False)
     if result.returncode != 0:
-        stderr = result.stderr.strip() or result.stdout.strip()
+        stderr = git_output_text(result.stderr).strip() or git_output_text(result.stdout).strip()
         message = f"Unable to collect changed files: {stderr}"
         print(format_github_command("error", data=message), file=sys.stderr)
         sys.exit(2)
-    return [root / path for path in result.stdout.split("\0") if path]
+    return [root / path for path in split_git_paths(result.stdout)]
 
 
 def all_repo_paths(root: Path) -> list[Path]:
     result = subprocess.run(
         ["git", "ls-files", "-z"],
         cwd=root,
-        text=True,
+        text=False,
         capture_output=True,
         check=False,
     )
     if result.returncode == 0:
-        return [root / path for path in result.stdout.split("\0") if path]
+        return [root / path for path in split_git_paths(result.stdout)]
 
     paths = []
     for current_root, dirnames, filenames in os.walk(root):

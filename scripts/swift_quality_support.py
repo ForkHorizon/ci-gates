@@ -12,6 +12,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from git_paths import git_output_text, split_git_paths
+
 
 @dataclass(frozen=True)
 class SwiftProject:
@@ -161,16 +163,20 @@ def changed_paths(root: Path, base: str, head: str) -> list[Path]:
         ["git", "diff", "-z", "--name-only", "--diff-filter=ACMRT", base, head],
     ]
     for command in attempts:
-        result = subprocess.run(command, cwd=root, text=True, capture_output=True, check=False)
+        result = subprocess.run(command, cwd=root, text=False, capture_output=True, check=False)
         if result.returncode == 0:
-            return [root / path for path in result.stdout.split("\0") if path]
-    fail(trimmed_error(result.stdout + result.stderr, "Unable to collect changed files."))
+            return [root / path for path in split_git_paths(result.stdout)]
+    fail(
+        trimmed_error(
+            git_output_text(result.stdout) + git_output_text(result.stderr), "Unable to collect changed files."
+        )
+    )
 
 
 def all_repo_paths(root: Path) -> list[Path]:
-    result = subprocess.run(["git", "ls-files", "-z"], cwd=root, text=True, capture_output=True, check=False)
+    result = subprocess.run(["git", "ls-files", "-z"], cwd=root, text=False, capture_output=True, check=False)
     if result.returncode == 0:
-        return [root / path for path in result.stdout.split("\0") if path]
+        return [root / path for path in split_git_paths(result.stdout)]
 
     paths = []
     for current_root, dirnames, filenames in os.walk(root):
