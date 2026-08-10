@@ -14,7 +14,7 @@ on:
       gates-ref:
         description: ci-gates ref to fetch scripts from.
         type: string
-        default: 441c840036ae31e9ac310ff381b6322339dfff65
+        default: main
       model:
         description: Model used for review (e.g. deepseek-chat or Ollama model); empty string disables the job.
         type: string

@@ -14,7 +14,7 @@ on:
       gates-ref:
         description: ci-gates ref to fetch scripts from.
         type: string
-        default: 441c840036ae31e9ac310ff381b6322339dfff65
+        default: main
       explain-model:
         description: Ollama model that explains failures; empty string disables.
         type: string

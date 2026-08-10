@@ -3,11 +3,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-PINNED_GATES_SHA = "441c840036ae31e9ac310ff381b6322339dfff65"
 
 
 class ReusableWorkflowReferenceTests(unittest.TestCase):
-    def test_all_gate_workflows_pin_ci_gates_to_one_revision(self):
+    def test_all_gate_workflows_default_to_latest_main_with_sha_override(self):
         workflow_paths = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
         gate_workflows = []
         for path in workflow_paths:
@@ -16,9 +15,11 @@ class ReusableWorkflowReferenceTests(unittest.TestCase):
                 continue
             gate_workflows.append(path)
             with self.subTest(workflow=path.name):
-                self.assertNotIn("default: main", workflow)
-                self.assertNotIn("ref: main", workflow)
-                self.assertIn(PINNED_GATES_SHA, workflow)
+                self.assertIn("gates-ref:", workflow)
+                self.assertIn("default: main", workflow)
+                self.assertNotIn("ref: 441c840036ae31e9ac310ff381b6322339dfff65", workflow)
+                if "repository: ForkHorizon/ci-gates" in workflow:
+                    self.assertIn("ref: ${{ inputs.gates-ref }}", workflow)
         self.assertGreaterEqual(len(gate_workflows), 8)
 
     def test_clone_based_gate_workflows_fetch_and_detach_the_requested_sha(self):
