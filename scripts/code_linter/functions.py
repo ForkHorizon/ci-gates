@@ -10,7 +10,7 @@ from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
 from .objective_c import objective_c_method_start, objective_c_selector
-from . import javascript_tracking, signatures
+from . import javascript_ordering, javascript_tracking, signatures
 from .swift_closures import track_swift_signature
 
 
@@ -291,7 +291,7 @@ def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
             state.brace_depth = max(0, state.brace_depth + opens - closes)
             close_functions(state, line_number)
     if language in {"javascript", "typescript"}:
-        javascript_tracking.order_javascript_results(state.results, state.result_positions)
+        javascript_ordering.order_javascript_results(state.results, state.result_positions)
     line_count = len(text.splitlines())
     for block in reversed(state.active):
         length = line_count - block.start_line + 1

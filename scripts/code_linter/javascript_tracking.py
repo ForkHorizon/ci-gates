@@ -28,7 +28,7 @@ def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> l
     ):
         return [clean[: leading_close + 1], clean[leading_close + 1 :]]
     if not allow_continuation and not re.search(
-        r"\bclass\b|\binterface\b|\bexport\s+default\b|\bmodule\.exports\b|"
+        r"\bclass\b|\binterface\b|\bnamespace\b|\bexport\s+default\b|\bmodule\.exports\b|"
         r"\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\{|"
         r"\breturn\s*\{|\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{",
         clean,
@@ -44,6 +44,12 @@ def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> l
         char = clean[index]
         if char == "{":
             previous = clean[:index].rstrip()[-1:]
+            nested_object = depth > 1 and re.search(
+                r"(?:\breturn|[A-Za-z_$][A-Za-z0-9_$]*)\s*\(?\s*$", clean[start:index]
+            )
+            if nested_object:
+                fragments.append(clean[start : index + 1].lstrip(" ,"))
+                start, body_depth = index + 1, 0
             if previous in {")", "]"} and (depth == 1 or javascript_method_body_header(clean[start:index])):
                 body_depth = depth + 1
             depth += 1
@@ -69,19 +75,6 @@ def javascript_fragments_for_line(clean: str, language: str, method_scopes: list
         if language not in {"javascript", "typescript"}
         else javascript_line_fragments(clean, bool(method_scopes))
     )
-
-
-def order_javascript_results(results: list[tuple[str, int, int, int]], positions: list[tuple[int, int]]) -> None:
-    groups: dict[int, list[int]] = {}
-    for index, (line, _) in enumerate(positions):
-        groups.setdefault(line, []).append(index)
-    for indices in groups.values():
-        ordered = sorted(indices, key=lambda index: positions[index][1])
-        values = [results[index] for index in ordered]
-        ordered_positions = [positions[index] for index in ordered]
-        for index, value, position in zip(indices, values, ordered_positions, strict=True):
-            results[index] = value
-            positions[index] = position
 
 
 def track_split_type_context(state: FunctionScanState, clean: str) -> None:
@@ -204,7 +197,7 @@ def javascript_detection_line(
         tail = source[opening + 1 :].lstrip()
         tail_detected = detect_brace_function(tail, language, enclosing_types, allow_method_fallback)
         object_prefix = re.match(
-            r"^(?:[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{|class\s|interface\s|export\s+default\s|module\.exports)",
+            r"^(?:[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{|\{\s*|class\s|interface\s|declare\s+namespace\s|export\s+default\s|module\.exports)",
             source.lstrip(),
         )
         if (
@@ -213,11 +206,13 @@ def javascript_detection_line(
             and (
                 tail_detected != detected
                 or re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{", source.lstrip())
-                or source.lstrip().startswith(("class ", "interface ", "export default ", "module.exports"))
+                or source.lstrip().startswith(
+                    ("{", "class ", "interface ", "declare namespace ", "export default ", "module.exports")
+                )
             )
         ):
             declaration_prefix = source.lstrip().startswith(
-                ("class ", "interface ", "export default ", "module.exports")
+                ("class ", "interface ", "declare namespace ", "export default ", "module.exports")
             )
             if declaration_prefix and tail.count("}") > tail.count("{") and tail.rstrip().endswith("}"):
                 tail = tail.rstrip()[:-1].rstrip()
@@ -282,7 +277,8 @@ def track_javascript_signature(
         return
     detection_line = javascript_detection_line(clean, raw, language, enclosing_types, allow_method_fallback)
     detected = detect_brace_function(detection_line.strip(), language, enclosing_types, allow_method_fallback)
-    if detected:
+    call_without_body = state.active and not state.method_scopes and "{" not in detection_line
+    if detected and not call_without_body:
         arrow = javascript_arrow_method(detected, clean)
         state.pending_signature = [detection_line]
         params = count_params_in_signature(detection_line, detected, language)

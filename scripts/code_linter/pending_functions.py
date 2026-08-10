@@ -116,8 +116,10 @@ def finish_declaration(
 
 
 def declaration_scope_active(state: FunctionScanState) -> bool:
-    return state.brace_depth in state.javascript_declaration_scopes or (
-        state.brace_depth + 1 in state.javascript_declaration_scopes
+    return (
+        bool(state.javascript_declaration_scopes)
+        or state.brace_depth in state.javascript_declaration_scopes
+        or (state.brace_depth + 1 in state.javascript_declaration_scopes)
     )
 
 

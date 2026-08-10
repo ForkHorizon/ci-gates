@@ -166,6 +166,34 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
 """
         self.assertEqual(self.lengths(source), [("run", 2, 4, 2)])
 
+    def test_multiline_call_and_parenthesized_return_objects_are_measured(self):
+        call = """function outer(){
+  consume(
+    { run(a,b,c) {} }
+  );
+}
+"""
+        returned = """function outer(){
+  return (
+    { run(a,b,c) {} }
+  );
+}
+"""
+        expected = [("run", 3, 1, 3), ("outer", 1, 5, 0)]
+        self.assertEqual(self.lengths(call), expected)
+        self.assertEqual(self.lengths(returned), expected)
+
+    def test_nested_object_method_inside_method_is_measured(self):
+        source = "class C { outer(a,b,c){ return { inner(a,b,c){} }; } }\n"
+        self.assertEqual(
+            self.lengths(source),
+            [("outer", 1, 1, 3), ("inner", 1, 1, 3)],
+        )
+
+    def test_declare_namespace_interface_method_is_measured(self):
+        source = "declare namespace N { interface I { run(a,b,c); } }\n"
+        self.assertEqual(self.lengths(source, "typescript"), [("run", 1, 1, 3)])
+
 
 if __name__ == "__main__":
     unittest.main()
