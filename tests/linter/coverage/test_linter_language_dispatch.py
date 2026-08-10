@@ -111,6 +111,18 @@ class LanguageDispatchTests(unittest.TestCase):
 
     def test_structural_dispatch_runs_for_each_non_syntax_only_language(self):
         structural_languages = set(EXPECTED_EXTENSIONS.values()) - {"yaml", "gitignore"}
+        expected_calls = {
+            "function": ("fixture", "source", None, config.LIMIT_DEFAULTS),
+            "nesting": ("fixture", "source", None, config.LIMIT_DEFAULTS["max_nesting_depth"]),
+            "comments": (
+                "fixture",
+                "source",
+                None,
+                config.LIMIT_DEFAULTS["max_comment_lines"],
+                config.LIMIT_DEFAULTS["max_doc_comment_lines"],
+            ),
+            "types": ("fixture", "source", None, config.LIMIT_DEFAULTS["max_types_per_file"]),
+        }
         for language in sorted(structural_languages):
             with self.subTest(language=language):
                 calls = {name: [] for name in ("function", "nesting", "comments", "types")}
@@ -126,8 +138,24 @@ class LanguageDispatchTests(unittest.TestCase):
 
                 for checker_name, checker_calls in calls.items():
                     with self.subTest(checker=checker_name):
-                        self.assertEqual(len(checker_calls), 1)
-                        self.assertEqual(checker_calls[0][2], language)
+                        self.assertEqual(
+                            checker_calls,
+                            [(*expected_calls[checker_name][:2], language, *expected_calls[checker_name][3:])],
+                        )
+
+    def test_syntax_only_languages_never_run_structural_checkers(self):
+        for language in ("yaml", "gitignore"):
+            with self.subTest(language=language):
+                calls = {name: [] for name in ("function", "nesting", "comments", "types")}
+                with (
+                    patch.object(runner, "check_syntax", return_value=[]),
+                    patch.object(runner, "function_issues", side_effect=record_calls(calls["function"])),
+                    patch.object(runner, "check_nesting_depth", side_effect=record_calls(calls["nesting"])),
+                    patch.object(runner, "check_comment_blocks", side_effect=record_calls(calls["comments"])),
+                    patch.object(runner, "check_types_per_file", side_effect=record_calls(calls["types"])),
+                ):
+                    self.assertEqual(runner.source_issues("fixture", "source", language, config.LIMIT_DEFAULTS), [])
+                self.assertEqual(calls, {name: [] for name in calls})
 
 
 if __name__ == "__main__":
