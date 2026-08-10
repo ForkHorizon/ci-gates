@@ -108,7 +108,7 @@ class ParserMutationStageTests(unittest.TestCase):
             ("{python}", "-c", "raise SystemExit(1)"),
         )
         self.assertEqual(status, "error")
-        self.assertIn("non-empty test run", detail)
+        self.assertIn("unexpected focused unittest command", detail)
 
     def test_zero_test_success_is_not_a_valid_baseline(self):
         status, detail = RUNNER.run_focused_tests(
@@ -116,7 +116,7 @@ class ParserMutationStageTests(unittest.TestCase):
             ("{python}", "-m", "unittest"),
         )
         self.assertEqual(status, "error")
-        self.assertIn("non-empty test run", detail)
+        self.assertIn("unexpected focused unittest command", detail)
 
     def test_failed_test_loader_is_not_a_killed_mutation(self):
         status, detail = RUNNER.run_focused_tests(
@@ -125,6 +125,24 @@ class ParserMutationStageTests(unittest.TestCase):
         )
         self.assertEqual(status, "error")
         self.assertIn("collection or setup", detail)
+
+    def test_runner_rejects_duplicate_mutation_selection(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--mutation",
+                RUNNER.MUTATIONS[0].name,
+                "--mutation",
+                RUNNER.MUTATIONS[0].name,
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Duplicate mutation selection", result.stderr)
 
 
 if __name__ == "__main__":

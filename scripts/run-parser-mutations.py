@@ -106,36 +106,55 @@ def apply_mutation(root: Path, mutation: Mutation) -> None:
 
 
 def run_focused_tests(root: Path, command_template: tuple[str, ...]) -> tuple[str, str]:
-    command = [sys.executable if item == "{python}" else item for item in command_template]
-    try:
-        result = subprocess.run(
-            command,
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=MUTATION_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return "error", f"focused tests timed out after {exc.timeout}s"
-    except (OSError, UnicodeError) as exc:
-        return "error", f"focused tests could not execute or decode output: {exc}"
-    combined = result.stdout + result.stderr
-    if not re.search(r"Ran [1-9][0-9]* tests?", combined):
-        return "error", "focused tests did not complete a non-empty test run"
-    collection_errors = (
-        "_FailedTest",
-        "ImportError",
-        "ModuleNotFoundError",
-        "SyntaxError",
-        "setUpClass",
-        "setUpModule",
+    valid_command = not (
+        len(command_template) != 5
+        or command_template[:3] != ("{python}", "-m", "unittest")
+        or not command_template[3].startswith("tests.")
+        or command_template[4] != "-q"
     )
-    if any(marker in combined for marker in collection_errors):
-        return "error", "focused tests reported a collection or setup failure"
-    if result.returncode == 0:
-        return "passed", ""
-    return "failed", combined[-2000:]
+    status = "error"
+    detail = "unexpected focused unittest command"
+    if valid_command:
+        command = [sys.executable if item == "{python}" else item for item in command_template]
+        try:
+            result = subprocess.run(
+                command,
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=MUTATION_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            detail = f"focused tests timed out after {exc.timeout}s"
+        except (OSError, UnicodeError) as exc:
+            detail = f"focused tests could not execute or decode output: {exc}"
+        else:
+            combined = result.stdout + result.stderr
+            has_tests = re.search(r"Ran [1-9][0-9]* tests?", combined)
+            collection_errors = (
+                "_FailedTest",
+                "ImportError",
+                "ModuleNotFoundError",
+                "SyntaxError",
+                "setUpClass",
+                "setUpModule",
+            )
+            if not has_tests:
+                detail = "focused tests did not complete a non-empty test run"
+            elif any(marker in combined for marker in collection_errors):
+                detail = "focused tests reported a collection or setup failure"
+            elif result.returncode == 0 and re.search(r"\bOK\b", combined):
+                status, detail = "passed", ""
+            elif result.returncode == 0:
+                detail = "focused tests did not report a successful unittest result"
+            elif "errors=" in combined or re.search(r"^ERROR:", combined, re.MULTILINE):
+                detail = "focused tests reported a test error or setup failure"
+            elif re.search(r"FAILED \([^)]*failures=[1-9][^)]*\)", combined):
+                status, detail = "failed", ""
+            else:
+                detail = "focused tests did not report an assertion failure"
+    return status, detail
 
 
 def run_mutation(root: Path, mutation: Mutation) -> tuple[str, str]:
@@ -159,6 +178,8 @@ def selected_mutations(names: list[str] | None) -> tuple[Mutation, ...]:
     unknown = [name for name in names if name not in by_name]
     if unknown:
         raise MutationError(f"Unknown mutation: {unknown[0]}")
+    if len(names) != len(set(names)):
+        raise MutationError("Duplicate mutation selection")
     return tuple(by_name[name] for name in names)
 
 
