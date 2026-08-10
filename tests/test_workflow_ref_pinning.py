@@ -1,3 +1,4 @@
+import re
 import subprocess
 import tempfile
 import unittest
@@ -6,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 FETCH_COMMAND = 'git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin -- "$GATES_REF"'
-FETCH_PREFIX = 'git -C "$RUNNER_TEMP/ci-gates" fetch'
+FETCH_RE = re.compile(r"\bgit\b[^\n;&|]*\bfetch\b[^\n;&|]*")
 
 
 def _strip_shell_comment(line):
@@ -37,22 +38,24 @@ def _strip_shell_comment(line):
 def _run_blocks(workflow):
     lines = workflow.splitlines()
     blocks = []
-    step_starts = [index for index, line in enumerate(lines) if line.lstrip().startswith("- name:")]
+    first_step = next(index for index, line in enumerate(lines) if line.lstrip().startswith("- name:"))
+    step_indent = len(lines[first_step]) - len(lines[first_step].lstrip())
+    step_starts = [
+        index
+        for index, line in enumerate(lines)
+        if len(line) - len(line.lstrip()) == step_indent and line.lstrip().startswith("- ")
+    ]
     for position, start in enumerate(step_starts):
-        step_indent = len(lines[start]) - len(lines[start].lstrip())
         end = step_starts[position + 1] if position + 1 < len(step_starts) else len(lines)
-        next_start = next(
-            (
-                candidate
-                for candidate in step_starts[position + 1 :]
-                if len(lines[candidate]) - len(lines[candidate].lstrip()) == step_indent
-            ),
-            end,
-        )
-        block_lines = lines[start:next_start]
+        block_lines = lines[start:end]
         for run_index, line in enumerate(block_lines):
-            if line.strip() not in {"run: |", "run: |-", "run: >", "run: >-"}:
+            run_line = _strip_shell_comment(line).strip()
+            if not run_line.startswith("run:"):
                 continue
+            run_value = run_line[len("run:") :].strip()
+            if run_value and run_value[0] not in "|>":
+                blocks.append(run_value)
+                break
             run_indent = len(line) - len(line.lstrip())
             body = []
             for body_line in block_lines[run_index + 1 :]:
@@ -64,6 +67,11 @@ def _run_blocks(workflow):
             blocks.append("\n".join(body))
             break
     return blocks
+
+
+def _fetch_invocations(workflow):
+    normalized = re.sub(r"\\\s*\n", " ", "\n".join(_run_blocks(workflow)))
+    return [match.group(0).strip() for match in FETCH_RE.finditer(normalized)]
 
 
 def _git(directory, *args, check=True):
@@ -172,13 +180,8 @@ class ReusableWorkflowReferenceTests(unittest.TestCase):
                     'git -C "$RUNNER_TEMP/ci-gates" checkout --quiet --detach FETCH_HEAD',
                     fetch_blocks[0],
                 )
-                fetch_lines = [
-                    line.strip()
-                    for block in _run_blocks(workflow)
-                    for line in block.splitlines()
-                    if line.strip().startswith(FETCH_PREFIX)
-                ]
-                self.assertEqual(fetch_lines, [FETCH_COMMAND])
+                fetch_invocations = _fetch_invocations(workflow)
+                self.assertEqual(fetch_invocations, [FETCH_COMMAND])
                 self.assertNotIn('--branch "${{ inputs.gates-ref }}"', workflow)
 
     def test_fetch_command_handles_main_and_rejects_option_like_refs(self):
