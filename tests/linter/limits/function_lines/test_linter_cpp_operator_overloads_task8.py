@@ -240,7 +240,7 @@ void operator delete[](void* pointer) noexcept {
 };
 """
         names = [item[0] for item in self.functions(source)]
-        self.assertEqual(names, ["Number", "value", "run"])
+        self.assertEqual(names, ["Number", "~Number", "value", "run"])
 
     def test_free_operator_limits_report_length_and_parameters(self):
         source = """Number operator+(const Number& first, const Number& second, const Number& third) {
