@@ -122,7 +122,9 @@ Common to all workflows:
 - `coverage-mode` — optional `report` or `strict` override; when omitted, the
   repository config's `coverage_mode` is used.
 - `gates-ref` — which ref of this repo to fetch scripts from where supported.
-  The Code Linter deliberately always fetches `main`.
+  It defaults to `main`, so downstream repositories receive the latest scripts
+  automatically. Callers may override it with a branch, tag, or commit SHA when
+  a reproducible gate revision is required.
 
 - `explain-model` — Ollama model used by the failure explainer (default `qwen3-coder:30b-a3b-q4_K_M`); set to `''` to disable.
 
