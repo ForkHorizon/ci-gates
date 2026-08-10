@@ -18,7 +18,7 @@ on:
       gates-ref:
         description: ci-gates ref to fetch scripts from.
         type: string
-        default: main
+        default: 441c840036ae31e9ac310ff381b6322339dfff65
       explain-model:
         description: Ollama model that explains failures; empty string disables.
         type: string
@@ -46,11 +46,15 @@ jobs:
 
       - name: Fetch ci-gates
         shell: bash
+        env:
+          GATES_REF: ${{ inputs.gates-ref }}
         run: |
           set -euo pipefail
           rm -rf "$RUNNER_TEMP/ci-gates"
-          git clone --quiet --depth 1 --branch "${{ inputs.gates-ref }}" \
+          git clone --quiet --no-checkout --filter=blob:none \
             https://github.com/ForkHorizon/ci-gates "$RUNNER_TEMP/ci-gates"
+          git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin "$GATES_REF"
+          git -C "$RUNNER_TEMP/ci-gates" checkout --quiet --detach FETCH_HEAD
 
       - name: Install dependencies
         run: |

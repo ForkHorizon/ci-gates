@@ -223,7 +223,7 @@ class SafetyAndCommentTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("contents: read", workflow)
         self.assertNotIn("gates-ref:", workflow)
-        self.assertIn("ref: main", workflow)
+        self.assertIn("ref: 441c840036ae31e9ac310ff381b6322339dfff65", workflow)
 
 
 if __name__ == "__main__":

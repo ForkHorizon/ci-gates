@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: ForkHorizon/ci-gates
-          ref: main
+          ref: 441c840036ae31e9ac310ff381b6322339dfff65
           path: .ci-gates
           persist-credentials: false
 
