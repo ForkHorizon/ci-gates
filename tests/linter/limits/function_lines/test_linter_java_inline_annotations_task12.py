@@ -62,6 +62,14 @@ class JavaInlineAnnotationTests(unittest.TestCase):
         source = "@A public <T> T convert(T first, T second, T third) { return first; }\n"
         self.assertEqual(self.lengths(source), [("convert", 1, 1, 3)])
 
+    def test_annotated_bounded_generic_method_is_detected(self):
+        source = "@A public <T extends Comparable<T>> T convert(T a, T b, T c) { return a; }\n"
+        self.assertEqual(self.lengths(source), [("convert", 1, 1, 3)])
+
+    def test_annotated_multi_parameter_generic_method_is_detected(self):
+        source = "@A public <K, V> Map<K, V> convert(K a, V b, K c) { return null; }\n"
+        self.assertEqual(self.lengths(source), [("convert", 1, 1, 3)])
+
     def test_annotation_followed_by_constructor_is_detected(self):
         source = "class Widget {\n    @Inject public Widget(int a, int b, int c) { init(); }\n}\n"
         self.assertEqual(self.lengths(source), [("Widget", 2, 1, 3)])
@@ -116,6 +124,11 @@ class JavaInlineAnnotationTests(unittest.TestCase):
 
     def test_public_cli_reports_max_parameters_for_annotated_method(self):
         source = "@Override public void run(int a, int b, int c) { work(); }\n"
+        issues = self.issues(source)
+        self.assertEqual([(issue.kind, issue.line) for issue in issues], [("max_parameters", 1)])
+
+    def test_public_cli_reports_max_parameters_for_bounded_generic_method(self):
+        source = "@A public <T extends Comparable<T>> T convert(T a, T b, T c) { return a; }\n"
         issues = self.issues(source)
         self.assertEqual([(issue.kind, issue.line) for issue in issues], [("max_parameters", 1)])
 

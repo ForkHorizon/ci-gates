@@ -123,6 +123,36 @@ def is_c_family_declaration(
     return language in C_FAMILY_LANGUAGES and match.group(1) in enclosing_types and not prefix.endswith(".")
 
 
+def _matching_java_generic_delimiter(text: str, start: int) -> int:
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == "<":
+            depth += 1
+        elif text[index] == ">":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def _detect_java_generic_method(line: str, prefix: str) -> str | None:
+    opening = re.match(prefix + r"<", line)
+    if not opening or "(" not in line:
+        return None
+    generic_end = _matching_java_generic_delimiter(line, opening.end() - 1)
+    if generic_end < 0:
+        return None
+    before_parameters = line[: line.find("(")].rstrip()
+    remainder = before_parameters[generic_end + 1 :]
+    method = re.search(r"([A-Za-z_$][A-Za-z0-9_$]*)\s*$", remainder)
+    if not method:
+        return None
+    return_type = remainder[: method.start()].strip()
+    if not return_type or "." in return_type:
+        return None
+    return method.group(1)
+
+
 _CSHARP_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 _CSHARP_TYPE_ARGUMENTS = r"(?:\s*<[^(){};]+>)?"
 _CSHARP_EXPLICIT_INTERFACE = re.compile(
@@ -166,6 +196,10 @@ def detect_c_family(
         r"(?:(?:public|private|protected|internal|static|virtual|override|async|"
         r"sealed|extern|unsafe|partial|new|final|synchronized|abstract)\s+)*"
     )
+    if language == "java":
+        generic_method = _detect_java_generic_method(candidate, prefix)
+        if generic_method and generic_method not in CONTROL_WORDS:
+            return generic_method
     patterns = (
         prefix + r"\S+\s+([A-Za-z_][A-Za-z0-9_]*)\s*<[^>]+>\s*\(",
         prefix + r"<[^>]+>\s+\S+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
