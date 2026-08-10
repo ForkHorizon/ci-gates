@@ -1,3 +1,4 @@
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -7,6 +8,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check-test-discovery.py"
+
+
+def load_guard_module():
+    spec = importlib.util.spec_from_file_location("check_test_discovery", SCRIPT)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("unable to load discovery guard module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+GUARD_MODULE = load_guard_module()
 
 
 class TestDiscoveryGuardTests(unittest.TestCase):
@@ -69,6 +82,9 @@ class TestDiscoveryGuardTests(unittest.TestCase):
             result = self.run_guard(root)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("notes.py", result.stdout)
+
+    def test_guard_accepts_valid_escaped_character_class_pattern(self):
+        self.assertIsNone(GUARD_MODULE.validate_pattern("test_[[]*.py"))
 
     def test_guard_rejects_invalid_absolute_pattern_without_traceback(self):
         with tempfile.TemporaryDirectory() as directory:

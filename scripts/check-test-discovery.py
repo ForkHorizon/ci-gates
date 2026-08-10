@@ -32,8 +32,21 @@ def module_path(module_name: str) -> Path:
 def validate_pattern(pattern: str) -> str | None:
     if not pattern or Path(pattern).is_absolute() or "/" in pattern or "\\" in pattern:
         return "pattern must be a non-empty relative filename glob"
-    if pattern.count("[") != pattern.count("]"):
-        return "pattern contains an unmatched character-class bracket"
+    index = 0
+    while index < len(pattern):
+        if pattern[index] != "[":
+            index += 1
+            continue
+        index += 1
+        if index < len(pattern) and pattern[index] == "!":
+            index += 1
+        if index < len(pattern) and pattern[index] == "]":
+            index += 1
+        while index < len(pattern) and pattern[index] != "]":
+            index += 1
+        if index == len(pattern):
+            return "pattern contains an unmatched character-class bracket"
+        index += 1
     if ".." in Path(pattern).parts:
         return "pattern must not contain a parent directory"
     return None

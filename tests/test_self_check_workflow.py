@@ -29,9 +29,15 @@ def read_run_command(lines, index, value, minimum_indent):
     return value.split(" #", 1)[0].rstrip(), index + 1
 
 
+def is_mapping_key(line, indent, key):
+    if len(line) - len(line.lstrip()) != indent:
+        return False
+    return line[indent:].split(" #", 1)[0].strip() == f"{key}:"
+
+
 def run_commands(workflow):
     lines = workflow.splitlines()
-    steps_index = next(index for index, line in enumerate(lines) if line.strip() == "steps:")
+    steps_index = next(index for index, line in enumerate(lines) if line.strip().split(" #", 1)[0].strip() == "steps:")
     step_indent = next(
         len(line) - len(line.lstrip()) for line in lines[steps_index + 1 :] if line.strip().startswith("- ")
     )
@@ -60,7 +66,7 @@ def workflow_job_commands(workflow, job_name):
     jobs_index = next(index for index, line in enumerate(lines) if line.strip() == "jobs:")
     job_marker = f"  {job_name}:"
     job_indices = [
-        index for index, line in enumerate(lines[jobs_index + 1 :], jobs_index + 1) if line.rstrip() == job_marker
+        index for index, line in enumerate(lines[jobs_index + 1 :], jobs_index + 1) if is_mapping_key(line, 2, job_name)
     ]
     if len(job_indices) != 1:
         raise ValueError(f"expected exactly one {job_marker!r} job mapping")
@@ -74,11 +80,7 @@ def workflow_job_commands(workflow, job_name):
         len(lines),
     )
     job_lines = lines[job_index:next_job]
-    step_indices = [
-        index
-        for index, line in enumerate(job_lines)
-        if len(line) - len(line.lstrip()) == 4 and line.strip() == "steps:"
-    ]
+    step_indices = [index for index, line in enumerate(job_lines) if is_mapping_key(line, 4, "steps")]
     if len(step_indices) != 1:
         raise ValueError("expected exactly one steps mapping in self-check job")
     return run_commands("\n".join(job_lines))
@@ -146,8 +148,10 @@ class SelfCheckWorkflowTests(unittest.TestCase):
         )
 
     def test_workflow_parser_rejects_duplicate_job_and_steps_mappings(self):
-        duplicate_steps = self.workflow.replace("    steps:\n", "    steps:\n    steps:\n", 1)
-        duplicate_job = self.workflow + "\n  self-check:\n    steps:\n      - run: true\n"
+        duplicate_steps = self.workflow.replace(
+            "    steps:\n", "    steps: # first mapping\n    steps: # duplicate mapping\n", 1
+        )
+        duplicate_job = self.workflow + "\n  self-check: # duplicate job\n    steps:\n      - run: true\n"
         with self.assertRaises(ValueError):
             workflow_job_commands(duplicate_steps, "self-check")
         with self.assertRaises(ValueError):
