@@ -17,14 +17,17 @@ SHELL_CLOSE = re.compile(r"^(?:fi|done|esac)\b")
 
 def shell_logical_statement(
     raw: str, clean: str, line_number: int, continuation: tuple[str, int] | None
-) -> tuple[str, int]:
+) -> tuple[str, int, tuple[str, int] | None]:
     statement = clean.strip()
     if continuation is None:
-        return statement, line_number
+        return statement, line_number, None
     prefix, start_line = continuation
     if statement and not raw.lstrip().startswith("#"):
-        return f"{prefix} {statement}", start_line
-    return "", start_line
+        return f"{prefix} {statement}", start_line, None
+    declaration = SHELL_FUNCTION_DECLARATION.fullmatch(prefix)
+    if declaration:
+        return "", start_line, (declaration.group(1) or declaration.group(2), start_line)
+    return "", start_line, None
 
 
 def shell_syntax_issues(relative: str, text: str) -> list[Issue]:
@@ -51,8 +54,10 @@ def shell_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
     continuation: tuple[str, int] | None = None
     brace_depth = 0
     for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, "shell"), start=1):
-        statement, start_line = shell_logical_statement(raw, clean, line_number, continuation)
+        statement, start_line, continued_pending = shell_logical_statement(raw, clean, line_number, continuation)
         continuation = None
+        if continued_pending is not None:
+            pending = continued_pending
         match = SHELL_FUNCTION.match(statement)
         start_depth = brace_depth
         if match:

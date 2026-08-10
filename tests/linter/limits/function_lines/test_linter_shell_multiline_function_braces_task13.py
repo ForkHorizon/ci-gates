@@ -83,6 +83,17 @@ class ShellMultilineFunctionBraceTests(unittest.TestCase):
                 self.assert_valid_shell(source)
                 self.assert_lengths(source, [("build", 1, 5, 0)])
 
+    def test_completed_continuation_survives_comments_and_blank_lines(self):
+        cases = (
+            "function build \\\n# keep waiting\n{\n  work\n}\n",
+            "function build \\\n\n{\n  work\n}\n",
+            "function build \\\n   \n{\n  work\n}\n",
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                self.assert_valid_shell(source)
+                self.assert_lengths(source, [("build", 1, 5, 0)])
+
     def test_comments_and_blank_lines_between_declaration_and_brace_are_allowed(self):
         source = "build() # declaration\n# keep waiting\n\n{ # opening body\n  work\n}\n"
         self.assert_valid_shell(source)
@@ -213,6 +224,21 @@ build \\
             path = root / "build.sh"
             path.write_text(source, encoding="utf-8")
             issues = linter.check_paths(root, [path], {**LIMITS, "max_function_lines": 4})
+        self.assertEqual([(issue.kind, issue.line) for issue in issues], [("function_length", 1)])
+
+    def test_public_limit_reports_continuation_after_comment(self):
+        source = """function build \\
+# keep waiting
+{
+  one
+  two
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "build.sh"
+            path.write_text(source, encoding="utf-8")
+            issues = linter.check_paths(root, [path], {**LIMITS, "max_function_lines": 5})
         self.assertEqual([(issue.kind, issue.line) for issue in issues], [("function_length", 1)])
 
     def test_public_shell_max_parameters_semantics_remain_zero(self):
