@@ -4,6 +4,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .cpp_operators import cpp_operator_signature_complete
+from .cpp_destructors import cpp_destructor_has_body, cpp_destructor_signature_complete
 from .model import FunctionBlock
 from .signatures import pending_body_braces
 
@@ -14,6 +15,29 @@ if TYPE_CHECKING:
 def clear_pending(state: FunctionScanState) -> None:
     state.pending = None
     state.pending_signature = []
+
+
+def reject_incomplete_cpp_special(
+    state: FunctionScanState,
+    signature: str,
+    name: str,
+    stripped: str,
+    context: tuple[str, tuple[int, int]],
+) -> bool:
+    language, braces = context
+    if language != "cpp" or not (braces[0] or braces[1]):
+        return False
+    if name.startswith("operator") and not cpp_operator_signature_complete(signature):
+        clear_pending(state)
+        return True
+    if name.startswith("~"):
+        if not cpp_destructor_signature_complete(signature):
+            clear_pending(state)
+            return True
+        if not cpp_destructor_has_body(signature) and stripped.endswith(";"):
+            clear_pending(state)
+        return not cpp_destructor_has_body(signature)
+    return False
 
 
 def finish_pending_line(
@@ -28,13 +52,7 @@ def finish_pending_line(
     signature = "\n".join(state.pending_signature)
     confirmed = not state.pending[3] or "=>" in signature
     name, start, params, _ = state.pending
-    if (
-        language == "cpp"
-        and name.startswith("operator")
-        and (braces[0] or braces[1])
-        and not cpp_operator_signature_complete(signature)
-    ):
-        clear_pending(state)
+    if reject_incomplete_cpp_special(state, signature, name, stripped, (language, braces)):
         return
     (opens, closes), waiting_for_function_body = pending_body_braces(signature, name, language, braces)
     if confirmed and opens:

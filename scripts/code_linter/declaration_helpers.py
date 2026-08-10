@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from .cpp_operators import detect_cpp_operator
+from .cpp_destructors import detect_cpp_destructor
 
 
 CONTROL_WORDS = {
@@ -103,6 +104,9 @@ def detect_c_family(
     if "(" not in line:
         return None
     if language == "cpp":
+        destructor = detect_cpp_destructor(line)
+        if destructor:
+            return destructor
         operator = detect_cpp_operator(line)
         if operator:
             return operator
