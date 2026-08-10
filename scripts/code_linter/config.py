@@ -11,6 +11,7 @@ from .json_safety import exceeds_json_depth
 
 config_read_error = _config_io.config_read_error
 github_path = _config_io.github_path
+MAX_CONFIG_BYTES = _config_io.MAX_CONFIG_BYTES
 
 LANGUAGE_BY_EXTENSION = {
     ".c": "c",
