@@ -9,7 +9,7 @@ from .pending_functions import finish_pending_line
 from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
-from .objective_c import objective_c_selector
+from .objective_c import objective_c_method_start, objective_c_selector
 from .signatures import (
     count_params_in_signature,
     csharp_lambda_match,
@@ -179,12 +179,16 @@ def track_signature(
         return
     allow_method_fallback = language in {"javascript", "typescript"} and bool(state.method_scopes)
     if language == "objective_c" and state.pending:
-        state.pending_signature.append(clean)
-        signature = "\n".join(state.pending_signature)
-        detected = objective_c_selector(signature)
-        params = count_params_in_signature(signature, detected, language)
-        state.pending = (detected or state.pending[0], state.pending[1], params, state.pending[3])
-        return
+        if objective_c_method_start(clean):
+            state.pending = None
+            state.pending_signature = []
+        else:
+            state.pending_signature.append(clean)
+            signature = "\n".join(state.pending_signature)
+            detected = objective_c_selector(signature)
+            params = count_params_in_signature(signature, detected, language)
+            state.pending = (detected or state.pending[0], state.pending[1], params, state.pending[3])
+            return
     detected = detect_brace_function(
         clean.strip(),
         language,

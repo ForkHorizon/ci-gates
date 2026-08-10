@@ -116,6 +116,24 @@ const char *text = "- (void)alsoFake:(id)value { bogus(); }";
 """
         self.assertEqual(self.lengths(source), [("realMethod:", 3, 3, 1)])
 
+    def test_same_line_c_label_is_not_a_selector_component(self):
+        source = """- (void)reset { if (ready) { cleanup: clear_state(); } }
+"""
+        self.assertEqual(self.lengths(source), [("reset", 1, 1, 0)])
+
+    def test_same_line_selector_expression_is_not_a_selector_component(self):
+        source = """- (void)reset { register_callback(@selector(foo:)); }
+"""
+        self.assertEqual(self.lengths(source), [("reset", 1, 1, 0)])
+
+    def test_new_method_discards_incomplete_previous_header(self):
+        source = """- (void)missing:(id)value
+- (void)real {
+    work();
+}
+"""
+        self.assertEqual(self.lengths(source), [("real", 2, 3, 0)])
+
     def test_malformed_or_incomplete_method_headers_are_not_detected(self):
         source = """- (void)missingBody:(id)value;
 - (void)unclosed:(id)value
