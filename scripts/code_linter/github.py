@@ -39,6 +39,8 @@ def _escape_github(value: str, *, property_value: bool) -> str:
             escaped.append("%2C")
         elif property_value and character == ":":
             escaped.append("%3A")
+        elif 0xDC80 <= codepoint <= 0xDCFF:
+            escaped.append(f"%{codepoint - 0xDC00:02X}")
         elif codepoint < 0x20 or 0x7F <= codepoint <= 0x9F:
             escaped.append(f"%{codepoint:02X}")
         else:
