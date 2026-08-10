@@ -49,6 +49,24 @@ def run_commands(workflow):
     return commands
 
 
+def workflow_job_commands(workflow, job_name):
+    lines = workflow.splitlines()
+    jobs_index = next(index for index, line in enumerate(lines) if line.strip() == "jobs:")
+    job_marker = f"  {job_name}:"
+    job_index = next(
+        index for index, line in enumerate(lines[jobs_index + 1 :], jobs_index + 1) if line.rstrip() == job_marker
+    )
+    next_job = next(
+        (
+            index
+            for index, line in enumerate(lines[job_index + 1 :], job_index + 1)
+            if line.startswith("  ") and not line.startswith("    ") and line.strip().endswith(":")
+        ),
+        len(lines),
+    )
+    return run_commands("\n".join(lines[job_index:next_job]))
+
+
 class SelfCheckWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -83,7 +101,7 @@ class SelfCheckWorkflowTests(unittest.TestCase):
 
     def test_test_discovery_guard_is_exact_and_precedes_unit_tests(self):
         self.assertIn("jobs:\n  self-check:\n", self.workflow)
-        commands = run_commands(self.workflow)
+        commands = workflow_job_commands(self.workflow, "self-check")
         guard = "python3 scripts/check-test-discovery.py --start-directory tests --pattern 'test_*.py'"
         unit_tests = "python3 -m unittest discover -s tests -p 'test_*.py' -q"
         self.assertEqual(commands.count(guard), 1)
