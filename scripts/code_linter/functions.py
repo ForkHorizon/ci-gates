@@ -112,10 +112,15 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
         track_split_type_context(state, clean)
         class_pattern = r"\b(?:class|interface)(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
         object_pattern = r"(?:\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)\{"
-        if re.search(class_pattern, clean) or re.search(object_pattern, clean):
-            depth = state.brace_depth + clean.count("{")
+        scope_matches = [
+            *re.finditer(class_pattern, clean),
+            *re.finditer(object_pattern, clean),
+            *re.finditer(r"(?:\breturn\s*|\(\s*|,\s*)\{", clean),
+        ]
+        for scope_match in scope_matches:
+            depth = state.brace_depth + clean[: scope_match.end()].count("{")
             state.method_scopes.append(depth)
-            if re.search(r"\binterface\b|\bdeclare\s+class\b", clean):
+            if re.search(r"\binterface\b|\bdeclare\s+class\b", scope_match.group()):
                 state.javascript_declaration_scopes.append(depth)
 
 

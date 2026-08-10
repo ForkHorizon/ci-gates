@@ -24,7 +24,7 @@ _METHOD_NAME = (
     r"(?:#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*|"
     r"\[(?:[^\[\]]|\[[^\[\]]*\])+\]"
     r"|'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\"|"
-    r"(?:0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|"
+    r"(?:0[xX][0-9A-Fa-f_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|"
     r"(?:\d[\d_]*|\.\d[\d_]*)(?:\.[\d_]*)?(?:[eE][+-]?[\d_]+)?n?))"
 )
 _METHOD_PATTERN = re.compile(
@@ -41,6 +41,29 @@ _FIELD_ARROW_PATTERN = re.compile(
 )
 
 
+def computed_method_parts(line: str) -> tuple[str, str] | None:
+    prefix_match = re.match(
+        r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)",
+        line,
+    )
+    if not prefix_match or prefix_match.end() >= len(line) or line[prefix_match.end()] != "[":
+        return None
+    start = prefix_match.end()
+    depth = 0
+    for index in range(start, len(line)):
+        if line[index] == "[":
+            depth += 1
+        elif line[index] == "]":
+            depth -= 1
+            if depth == 0:
+                suffix = line[index + 1 :].lstrip()
+                if suffix.startswith(("(", "<")):
+                    name = "[" + " ".join(line[start + 1 : index].split()) + "]"
+                    return prefix_match.group("prefix"), name
+                return None
+    return None
+
+
 def method_name(line: str, typescript: bool = False) -> str | None:
     stripped = line.strip()
     match = _METHOD_PATTERN.match(stripped)
@@ -48,14 +71,20 @@ def method_name(line: str, typescript: bool = False) -> str | None:
         opening = stripped.find("{")
         if opening >= 0:
             match = _METHOD_PATTERN.match(stripped[opening + 1 :].lstrip())
+    prefix = match.group("prefix") if match else ""
+    name = match.group("name") if match else None
     if not match:
-        return None
-    name = match.group("name")
+        computed = computed_method_parts(stripped)
+        if computed:
+            prefix, name = computed
+        else:
+            return None
+    assert name is not None
     if name.startswith("[") and name.endswith("]"):
         name = "[" + " ".join(name[1:-1].split()) + "]"
     if name in CONTROL_WORDS:
         return None
-    modifiers = set(match.group("prefix").split())
+    modifiers = set(prefix.split())
     allowed = TYPESCRIPT_METHOD_MODIFIERS if typescript else JAVASCRIPT_METHOD_MODIFIERS
     if not modifiers.issubset(allowed):
         return None
@@ -104,7 +133,15 @@ def field_arrow_name(line: str, typescript: bool = False) -> str | None:
 def detect_javascript_method(line: str, allow_method_fallback: bool, typescript: bool = False) -> str | None:
     if not allow_method_fallback:
         return None
-    return method_name(line, typescript) or field_arrow_name(line, typescript)
+    variants = [line]
+    opening = line.find("{")
+    if opening >= 0:
+        variants.append(line[opening + 1 :].lstrip())
+    for variant in variants:
+        detected = method_name(variant, typescript) or field_arrow_name(variant, typescript)
+        if detected:
+            return detected
+    return None
 
 
 def is_typescript_method_declaration(signature: str, name: str, allow_bare: bool = False) -> bool:

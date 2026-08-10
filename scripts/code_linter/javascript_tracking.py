@@ -106,11 +106,24 @@ def javascript_detection_line(
     enclosing_types: frozenset[str],
     allow_method_fallback: bool,
 ) -> str:
+    source = clean
     if raw and raw != clean:
-        detected = detect_brace_function(raw.strip(), language, enclosing_types, allow_method_fallback)
-        if detected and (detected[0] in "'\"" or detected[0].isdigit()):
-            return raw
-    return clean
+        raw_detected = detect_brace_function(raw.strip(), language, enclosing_types, allow_method_fallback)
+        if raw_detected and (raw_detected[0] in "'\"." or raw_detected[0].isdigit()):
+            source = raw
+    detected = detect_brace_function(source.strip(), language, enclosing_types, allow_method_fallback)
+    if detected and (detected[0] in "'\"." or detected[0].isdigit()):
+        return source
+    opening = source.find("{")
+    if opening >= 0:
+        tail = source[opening + 1 :].lstrip()
+        if detect_brace_function(
+            tail, language, enclosing_types, allow_method_fallback
+        ) == detected and source.lstrip().startswith(("class ", "interface ")):
+            if tail.rstrip().endswith("}"):
+                tail = tail.rstrip()[:-1].rstrip()
+            return tail
+    return source
 
 
 def javascript_arrow_method(detected: str, clean: str) -> bool:
@@ -136,6 +149,13 @@ def track_javascript_signature(
 ) -> None:
     enclosing_types = frozenset(name for _, name in state.type_scopes)
     allow_method_fallback = bool(state.method_scopes)
+    if ";" in clean:
+        tail = clean.split(";", 1)[-1].strip()
+        if tail != clean and detect_brace_function(tail, language, enclosing_types, allow_method_fallback):
+            state.pending = None
+            state.pending_signature = []
+            clean = tail
+            raw = tail
     if continue_pending_javascript(state, clean, language):
         return
     if state.javascript_candidate:
