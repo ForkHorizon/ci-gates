@@ -8,6 +8,9 @@ from .model import Issue
 from .scanner import scan_c_style_lines
 
 SHELL_FUNCTION = re.compile(r"^(?:function\s+)?([A-Za-z_][A-Za-z0-9_-]*)\s*(?:\(\s*\))?\s*\{")
+SHELL_FUNCTION_DECLARATION = re.compile(
+    r"^(?:function\s+([A-Za-z_][A-Za-z0-9_-]*)(?:\s*\(\s*\))?|([A-Za-z_][A-Za-z0-9_-]*)\s*\(\s*\))\s*$"
+)
 SHELL_OPEN = re.compile(r"^(?:if|for|while|until|case|select)\b")
 SHELL_CLOSE = re.compile(r"^(?:fi|done|esac)\b")
 
@@ -32,12 +35,24 @@ def shell_error_line(message: str) -> int:
 def shell_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
     results: list[tuple[str, int, int, int]] = []
     active: list[tuple[str, int, int]] = []
+    pending: tuple[str, int] | None = None
     brace_depth = 0
     for line_number, (_, clean, _) in enumerate(scan_c_style_lines(text, "shell"), start=1):
-        match = SHELL_FUNCTION.match(clean.strip())
+        statement = clean.strip()
+        match = SHELL_FUNCTION.match(statement)
         start_depth = brace_depth
         if match:
             active.append((match.group(1), line_number, start_depth))
+        elif pending is not None and statement == "{":
+            name, start = pending
+            active.append((name, start, start_depth))
+            pending = None
+        elif statement:
+            pending = None
+        if not match and pending is None:
+            declaration = SHELL_FUNCTION_DECLARATION.fullmatch(statement)
+            if declaration:
+                pending = (declaration.group(1) or declaration.group(2), line_number)
         brace_depth += clean.count("{") - clean.count("}")
         while active and brace_depth <= active[-1][2]:
             name, start, _ = active.pop()
