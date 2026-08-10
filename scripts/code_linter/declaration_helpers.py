@@ -4,6 +4,7 @@ import re
 
 from .cpp_operators import detect_cpp_operator
 from .cpp_destructors import detect_cpp_destructor
+from .objective_c import objective_c_selector
 
 
 CONTROL_WORDS = {
@@ -103,17 +104,13 @@ def detect_c_family(
 ) -> str | None:
     if "(" not in line:
         return None
+    special = objective_c_selector(line) if language == "objective_c" else None
     if language == "cpp":
-        destructor = detect_cpp_destructor(line)
-        if destructor:
-            return destructor
-        operator = detect_cpp_operator(line)
-        if operator:
-            return operator
-    if language == "csharp":
-        explicit = detect_csharp_explicit_interface(line)
-        if explicit:
-            return explicit
+        special = detect_cpp_destructor(line) or detect_cpp_operator(line)
+    elif language == "csharp":
+        special = detect_csharp_explicit_interface(line)
+    if special:
+        return special
     prefix = (
         r"(?:\[[^\]]+\]\s*)*"
         r"(?:(?:public|private|protected|internal|static|virtual|override|async|"
