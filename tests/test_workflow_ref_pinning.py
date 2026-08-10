@@ -50,6 +50,8 @@ def _run_blocks(workflow):
         block_lines = lines[start:end]
         for run_index, line in enumerate(block_lines):
             run_line = _strip_shell_comment(line).strip()
+            if run_line.startswith("- run:"):
+                run_line = run_line[1:].lstrip()
             if not run_line.startswith("run:"):
                 continue
             run_value = run_line[len("run:") :].strip()
@@ -165,6 +167,20 @@ class ReusableWorkflowReferenceTests(unittest.TestCase):
                 if "repository: ForkHorizon/ci-gates" in workflow:
                     self.assertIn("ref: ${{ inputs.gates-ref }}", workflow)
         self.assertGreaterEqual(len(gate_workflows), 8)
+
+    def test_fetch_scanner_detects_inline_unnamed_run_steps(self):
+        workflow = """\
+steps:
+  - name: anchor
+    run: |
+      true
+  - run: | # inline mapping
+      git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin "$GATES_REF"
+"""
+        self.assertEqual(
+            _fetch_invocations(workflow),
+            ['git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin "$GATES_REF"'],
+        )
 
     def test_clone_based_gate_workflows_fetch_and_detach_the_requested_sha(self):
         for path in sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml")):
