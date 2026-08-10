@@ -45,12 +45,40 @@ def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> l
             if body_depth and depth == body_depth - 1:
                 fragments.append(clean[start : index + 1].lstrip(" ,"))
                 start, body_depth = index + 1, 0
+        elif char == ";" and depth == 1:
+            fragments.append(clean[start : index + 1].lstrip(" ,"))
+            start = index + 1
     if not fragments:
         return [clean]
     remainder = clean[start:].lstrip(" ,")
     if remainder.strip():
         fragments.append(remainder)
     return fragments
+
+
+def javascript_fragment_name(
+    fragment: str,
+    language: str,
+    type_scopes: list[tuple[int, str]],
+    method_scopes: list[int],
+) -> str | None:
+    if language not in {"javascript", "typescript"}:
+        return None
+    return detect_brace_function(
+        fragment.strip(), language, frozenset(name for _, name in type_scopes), bool(method_scopes)
+    )
+
+
+def javascript_fragments_for_line(clean: str, language: str, method_scopes: list[int]) -> list[str]:
+    return (
+        javascript_line_fragments(clean, bool(method_scopes)) if language in {"javascript", "typescript"} else [clean]
+    )
+
+
+def order_javascript_results(results: list[tuple[str, int, int, int]], start: int, names: list[str]) -> None:
+    if len(names) > 1:
+        order = {name: index for index, name in enumerate(names)}
+        results[start:] = sorted(results[start:], key=lambda result: order.get(result[0], len(order)))
 
 
 def track_split_type_context(state: FunctionScanState, clean: str) -> None:
@@ -162,9 +190,19 @@ def javascript_detection_line(
     opening = source.find("{")
     if opening >= 0:
         tail = source[opening + 1 :].lstrip()
-        if detect_brace_function(
-            tail, language, enclosing_types, allow_method_fallback
-        ) == detected and source.lstrip().startswith(("class ", "interface ", "export default ", "module.exports")):
+        tail_detected = detect_brace_function(tail, language, enclosing_types, allow_method_fallback)
+        object_prefix = re.match(
+            r"^(?:[A-Za-z_$][A-Za-z0-9_$]*\s*\(|class\s|interface\s|export\s+default\s|module\.exports)",
+            source.lstrip(),
+        )
+        if (
+            tail_detected
+            and object_prefix
+            and (
+                tail_detected != detected
+                or source.lstrip().startswith(("class ", "interface ", "export default ", "module.exports"))
+            )
+        ):
             if tail.rstrip().endswith("}"):
                 tail = tail.rstrip()[:-1].rstrip()
             return tail

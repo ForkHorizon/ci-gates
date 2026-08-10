@@ -111,6 +111,7 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
             *re.finditer(class_pattern, clean),
             *re.finditer(object_pattern, clean),
             *re.finditer(r"(?:\breturn\s*|\(\s*|,\s*)\{", clean),
+            *re.finditer(r"\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*\{", clean),
             *re.finditer(r"\bexport\s+default\s*\{|\bmodule\.exports\s*=\s*\{", clean),
         ]
         for scope_match in scope_matches:
@@ -276,22 +277,22 @@ def close_functions(state: FunctionScanState, line_number: int) -> None:
 def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
     state = FunctionScanState()
     for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
-        fragments = (
-            javascript_tracking.javascript_line_fragments(clean, bool(state.method_scopes))
-            if language in {"javascript", "typescript"}
-            else [clean]
-        )
-        result_start = len(state.results)
+        fragments = javascript_tracking.javascript_fragments_for_line(clean, language, state.method_scopes)
+        result_start, fragment_names = len(state.results), []
         for fragment in fragments:
             track_declaration_context(state, fragment, language)
-            fragment_raw = raw if fragment == clean else fragment
+            candidate = javascript_tracking.javascript_fragment_name(
+                fragment, language, state.type_scopes, state.method_scopes
+            )
+            if candidate:
+                fragment_names.append(candidate)
+            fragment_raw = raw if raw != clean and fragment == fragments[0] else fragment
             track_signature(state, fragment, line_number, language, fragment_raw)
             opens, closes = fragment.count("{"), fragment.count("}")
             finish_pending_line(state, fragment.strip(), line_number, language, (opens, closes))
             state.brace_depth = max(0, state.brace_depth + opens - closes)
             close_functions(state, line_number)
-        if len(fragments) > 1:
-            state.results[result_start:] = reversed(state.results[result_start:])
+        javascript_tracking.order_javascript_results(state.results, result_start, fragment_names)
     line_count = len(text.splitlines())
     for block in reversed(state.active):
         length = line_count - block.start_line + 1

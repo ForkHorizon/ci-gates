@@ -73,6 +73,28 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
         source = "export default { [factory()](first, second, third) { return first; } };\n"
         self.assertEqual(self.lengths(source, "javascript"), [("[factory()]", 1, 1, 3)])
 
+    def test_same_line_string_literal_method_is_measured(self):
+        source = 'class Worker { "run"(first, second, third) {} }\n'
+        self.assertEqual(self.lengths(source, "javascript"), [('"run"', 1, 1, 3)])
+
+    def test_call_expression_object_method_is_measured(self):
+        source = "consume({ run(first, second, third) { return first; } });\n"
+        self.assertEqual(self.lengths(source, "javascript"), [("run", 1, 1, 3)])
+
+    def test_same_line_arrow_field_before_method_is_measured(self):
+        source = "class Worker { run = (first, second, third) => ({x: first}); next(first, second, third) {} }\n"
+        self.assertEqual(
+            self.lengths(source, "javascript"),
+            [("run", 1, 1, 3), ("next", 1, 1, 3)],
+        )
+
+    def test_same_line_sibling_method_order_is_preserved(self):
+        source = "class Worker { a(first, second, third) {} b(first, second, third) {} c(first, second, third) {} }\n"
+        self.assertEqual(
+            self.lengths(source, "javascript"),
+            [("a", 1, 1, 3), ("b", 1, 1, 3), ("c", 1, 1, 3)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
