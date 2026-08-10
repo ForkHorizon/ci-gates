@@ -76,8 +76,20 @@ class TestDiscoveryGuardTests(unittest.TestCase):
             self.create_fixture(root)
             result = self.run_guard(root, pattern="/tmp/*")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("inventorying pattern", result.stderr)
+        self.assertIn("relative filename glob", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_guard_rejects_malformed_parent_relative_and_nonmatching_patterns(self):
+        patterns = ("[", "../*.py", "*; touch marker", "does_not_match_*.py")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_fixture(root)
+            results = [self.run_guard(root, pattern=pattern) for pattern in patterns]
+        for index, pattern in enumerate(patterns):
+            result = results[index]
+            with self.subTest(pattern=pattern):
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":

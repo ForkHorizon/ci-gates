@@ -23,6 +23,12 @@ def read_block_command(lines, index, minimum_indent):
     return "\n".join(block), index
 
 
+def read_run_command(lines, index, value, minimum_indent):
+    if value.startswith(("|", ">")):
+        return read_block_command(lines, index + 1, minimum_indent)
+    return value.split(" #", 1)[0].rstrip(), index + 1
+
+
 def run_commands(workflow):
     lines = workflow.splitlines()
     steps_index = next(index for index, line in enumerate(lines) if line.strip() == "steps:")
@@ -36,15 +42,15 @@ def run_commands(workflow):
         stripped = line.strip()
         indent = len(line) - len(line.lstrip())
         if indent == step_indent and stripped.startswith("- "):
-            index += 1
-            continue
-        if indent == step_indent + 2 and stripped.startswith("run:"):
-            value = stripped[len("run:") :].strip()
-            if value == "|":
-                command, index = read_block_command(lines, index + 1, step_indent + 2)
+            value = stripped[2:].strip()
+            if value.startswith("run:"):
+                command, index = read_run_command(lines, index, value[len("run:") :].strip(), step_indent)
                 commands.append(command)
                 continue
-            commands.append(value)
+        if indent == step_indent + 2 and stripped.startswith("run:"):
+            command, index = read_run_command(lines, index, stripped[len("run:") :].strip(), step_indent + 2)
+            commands.append(command)
+            continue
         index += 1
     return commands
 
@@ -106,7 +112,27 @@ class SelfCheckWorkflowTests(unittest.TestCase):
         unit_tests = "python3 -m unittest discover -s tests -p 'test_*.py' -q"
         self.assertEqual(commands.count(guard), 1)
         self.assertEqual(commands.count(unit_tests), 1)
+        for command in commands:
+            if "check-test-discovery.py" in command:
+                self.assertEqual(command, guard)
+            if "unittest discover" in command:
+                self.assertEqual(command, unit_tests)
         self.assertLess(commands.index(guard), commands.index(unit_tests))
+
+    def test_workflow_parser_includes_inline_and_annotated_run_steps(self):
+        workflow = """jobs:
+  self-check:
+    steps:
+      - run: echo inline
+      - run: | # annotated block
+          echo block
+      - name: separate
+        run: echo separate # trailing comment
+"""
+        self.assertEqual(
+            workflow_job_commands(workflow, "self-check"),
+            ["echo inline", "echo block", "echo separate"],
+        )
 
     def test_repository_uses_default_linter_policy(self):
         config = json.loads((ROOT / ".code-linter.json").read_text(encoding="utf-8"))

@@ -29,8 +29,36 @@ def module_path(module_name: str) -> Path:
     return Path(*module_name.split(".")).with_suffix(".py")
 
 
+def validate_pattern(pattern: str) -> str | None:
+    if not pattern or Path(pattern).is_absolute() or "/" in pattern or "\\" in pattern:
+        return "pattern must be a non-empty relative filename glob"
+    if pattern.count("[") != pattern.count("]"):
+        return "pattern contains an unmatched character-class bracket"
+    if ".." in Path(pattern).parts:
+        return "pattern must not contain a parent directory"
+    return None
+
+
+def inventory_test_files(start_directory: Path, pattern: str) -> set[str] | None:
+    try:
+        expected = {
+            path.relative_to(start_directory).as_posix() for path in start_directory.rglob(pattern) if path.is_file()
+        }
+    except (NotImplementedError, OSError, ValueError) as exc:
+        print(f"Test discovery failed while inventorying pattern {pattern!r}: {exc}", file=sys.stderr)
+        return None
+    if not expected:
+        print(f"Test discovery failed: pattern matched no files: {pattern!r}", file=sys.stderr)
+        return None
+    return expected
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    pattern_error = validate_pattern(args.pattern)
+    if pattern_error:
+        print(f"Test discovery failed: {pattern_error}: {args.pattern!r}", file=sys.stderr)
+        return 1
     start_directory = Path(args.start_directory).resolve()
     if not start_directory.is_dir():
         print(
@@ -39,14 +67,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    try:
-        expected = {
-            path.relative_to(start_directory).as_posix()
-            for path in start_directory.rglob(args.pattern)
-            if path.is_file()
-        }
-    except (NotImplementedError, OSError, ValueError) as exc:
-        print(f"Test discovery failed while inventorying pattern {args.pattern!r}: {exc}", file=sys.stderr)
+    expected = inventory_test_files(start_directory, args.pattern)
+    if expected is None:
         return 1
     try:
         suite = unittest.TestLoader().discover(str(start_directory), pattern=args.pattern)
