@@ -9,6 +9,7 @@ from .declaration_helpers import (
     detect_with_context,
 )
 from .literals import strip_strings
+from .objective_c import objective_c_parameter_count, objective_c_selector
 from .php_signatures import detect_php, php_parameter_start
 from .swift_syntax import detect_swift
 
@@ -108,6 +109,8 @@ def top_level_parameter_count(parameters: str) -> int:
 
 def count_params_in_signature(signature_line: str, name: str | None = None, language: str = "") -> int:
     signature = strip_strings(signature_line, language)
+    if language == "objective_c" and objective_c_selector(signature) is not None:
+        return objective_c_parameter_count(signature)
     start, bare_count = parameter_start(signature, name, language)
     if start < 0:
         return bare_count
