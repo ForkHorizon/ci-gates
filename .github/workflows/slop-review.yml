@@ -45,7 +45,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/ci-gates"
           git clone --quiet --no-checkout --filter=blob:none \
             https://github.com/ForkHorizon/ci-gates "$RUNNER_TEMP/ci-gates"
-          git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin "$GATES_REF"
+          git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin -- "$GATES_REF"
           git -C "$RUNNER_TEMP/ci-gates" checkout --quiet --detach FETCH_HEAD
 
       - name: Resolve review range

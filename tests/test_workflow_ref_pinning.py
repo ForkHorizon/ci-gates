@@ -29,7 +29,7 @@ class ReusableWorkflowReferenceTests(unittest.TestCase):
                 continue
             with self.subTest(workflow=path.name):
                 self.assertIn("GATES_REF: ${{ inputs.gates-ref }}", workflow)
-                self.assertIn('git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin "$GATES_REF"', workflow)
+                self.assertIn('git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin -- "$GATES_REF"', workflow)
                 self.assertIn('git -C "$RUNNER_TEMP/ci-gates" checkout --quiet --detach FETCH_HEAD', workflow)
                 self.assertNotIn('--branch "${{ inputs.gates-ref }}"', workflow)
 
