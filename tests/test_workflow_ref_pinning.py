@@ -6,6 +6,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 FETCH_COMMAND = 'git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin -- "$GATES_REF"'
+FETCH_PREFIX = 'git -C "$RUNNER_TEMP/ci-gates" fetch'
+
+
+def _strip_shell_comment(line):
+    result = []
+    escaped = False
+    in_single_quote = False
+    in_double_quote = False
+    for character in line:
+        if escaped:
+            result.append(character)
+            escaped = False
+        elif character == "\\" and not in_single_quote:
+            result.append(character)
+            escaped = True
+        elif character == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            result.append(character)
+        elif character == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            result.append(character)
+        elif character == "#" and not in_single_quote and not in_double_quote:
+            break
+        else:
+            result.append(character)
+    return "".join(result).rstrip()
 
 
 def _run_blocks(workflow):
@@ -32,8 +58,9 @@ def _run_blocks(workflow):
             for body_line in block_lines[run_index + 1 :]:
                 if body_line.strip() and len(body_line) - len(body_line.lstrip()) <= run_indent:
                     break
-                if body_line.strip() and not body_line.lstrip().startswith("#"):
-                    body.append(body_line.strip())
+                uncommented = _strip_shell_comment(body_line).strip()
+                if uncommented:
+                    body.append(uncommented)
             blocks.append("\n".join(body))
             break
     return blocks
@@ -46,6 +73,72 @@ def _git(directory, *args, check=True):
         capture_output=True,
         text=True,
     )
+
+
+def _make_git_ref_fixture(root):
+    remote = root / "remote.git"
+    source = root / "source"
+    worktree = root / "work"
+    _git(root, "init", "--bare", str(remote))
+    _git(root, "init", str(source))
+    _git(source, "config", "user.email", "test@example.invalid")
+    _git(source, "config", "user.name", "workflow-test")
+    _git(source, "commit", "--allow-empty", "-m", "init")
+    _git(source, "branch", "-M", "main")
+    _git(source, "checkout", "-b", "feature")
+    (source / "feature.txt").write_text("feature\n", encoding="utf-8")
+    _git(source, "add", "feature.txt")
+    _git(source, "commit", "-m", "feature")
+    feature_commit = _git(source, "rev-parse", "HEAD").stdout.strip()
+    main_commit = _git(source, "rev-parse", "main").stdout.strip()
+    _git(source, "tag", "lightweight")
+    _git(source, "tag", "--annotate", "annotated", "-m", "annotated")
+    _git(source, "remote", "add", "origin", str(remote))
+    _git(source, "push", "origin", "main", "feature", "--tags")
+    _git(root, "clone", "--no-checkout", str(remote), str(worktree))
+    return worktree, main_commit, feature_commit
+
+
+def _assert_detached_fetch(testcase, worktree, ref, expected_commit):
+    valid_fetch = _git(
+        worktree,
+        "fetch",
+        "--quiet",
+        "--depth",
+        "1",
+        "origin",
+        "--",
+        ref,
+    )
+    testcase.assertEqual(valid_fetch.returncode, 0)
+    _git(worktree, "checkout", "--quiet", "--detach", "FETCH_HEAD")
+    testcase.assertEqual(_git(worktree, "rev-parse", "HEAD").stdout.strip(), expected_commit)
+    testcase.assertEqual(
+        _git(worktree, "rev-parse", "FETCH_HEAD^{commit}").stdout.strip(),
+        expected_commit,
+    )
+    testcase.assertEqual(
+        _git(worktree, "symbolic-ref", "--quiet", "HEAD", check=False).returncode,
+        1,
+    )
+
+
+def _assert_option_like_ref_is_inert(testcase, root, worktree):
+    marker = root / "marker"
+    malicious_ref = f"--upload-pack=touch {marker}"
+    malicious_fetch = _git(
+        worktree,
+        "fetch",
+        "--quiet",
+        "--depth",
+        "1",
+        "origin",
+        "--",
+        malicious_ref,
+        check=False,
+    )
+    testcase.assertNotEqual(malicious_fetch.returncode, 0)
+    testcase.assertFalse(marker.exists())
 
 
 class ReusableWorkflowReferenceTests(unittest.TestCase):
@@ -79,53 +172,30 @@ class ReusableWorkflowReferenceTests(unittest.TestCase):
                     'git -C "$RUNNER_TEMP/ci-gates" checkout --quiet --detach FETCH_HEAD',
                     fetch_blocks[0],
                 )
+                fetch_lines = [
+                    line.strip()
+                    for block in _run_blocks(workflow)
+                    for line in block.splitlines()
+                    if line.strip().startswith(FETCH_PREFIX)
+                ]
+                self.assertEqual(fetch_lines, [FETCH_COMMAND])
                 self.assertNotIn('--branch "${{ inputs.gates-ref }}"', workflow)
 
     def test_fetch_command_handles_main_and_rejects_option_like_refs(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            remote = root / "remote.git"
-            source = root / "source"
-            worktree = root / "work"
-            _git(root, "init", "--bare", str(remote))
-            _git(root, "init", str(source))
-            _git(source, "config", "user.email", "test@example.invalid")
-            _git(source, "config", "user.name", "workflow-test")
-            _git(source, "commit", "--allow-empty", "-m", "init")
-            _git(source, "branch", "-M", "main")
-            _git(source, "remote", "add", "origin", str(remote))
-            _git(source, "push", "origin", "main")
-            _git(root, "clone", "--no-checkout", str(remote), str(worktree))
+            worktree, main_commit, feature_commit = _make_git_ref_fixture(root)
 
-            valid_fetch = _git(
-                worktree,
-                "fetch",
-                "--quiet",
-                "--depth",
-                "1",
-                "origin",
-                "--",
-                "main",
-            )
-            self.assertEqual(valid_fetch.returncode, 0)
-            _git(worktree, "checkout", "--quiet", "--detach", "FETCH_HEAD")
-            self.assertEqual(_git(worktree, "symbolic-ref", "--quiet", "HEAD", check=False).returncode, 1)
-
-            marker = root / "marker"
-            malicious_ref = f"--upload-pack=touch {marker}"
-            malicious_fetch = _git(
-                worktree,
-                "fetch",
-                "--quiet",
-                "--depth",
-                "1",
-                "origin",
-                "--",
-                malicious_ref,
-                check=False,
-            )
-            self.assertNotEqual(malicious_fetch.returncode, 0)
-            self.assertFalse(marker.exists())
+            for ref, expected_commit in (
+                ("main", main_commit),
+                ("feature", feature_commit),
+                ("lightweight", feature_commit),
+                ("annotated", feature_commit),
+                (feature_commit, feature_commit),
+            ):
+                with self.subTest(ref=ref):
+                    _assert_detached_fetch(self, worktree, ref, expected_commit)
+            _assert_option_like_ref_is_inert(self, root, worktree)
 
 
 if __name__ == "__main__":
