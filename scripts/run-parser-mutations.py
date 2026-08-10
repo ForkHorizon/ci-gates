@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +14,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MUTATION_TIMEOUT_SECONDS = 120
+UNITTEST_DRIVER = (
+    "import io,sys,unittest;"
+    "suite=unittest.defaultTestLoader.loadTestsFromName(sys.argv[1]);"
+    "result=unittest.TextTestRunner(stream=io.StringIO(),verbosity=0).run(suite);"
+    "code=0 if result.testsRun>0 and result.wasSuccessful() else 10 if result.failures and not result.errors else 11;"
+    "raise SystemExit(code)"
+)
+
+
+def unittest_command(module: str) -> tuple[str, ...]:
+    return ("{python}", "-c", UNITTEST_DRIVER, module, "-q")
 
 
 @dataclass(frozen=True)
@@ -40,42 +50,42 @@ MUTATIONS = (
         "scripts/code_linter/json_safety.py",
         "if depth > MAX_JSON_DEPTH:\n                return True",
         "if depth >= MAX_JSON_DEPTH:\n                return True",
-        ("{python}", "-m", "unittest", "tests.linter.syntax_nesting.test_linter_json_recursion_safety", "-q"),
+        unittest_command("tests.linter.syntax_nesting.test_linter_json_recursion_safety"),
     ),
     Mutation(
         "raw-string-masking",
         "scripts/code_linter/scanner.py",
         "if state.raw_terminator:\n            index = consume_active_raw(line, index, state)",
         "if False and state.raw_terminator:\n            index = consume_active_raw(line, index, state)",
-        ("{python}", "-m", "unittest", "tests.linter.syntax_nesting.test_linter_raw_strings", "-q"),
+        unittest_command("tests.linter.syntax_nesting.test_linter_raw_strings"),
     ),
     Mutation(
         "specialized-syntax-dispatch",
         "scripts/code_linter/syntax.py",
         "return checker(relative, text) if checker else c_style_syntax_issues(relative, text, language)",
         "return c_style_syntax_issues(relative, text, language)",
-        ("{python}", "-m", "unittest", "tests.linter.coverage.test_linter_language_dispatch", "-q"),
+        unittest_command("tests.linter.coverage.test_linter_language_dispatch"),
     ),
     Mutation(
         "syntax-only-routing",
         "scripts/code_linter/runner.py",
         "if language in SYNTAX_ONLY_LANGUAGES:\n        return issues",
         "if False and language in SYNTAX_ONLY_LANGUAGES:\n        return issues",
-        ("{python}", "-m", "unittest", "tests.linter.coverage.test_linter_language_dispatch", "-q"),
+        unittest_command("tests.linter.coverage.test_linter_language_dispatch"),
     ),
     Mutation(
         "template-interpolation-state",
         "scripts/code_linter/scanner.py",
         "if state.template_stack:\n        context = state.template_stack[-1]",
         "if False and state.template_stack:\n        context = state.template_stack[-1]",
-        ("{python}", "-m", "unittest", "tests.linter.syntax_nesting.test_linter_template_interpolations_f10", "-q"),
+        unittest_command("tests.linter.syntax_nesting.test_linter_template_interpolations_f10"),
     ),
     Mutation(
         "yaml-duplicate-key",
         "scripts/code_linter/yaml.py",
         'if key in scope["keys"]:\n            return [Issue(relative, line_number, "duplicate_key", f"Duplicate YAML key {key!r}.")]',
         'if False and key in scope["keys"]:\n            return [Issue(relative, line_number, "duplicate_key", f"Duplicate YAML key {key!r}.")]',
-        ("{python}", "-m", "unittest", "tests.linter.yaml.test_linter_yaml_duplicates", "-q"),
+        unittest_command("tests.linter.yaml.test_linter_yaml_duplicates"),
     ),
 )
 
@@ -108,7 +118,7 @@ def apply_mutation(root: Path, mutation: Mutation) -> None:
 def run_focused_tests(root: Path, command_template: tuple[str, ...]) -> tuple[str, str]:
     valid_command = not (
         len(command_template) != 5
-        or command_template[:3] != ("{python}", "-m", "unittest")
+        or command_template[:3] != ("{python}", "-c", UNITTEST_DRIVER)
         or not command_template[3].startswith("tests.")
         or command_template[4] != "-q"
     )
@@ -130,30 +140,12 @@ def run_focused_tests(root: Path, command_template: tuple[str, ...]) -> tuple[st
         except (OSError, UnicodeError) as exc:
             detail = f"focused tests could not execute or decode output: {exc}"
         else:
-            combined = result.stdout + result.stderr
-            has_tests = re.search(r"Ran [1-9][0-9]* tests?", combined)
-            collection_errors = (
-                "_FailedTest",
-                "ImportError",
-                "ModuleNotFoundError",
-                "SyntaxError",
-                "setUpClass",
-                "setUpModule",
-            )
-            if not has_tests:
-                detail = "focused tests did not complete a non-empty test run"
-            elif any(marker in combined for marker in collection_errors):
-                detail = "focused tests reported a collection or setup failure"
-            elif result.returncode == 0 and re.search(r"\bOK\b", combined):
+            if result.returncode == 0:
                 status, detail = "passed", ""
-            elif result.returncode == 0:
-                detail = "focused tests did not report a successful unittest result"
-            elif "errors=" in combined or re.search(r"^ERROR:", combined, re.MULTILINE):
-                detail = "focused tests reported a test error or setup failure"
-            elif re.search(r"FAILED \([^)]*failures=[1-9][^)]*\)", combined):
+            elif result.returncode == 10:
                 status, detail = "failed", ""
             else:
-                detail = "focused tests did not report an assertion failure"
+                detail = f"focused unittest driver returned status {result.returncode}"
     return status, detail
 
 

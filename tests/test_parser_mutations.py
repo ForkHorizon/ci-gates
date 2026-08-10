@@ -57,7 +57,8 @@ class ParserMutationStageTests(unittest.TestCase):
         for mutation in RUNNER.MUTATIONS:
             with self.subTest(mutation=mutation.name):
                 self.assertEqual(mutation.command[0], "{python}")
-                self.assertEqual(mutation.command[1:3], ("-m", "unittest"))
+                self.assertEqual(mutation.command[1:3], ("-c", RUNNER.UNITTEST_DRIVER))
+                self.assertEqual(mutation.command[4], "-q")
 
     def test_runner_lists_mutations_deterministically(self):
         result = subprocess.run(
@@ -121,10 +122,10 @@ class ParserMutationStageTests(unittest.TestCase):
     def test_failed_test_loader_is_not_a_killed_mutation(self):
         status, detail = RUNNER.run_focused_tests(
             ROOT,
-            ("{python}", "-m", "unittest", "tests.does_not_exist", "-q"),
+            RUNNER.unittest_command("tests.does_not_exist"),
         )
         self.assertEqual(status, "error")
-        self.assertIn("collection or setup", detail)
+        self.assertIn("status 11", detail)
 
     def test_runner_rejects_duplicate_mutation_selection(self):
         result = subprocess.run(
