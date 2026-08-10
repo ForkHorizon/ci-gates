@@ -50,15 +50,15 @@ def javascript_header_candidate(line: str) -> bool:
 
 def javascript_new_method_start(line: str, signature: str = "") -> bool:
     stripped = line.strip()
-    header = stripped.split("{", 1)[0].rstrip()
-    if not header or any(mark in header for mark in (";", "=")):
+    if signature.count("(") > signature.count(")") or signature.count("[") > signature.count("]"):
         return False
-    if header.startswith("[") and signature.count("(") > signature.count(")"):
+    header = stripped.split("{", 1)[0].split(";", 1)[0].rstrip()
+    if not header or "=" in header:
         return False
     method_start = bool(
         re.match(
-            r"^(?:async|static|get|set|abstract|declare|override|public|private|"
-            r"protected|readonly|\*|#|\[)",
+            r"^(?:(?:async|static|get|set|abstract|declare|override|public|private|"
+            r"protected|readonly)\b\s+|\*\s*|#|\[)",
             header,
         )
         or re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*\s*\(", header)

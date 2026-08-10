@@ -72,16 +72,13 @@ def parameter_start(signature: str, name: str | None, language: str) -> tuple[in
         if operator_start >= 0:
             return operator_start, 0
     if name and name != "<anonymous>":
-        field_arrow = re.search(
-            re.escape(name)
-            + r"\s*=\s*(?:async\s+)?(?:\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)"
-            + r"(?:\s*:\s*[^=]+?)?\s*=>",
-            signature,
-        )
-        if field_arrow:
-            if "(" in field_arrow.group(0):
-                return signature.find("(", field_arrow.start()), 0
-            return -1, 1
+        field_arrow = re.search(re.escape(name) + r"\s*=\s*(?:async\s+)?", signature)
+        if field_arrow and "=>" in signature[field_arrow.end() :]:
+            remainder = signature[field_arrow.end() :].lstrip()
+            if remainder.startswith("("):
+                return signature.find("(", field_arrow.end()), 0
+            if re.match(r"[A-Za-z_$][A-Za-z0-9_$]*\s*=>", remainder):
+                return -1, 1
         anchored = re.search(
             re.escape(name) + r"\s*(?:<[^<>]*>|\[[^\[\]]*\])?\s*\(",
             signature,

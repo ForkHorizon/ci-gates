@@ -194,6 +194,51 @@ interface Contract
 """
         self.assertEqual(self.lengths(source), [("run", 3, 1, 2)])
 
+    def test_malformed_header_resets_before_interface_declaration(self):
+        source = """interface Contract {
+  broken(first, second)
+  run(first, second): void;
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 3, 1, 2)])
+
+    def test_modifier_like_parameter_names_do_not_start_new_methods(self):
+        source = """class Worker {
+  run(
+    privateValue,
+    publicId,
+    asyncResult
+  ) {
+    return privateValue;
+  }
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 2, 7, 3)])
+
+    def test_nested_bracket_computed_method_name_is_measured(self):
+        source = "class Worker { [obj[key]](first, second, third) { return first; } }\n"
+        self.assertEqual(self.lengths(source, "javascript"), [("[obj[key]]", 1, 1, 3)])
+
+    def test_nested_default_expression_in_typed_private_arrow_field_is_measured(self):
+        source = """class Worker {
+  #run = (value = wrap({x: 1}), other): void => { return other; };
+}
+"""
+        self.assertEqual(self.lengths(source), [("#run", 2, 1, 2)])
+
+    def test_non_decimal_numeric_literal_method_names_are_measured(self):
+        source = """class Worker {
+  0x1(first, second, third) { return first; }
+  1e3(first, second, third) { return first; }
+  1n(first, second, third) { return first; }
+  .5(first, second, third) { return first; }
+}
+"""
+        self.assertEqual(
+            self.lengths(source, "javascript"),
+            [("0x1", 2, 1, 3), ("1e3", 3, 1, 3), ("1n", 4, 1, 3), (".5", 5, 1, 3)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

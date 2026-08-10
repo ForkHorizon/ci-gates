@@ -21,8 +21,11 @@ TYPESCRIPT_METHOD_MODIFIERS = JAVASCRIPT_METHOD_MODIFIERS | {
 }
 
 _METHOD_NAME = (
-    r"(?:#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]]+\]"
-    r"|'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\"|[0-9]+(?:\.[0-9]+)?)"
+    r"(?:#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*|"
+    r"\[(?:[^\[\]]|\[[^\[\]]*\])+\]"
+    r"|'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\"|"
+    r"(?:0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|"
+    r"(?:\d[\d_]*|\.\d[\d_]*)(?:\.[\d_]*)?(?:[eE][+-]?[\d_]+)?n?))"
 )
 _METHOD_PATTERN = re.compile(
     r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
@@ -69,7 +72,17 @@ def method_name(line: str, typescript: bool = False) -> str | None:
 
 
 def field_arrow_name(line: str, typescript: bool = False) -> str | None:
-    match = _FIELD_ARROW_PATTERN.match(line.strip())
+    stripped = line.strip()
+    match = _FIELD_ARROW_PATTERN.match(stripped)
+    if not match:
+        match = re.match(
+            r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
+            r"(?P<name>#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*)"
+            r"\s*=\s*(?:async\s+)?",
+            stripped,
+        )
+        if match and "=>" not in stripped[match.end() :]:
+            match = None
     if not match:
         return None
     modifiers = set(match.group("prefix").split())
