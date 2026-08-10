@@ -130,7 +130,9 @@ class SelfCheckWorkflowTests(unittest.TestCase):
         for command in commands:
             if "check-test-discovery.py" in command:
                 self.assertEqual(command, guard)
-            if "unittest discover" in command:
+            if "coverage run" in command and "unittest discover" in command:
+                self.assertIn("python3 -m coverage run --rcfile=configs/coverage.ini", command)
+            elif "unittest discover" in command:
                 self.assertEqual(command, unit_tests)
         self.assertLess(commands.index(guard), commands.index(unit_tests))
 

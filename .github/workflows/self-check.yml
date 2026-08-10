@@ -31,6 +31,9 @@ jobs:
       - name: Install Ruff
         run: python3 -m pip install --disable-pip-version-check ruff==0.15.22
 
+      - name: Install coverage.py
+        run: python3 -m pip install --disable-pip-version-check coverage==7.8.2
+
       - name: Check Python syntax
         run: python3 -m compileall -q scripts tests
 
@@ -39,6 +42,12 @@ jobs:
 
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -q
+
+      - name: Measure Python line and branch coverage
+        run: |
+          python3 -m coverage erase
+          python3 -m coverage run --rcfile=configs/coverage.ini -m unittest discover -s tests -p 'test_*.py' -q
+          python3 -m coverage report --rcfile=configs/coverage.ini
 
       - name: Run Code Linter from this revision
         run: python3 scripts/code-linter.py --config .code-linter.json --mode all
