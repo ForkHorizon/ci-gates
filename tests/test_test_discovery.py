@@ -28,9 +28,9 @@ class TestDiscoveryGuardTests(unittest.TestCase):
             (package_dir / "test_broken.py").write_text("raise RuntimeError('broken import')\n", encoding="utf-8")
         (tests / "notes.py").write_text("not a test module\n", encoding="utf-8")
 
-    def run_guard(self, root):
+    def run_guard(self, root, pattern="test_*.py"):
         return subprocess.run(
-            [sys.executable, str(SCRIPT), "--start-directory", "tests", "--pattern", "test_*.py"],
+            [sys.executable, str(SCRIPT), "--start-directory", "tests", "--pattern", pattern],
             cwd=root,
             capture_output=True,
             text=True,
@@ -69,6 +69,15 @@ class TestDiscoveryGuardTests(unittest.TestCase):
             result = self.run_guard(root)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("notes.py", result.stdout)
+
+    def test_guard_rejects_invalid_absolute_pattern_without_traceback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_fixture(root)
+            result = self.run_guard(root, pattern="/tmp/*")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("inventorying pattern", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":

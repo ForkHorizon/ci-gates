@@ -39,9 +39,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    expected = {
-        path.relative_to(start_directory).as_posix() for path in start_directory.rglob(args.pattern) if path.is_file()
-    }
+    try:
+        expected = {
+            path.relative_to(start_directory).as_posix()
+            for path in start_directory.rglob(args.pattern)
+            if path.is_file()
+        }
+    except (NotImplementedError, OSError, ValueError) as exc:
+        print(f"Test discovery failed while inventorying pattern {args.pattern!r}: {exc}", file=sys.stderr)
+        return 1
     try:
         suite = unittest.TestLoader().discover(str(start_directory), pattern=args.pattern)
     except Exception as exc:  # pragma: no cover - defensive public-entrypoint guard

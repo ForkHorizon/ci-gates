@@ -10,6 +10,45 @@ WORKFLOW = ROOT / ".github" / "workflows" / "self-check.yml"
 CHECKOUT_SHA = "d23441a48e516b6c34aea4fa41551a30e30af803"
 
 
+def read_block_command(lines, index, minimum_indent):
+    block = []
+    while index < len(lines):
+        block_line = lines[index]
+        block_indent = len(block_line) - len(block_line.lstrip())
+        if block_line.strip() and block_indent <= minimum_indent:
+            break
+        if block_line.strip():
+            block.append(block_line.strip())
+        index += 1
+    return "\n".join(block), index
+
+
+def run_commands(workflow):
+    lines = workflow.splitlines()
+    steps_index = next(index for index, line in enumerate(lines) if line.strip() == "steps:")
+    step_indent = next(
+        len(line) - len(line.lstrip()) for line in lines[steps_index + 1 :] if line.strip().startswith("- ")
+    )
+    commands = []
+    index = steps_index + 1
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if indent == step_indent and stripped.startswith("- "):
+            index += 1
+            continue
+        if indent == step_indent + 2 and stripped.startswith("run:"):
+            value = stripped[len("run:") :].strip()
+            if value == "|":
+                command, index = read_block_command(lines, index + 1, step_indent + 2)
+                commands.append(command)
+                continue
+            commands.append(value)
+        index += 1
+    return commands
+
+
 class SelfCheckWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -41,6 +80,15 @@ class SelfCheckWorkflowTests(unittest.TestCase):
         for command in expected_commands:
             with self.subTest(command=command):
                 self.assertIn(command, self.workflow)
+
+    def test_test_discovery_guard_is_exact_and_precedes_unit_tests(self):
+        self.assertIn("jobs:\n  self-check:\n", self.workflow)
+        commands = run_commands(self.workflow)
+        guard = "python3 scripts/check-test-discovery.py --start-directory tests --pattern 'test_*.py'"
+        unit_tests = "python3 -m unittest discover -s tests -p 'test_*.py' -q"
+        self.assertEqual(commands.count(guard), 1)
+        self.assertEqual(commands.count(unit_tests), 1)
+        self.assertLess(commands.index(guard), commands.index(unit_tests))
 
     def test_repository_uses_default_linter_policy(self):
         config = json.loads((ROOT / ".code-linter.json").read_text(encoding="utf-8"))
