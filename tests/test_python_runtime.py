@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-PYTHON_VERSION = "3.9.6"
+PYTHON_VERSION = "3.11.15"
 SETUP_PYTHON_SHA = "ece7cb06caefa5fff74198d8649806c4678c61a1"
 
 
