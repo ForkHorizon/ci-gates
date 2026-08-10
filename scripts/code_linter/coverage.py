@@ -87,6 +87,7 @@ UNSUPPORTED_SURFACE_BY_FILENAME = {
 
 COVERAGE_MODES = ("report", "strict")
 DEFAULT_COVERAGE_EXCEPTIONS = []
+UNKNOWN_TEXT_SAMPLE_BYTES = 8192
 
 
 @dataclass(frozen=True)
@@ -109,7 +110,8 @@ def unknown_text_surface(path: Path) -> tuple[str, str] | CoverageGap | None:
     if path.suffix.lower() in NON_SOURCE_TEXT_EXTENSIONS or path.name.lower() in NON_SOURCE_TEXT_FILENAMES:
         return None
     try:
-        sample = path.read_bytes()[:8192]
+        with path.open("rb") as source:
+            sample = source.read(UNKNOWN_TEXT_SAMPLE_BYTES)
     except OSError:
         extension = path.suffix.lower() or "extensionless"
         return CoverageGap(

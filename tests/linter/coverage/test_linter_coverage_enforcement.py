@@ -22,6 +22,17 @@ assert spec.loader is not None
 spec.loader.exec_module(linter)
 
 
+def fail_open_for(filename, error):
+    original_open = Path.open
+
+    def open_path(path, *args, **kwargs):
+        if path.name == filename:
+            raise error
+        return original_open(path, *args, **kwargs)
+
+    return open_path
+
+
 class CoverageEnforcementTestCase(unittest.TestCase):
     def create_repo(self, root, files, config=None):
         (root / ".code-linter.json").write_text(config or "{}\n", encoding="utf-8")
@@ -52,7 +63,9 @@ class CoverageEnforcementTests(CoverageEnforcementTestCase):
                 '{"coverage_mode":"strict","coverage_exceptions":[{"pattern":"src/","reason":"external gate"}]}\n',
             )
             config = linter.load_config(root / ".code-linter.json")
-            with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+            with patch.object(
+                Path, "open", autospec=True, side_effect=fail_open_for("custom.dsl", PermissionError("denied"))
+            ):
                 issues = linter.strict_coverage_issues(self.inventory(root), config)
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].kind, "coverage_gap")
@@ -69,7 +82,9 @@ class CoverageEnforcementTests(CoverageEnforcementTestCase):
             output = io.StringIO()
             error = io.StringIO()
             with (
-                patch.object(Path, "read_bytes", side_effect=PermissionError("denied")),
+                patch.object(
+                    Path, "open", autospec=True, side_effect=fail_open_for("custom.dsl", PermissionError("denied"))
+                ),
                 contextlib.redirect_stdout(output),
                 contextlib.redirect_stderr(error),
             ):
@@ -89,7 +104,9 @@ class CoverageEnforcementTests(CoverageEnforcementTestCase):
             output = io.StringIO()
             error = io.StringIO()
             with (
-                patch.object(Path, "read_bytes", side_effect=OSError("I/O unavailable")),
+                patch.object(
+                    Path, "open", autospec=True, side_effect=fail_open_for("custom", OSError("I/O unavailable"))
+                ),
                 contextlib.redirect_stdout(output),
                 contextlib.redirect_stderr(error),
             ):

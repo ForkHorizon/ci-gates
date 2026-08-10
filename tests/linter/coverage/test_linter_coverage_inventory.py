@@ -19,6 +19,17 @@ assert spec.loader is not None
 spec.loader.exec_module(linter)
 
 
+def fail_open_for(filename, error):
+    original_open = Path.open
+
+    def open_path(path, *args, **kwargs):
+        if path.name == filename:
+            raise error
+        return original_open(path, *args, **kwargs)
+
+    return open_path
+
+
 class CoverageInventoryTestCase(unittest.TestCase):
     def args(self, **overrides):
         values = {"mode": "all", "base": "", "head": "", "config": ".code-linter.json"}
@@ -52,7 +63,9 @@ class CoverageInventoryTests(CoverageInventoryTestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.create_repo(root, {"src/custom.dsl": "rule allow\n"})
-            with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+            with patch.object(
+                Path, "open", autospec=True, side_effect=fail_open_for("custom.dsl", PermissionError("denied"))
+            ):
                 gaps = self.inventory(root).gaps
         gap_by_path = {gap.path: gap for gap in gaps}
         self.assertIn("src/custom.dsl", gap_by_path)
@@ -66,7 +79,9 @@ class CoverageInventoryTests(CoverageInventoryTestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.create_repo(root, {"src/custom": "run()\n"})
-            with patch.object(Path, "read_bytes", side_effect=OSError("I/O unavailable")):
+            with patch.object(
+                Path, "open", autospec=True, side_effect=fail_open_for("custom", OSError("I/O unavailable"))
+            ):
                 gaps = self.inventory(root).gaps
         gap_by_path = {gap.path: gap for gap in gaps}
         self.assertIn("src/custom", gap_by_path)
@@ -80,7 +95,9 @@ class CoverageInventoryTests(CoverageInventoryTestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "custom.dsl"
             path.write_text("rule allow\n", encoding="utf-8")
-            with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+            with patch.object(
+                Path, "open", autospec=True, side_effect=fail_open_for("custom.dsl", PermissionError("denied"))
+            ):
                 result = linter.unknown_text_surface(path)
         self.assertEqual(getattr(result, "category", None), "coverage_read_error")
         self.assertEqual(getattr(result, "path", None), path.as_posix())
@@ -97,7 +114,9 @@ class CoverageInventoryTests(CoverageInventoryTestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.create_repo(root, {"README": "project notes\n", "docs/guide.md": "# guide\n"})
-            with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+            with patch.object(
+                Path, "open", autospec=True, side_effect=fail_open_for("README", PermissionError("denied"))
+            ):
                 gaps = self.inventory(root).gaps
         self.assertNotIn("README", {gap.path for gap in gaps})
         self.assertNotIn("docs/guide.md", {gap.path for gap in gaps})
