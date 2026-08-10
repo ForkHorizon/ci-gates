@@ -12,6 +12,9 @@ WORKFLOW = ROOT / ".github" / "workflows" / "self-check.yml"
 COVERAGE_CONFIG = ROOT / "configs" / "coverage.ini"
 COVERAGE_VERSION = "7.8.2"
 COVERAGE_THRESHOLD = "90"
+COVERAGE_ERASE = "python3 -m coverage erase"
+COVERAGE_RUN = "python3 -m coverage run --rcfile=configs/coverage.ini -m unittest discover -s tests -p 'test_*.py' -q"
+COVERAGE_REPORT = "python3 -m coverage report --rcfile=configs/coverage.ini"
 WORKFLOW_HELPER_SPEC = importlib.util.spec_from_file_location(
     "coverage_workflow_helper", ROOT / "tests" / "test_self_check_workflow.py"
 )
@@ -21,6 +24,14 @@ WORKFLOW_HELPER = importlib.util.module_from_spec(WORKFLOW_HELPER_SPEC)
 sys.modules[WORKFLOW_HELPER_SPEC.name] = WORKFLOW_HELPER
 WORKFLOW_HELPER_SPEC.loader.exec_module(WORKFLOW_HELPER)
 workflow_job_commands = WORKFLOW_HELPER.workflow_job_commands
+
+
+def active_coverage_commands(workflow):
+    return [command for command in workflow_job_commands(workflow, "self-check") if "python3 -m coverage" in command]
+
+
+def assert_coverage_gate(test_case, workflow):
+    test_case.assertEqual(active_coverage_commands(workflow), [f"{COVERAGE_ERASE}\n{COVERAGE_RUN}\n{COVERAGE_REPORT}"])
 
 
 class PythonCoverageGateTests(unittest.TestCase):
@@ -61,22 +72,17 @@ class PythonCoverageGateTests(unittest.TestCase):
         )
 
     def test_workflow_runs_coverage_with_repository_config(self):
-        self.assertIn(
-            "python3 -m coverage run --rcfile=configs/coverage.ini -m unittest discover -s tests -p 'test_*.py' -q",
-            "\n".join(self.commands),
-        )
+        assert_coverage_gate(self, self.workflow)
 
     def test_workflow_reports_coverage_with_repository_config(self):
-        self.assertIn("python3 -m coverage report --rcfile=configs/coverage.ini", "\n".join(self.commands))
+        self.assertIn(COVERAGE_REPORT, "\n".join(self.commands))
 
     def test_workflow_erases_stale_measurement_before_running(self):
-        self.assertIn("python3 -m coverage erase", "\n".join(self.commands))
+        self.assertIn(COVERAGE_ERASE, "\n".join(self.commands))
 
     def test_workflow_keeps_discovery_guard_before_coverage_suite(self):
         guard = "python3 scripts/check-test-discovery.py --start-directory tests --pattern 'test_*.py'"
-        measured_suite = (
-            "python3 -m coverage run --rcfile=configs/coverage.ini -m unittest discover -s tests -p 'test_*.py' -q"
-        )
+        measured_suite = COVERAGE_RUN
         measured_index = next(index for index, command in enumerate(self.commands) if measured_suite in command)
         self.assertLess(self.commands.index(guard), measured_index)
 
@@ -97,6 +103,38 @@ class PythonCoverageGateTests(unittest.TestCase):
         self.assertEqual(self.commands.count(plain_suite), 1)
         measured_index = next(index for index, command in enumerate(self.commands) if measured_suite in command)
         self.assertLess(self.commands.index(plain_suite), measured_index)
+
+    def test_workflow_has_one_active_coverage_sequence(self):
+        assert_coverage_gate(self, self.workflow)
+
+    def test_coverage_mutation_with_commented_run_is_rejected(self):
+        mutated = self.workflow.replace(COVERAGE_RUN, "# " + COVERAGE_RUN, 1)
+        with self.assertRaises(AssertionError):
+            assert_coverage_gate(self, mutated)
+
+    def test_coverage_mutation_with_conditional_wrapper_is_rejected(self):
+        mutated = self.workflow.replace(COVERAGE_RUN, "if false; then\n" + COVERAGE_RUN + "\nfi", 1)
+        with self.assertRaises(AssertionError):
+            assert_coverage_gate(self, mutated)
+
+    def test_coverage_mutation_with_duplicate_run_is_rejected(self):
+        mutated = self.workflow.replace(COVERAGE_RUN, COVERAGE_RUN + "\n" + COVERAGE_RUN, 1)
+        with self.assertRaises(AssertionError):
+            assert_coverage_gate(self, mutated)
+
+    def test_coverage_mutation_with_reordered_steps_is_rejected(self):
+        mutated = self.workflow.replace(
+            COVERAGE_ERASE + "\n          " + COVERAGE_RUN + "\n          " + COVERAGE_REPORT,
+            COVERAGE_REPORT + "\n          " + COVERAGE_RUN + "\n          " + COVERAGE_ERASE,
+            1,
+        )
+        with self.assertRaises(AssertionError):
+            assert_coverage_gate(self, mutated)
+
+    def test_coverage_mutation_with_duplicate_report_is_rejected(self):
+        mutated = self.workflow.replace(COVERAGE_REPORT, COVERAGE_REPORT + "\n          " + COVERAGE_REPORT, 1)
+        with self.assertRaises(AssertionError):
+            assert_coverage_gate(self, mutated)
 
 
 if __name__ == "__main__":
