@@ -37,20 +37,22 @@ def shell_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
     active: list[tuple[str, int, int]] = []
     pending: tuple[str, int] | None = None
     brace_depth = 0
-    for line_number, (_, clean, _) in enumerate(scan_c_style_lines(text, "shell"), start=1):
+    for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, "shell"), start=1):
         statement = clean.strip()
         match = SHELL_FUNCTION.match(statement)
         start_depth = brace_depth
         if match:
+            pending = None
             active.append((match.group(1), line_number, start_depth))
         elif pending is not None and statement == "{":
             name, start = pending
             active.append((name, start, start_depth))
             pending = None
-        elif statement:
+        elif statement or not (not raw.strip() or raw.lstrip().startswith("#")):
             pending = None
         if not match and pending is None:
-            declaration = SHELL_FUNCTION_DECLARATION.fullmatch(statement)
+            declaration_statement = statement.removesuffix("\\").rstrip()
+            declaration = SHELL_FUNCTION_DECLARATION.fullmatch(declaration_statement)
             if declaration:
                 pending = (declaration.group(1) or declaration.group(2), line_number)
         brace_depth += clean.count("{") - clean.count("}")

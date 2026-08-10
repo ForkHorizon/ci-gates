@@ -67,6 +67,11 @@ class ShellMultilineFunctionBraceTests(unittest.TestCase):
         self.assert_valid_shell(source)
         self.assert_lengths(source, [("build", 1, 4, 0)])
 
+    def test_line_continuation_before_next_line_brace_is_measured(self):
+        source = "build() \\\n{\n  work\n}\n"
+        self.assert_valid_shell(source)
+        self.assert_lengths(source, [("build", 1, 4, 0)])
+
     def test_comments_and_blank_lines_between_declaration_and_brace_are_allowed(self):
         source = "build() # declaration\n# keep waiting\n\n{ # opening body\n  work\n}\n"
         self.assert_valid_shell(source)
@@ -146,6 +151,14 @@ valid()
 }
 """
         self.assert_lengths(source, [("valid", 3, 4, 0)])
+
+    def test_same_line_function_clears_stale_pending_declaration(self):
+        source = "broken()\nvalid() { work; }\n{\n  work\n}\n"
+        self.assert_lengths(source, [("valid", 2, 1, 0)])
+
+    def test_quote_only_command_clears_pending_declaration(self):
+        source = "broken()\n'not a comment'\n{\n  work\n}\n"
+        self.assert_lengths(source, [])
 
     def test_incomplete_declaration_at_end_fails_closed(self):
         source = "broken()\n"
