@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import importlib
 import importlib.util
 import io
 import subprocess
@@ -7,11 +8,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
+runner = importlib.import_module("code_linter.runner")
 spec = importlib.util.spec_from_file_location("coverage_enforcement_linter", SCRIPTS / "code-linter.py")
 linter = importlib.util.module_from_spec(spec)
 sys.modules["coverage_enforcement_linter"] = linter
@@ -40,6 +43,74 @@ class CoverageEnforcementTestCase(unittest.TestCase):
 
 
 class CoverageEnforcementTests(CoverageEnforcementTestCase):
+    def test_unreadable_unknown_gap_remains_unapproved_even_with_matching_exception(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(
+                root,
+                {"src/custom.dsl": "rule allow\n"},
+                '{"coverage_mode":"strict","coverage_exceptions":[{"pattern":"src/","reason":"external gate"}]}\n',
+            )
+            config = linter.load_config(root / ".code-linter.json")
+            with patch.object(Path, "read_bytes", side_effect=PermissionError("denied")):
+                issues = linter.strict_coverage_issues(self.inventory(root), config)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].kind, "coverage_gap")
+        self.assertEqual(issues[0].path, "src/custom.dsl")
+        self.assertEqual(
+            issues[0].message,
+            "Unable to read unknown coverage input. Code Linter cannot determine whether this tracked input is covered.",
+        )
+
+    def test_report_cli_warns_for_unreadable_unknown_input_without_traceback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root, {"custom.dsl": "rule allow\n"})
+            output = io.StringIO()
+            error = io.StringIO()
+            with (
+                patch.object(Path, "read_bytes", side_effect=PermissionError("denied")),
+                contextlib.redirect_stdout(output),
+                contextlib.redirect_stderr(error),
+            ):
+                result = linter.main(["--root", str(root)])
+        report = output.getvalue() + error.getvalue()
+        self.assertEqual(result, 0)
+        self.assertIn("coverage_gap", report)
+        self.assertIn("file=custom.dsl", report)
+        self.assertIn("Unable to read unknown coverage input", report)
+        self.assertNotIn("denied", report)
+        self.assertNotIn("Traceback", report)
+
+    def test_strict_cli_fails_for_unreadable_extensionless_input_without_traceback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root, {"custom": "run()\n"})
+            output = io.StringIO()
+            error = io.StringIO()
+            with (
+                patch.object(Path, "read_bytes", side_effect=OSError("I/O unavailable")),
+                contextlib.redirect_stdout(output),
+                contextlib.redirect_stderr(error),
+            ):
+                result = linter.main(["--root", str(root), "--coverage-mode", "strict"])
+        report = output.getvalue() + error.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("coverage_gap", report)
+        self.assertIn("file=custom", report)
+        self.assertIn("Unable to read unknown coverage input", report)
+        self.assertNotIn("I/O unavailable", report)
+        self.assertNotIn("Traceback", report)
+
+    def test_known_language_read_errors_remain_file_read_issues(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "main.py"
+            source.write_text("value = 1\n", encoding="utf-8")
+            with patch.object(runner, "_read_limited_bytes", side_effect=PermissionError("denied")):
+                issues = linter.check_paths(root, [source], linter.DEFAULT_CONFIG)
+        self.assertEqual([(issue.path, issue.kind) for issue in issues], [("main.py", "file_read")])
+
     def test_high_impact_brace_families_receive_structural_checks(self):
         snippets = {
             "native.c": "int f(int a, int b, int c, int d, int e, int f) { return a; }\n",

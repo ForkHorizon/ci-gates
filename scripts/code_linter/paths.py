@@ -60,11 +60,13 @@ def coverage_gap_for(root: Path, path: Path, config: dict, include_extensions: s
     extension = path.suffix.lower()
     language = language_for_path(path)
     surface = unsupported_surface(path)
-    unknown = unknown_text_surface(path) if path.is_file() and language is None and surface is None else None
-    source_like = language is not None or surface is not None or unknown is not None
     relative = to_relative(root, path)
     if relative == config.get("_policy_path", ".code-linter.json") or not path.is_file():
         return None
+    unknown = unknown_text_surface(path) if language is None and surface is None else None
+    if isinstance(unknown, CoverageGap):
+        return CoverageGap(relative, unknown.category, unknown.extension, unknown.message)
+    source_like = language is not None or surface is not None or unknown is not None
     ignored_by = tuple(pattern for pattern in config["ignore"] if matches_ignore_pattern(relative, pattern))
     if ignored_by and source_like:
         category = "ignored_source" if extension in LANGUAGE_BY_EXTENSION else "ignored_unsupported_surface"
@@ -82,21 +84,21 @@ def coverage_gap_for(root: Path, path: Path, config: dict, include_extensions: s
             extension,
             f"Supported extension {extension!r} is not included by the active policy.",
         )
-    if surface is not None:
-        label, display_extension = surface
+    if surface is not None or unknown is not None:
+        if surface is not None:
+            label, display_extension = surface
+            category = "unsupported_surface"
+            message = f"{label} surface is not structurally supported by Code Linter."
+        else:
+            assert unknown is not None
+            label, display_extension = unknown
+            category = "unknown_text_surface"
+            message = f"{label.title()} is not mapped to a structural checker."
         return CoverageGap(
             relative,
-            "unsupported_surface",
+            category,
             display_extension,
-            f"{label} surface is not structurally supported by Code Linter.",
-        )
-    if unknown is not None:
-        label, display_extension = unknown
-        return CoverageGap(
-            relative,
-            "unknown_text_surface",
-            display_extension,
-            f"{label.title()} is not mapped to a structural checker.",
+            message,
         )
     return None
 

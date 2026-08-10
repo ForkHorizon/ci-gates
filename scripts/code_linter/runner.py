@@ -192,7 +192,7 @@ def unapproved_gaps(gaps: Sequence[CoverageGap], config: dict) -> list[CoverageG
     return [
         gap
         for gap in gaps
-        if gap.category in {"ignored_source", "excluded_extension"}
+        if gap.category in {"ignored_source", "excluded_extension", "coverage_read_error"}
         or not any(matches_ignore_pattern(gap.path, exception["pattern"]) for exception in exceptions)
     ]
 
@@ -200,6 +200,8 @@ def unapproved_gaps(gaps: Sequence[CoverageGap], config: dict) -> list[CoverageG
 def coverage_issue_message(gap: CoverageGap) -> str:
     if gap.category in {"ignored_source", "excluded_extension"}:
         return f"{gap.message} Strict mode does not accept exclusions for structurally supported source."
+    if gap.category == "coverage_read_error":
+        return f"{gap.message} Code Linter cannot determine whether this tracked input is covered."
     return f"{gap.message} Add support or an explicit coverage_exceptions entry with a reason."
 
 
