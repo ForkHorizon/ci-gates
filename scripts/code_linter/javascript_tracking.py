@@ -88,18 +88,24 @@ def track_split_type_context(state: FunctionScanState, clean: str) -> None:
     if candidate:
         candidate.append(clean)
         if "{" in clean:
+            assignment_object = candidate[0].rstrip().endswith("(") and clean.lstrip().startswith("{")
+            if assignment_object:
+                state.pending, state.pending_signature = None, []
             depth = state.brace_depth + sum(line.count("{") for line in candidate)
             state.method_scopes.append(depth)
             text = " ".join(candidate)
             if re.search(r"\binterface\b|\bdeclare\s+class\b", text):
                 state.javascript_declaration_scopes.append(depth)
             state.javascript_type_candidate = []
-        elif "}" in clean or ";" in clean:
+        elif (
+            (candidate[0].rstrip().endswith("(") and not clean.lstrip().startswith("{")) or "}" in clean or ";" in clean
+        ):
             state.javascript_type_candidate = []
     elif re.match(
         r"^\s*(?:(?:export|declare|abstract)\s+)*(?:class|interface)\b[^{}]*$|"
-        r"^\s*(?:(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=|"
-        r"export\s+default|module\.exports\s*=|return\s*\(|"
+        r"^\s*(?:(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\(\s*)?|"
+        r"export\s+default|module\.exports\s*=\s*(?:\(\s*)?|return\s*\(|"
+        r"new\s+[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?\s*\(|"
         r"[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?\s*\()\s*$",
         clean,
     ):
@@ -237,9 +243,12 @@ def track_javascript_signature(
             state.pending, state.pending_signature, clean, raw = None, [], tail, tail
     if continue_pending_javascript(state, clean, language):
         return
-    if state.javascript_candidate and track_javascript_candidate(
-        state, clean, language, enclosing_types, allow_method_fallback
-    ):
+    had_candidate = bool(state.javascript_candidate)
+    malformed_block = had_candidate and re.match(r"^\s*[A-Za-z_$][A-Za-z0-9_$]*\s*:\s*\{", clean)
+    if malformed_block:
+        clear_javascript_candidate(state)
+        return
+    if had_candidate and track_javascript_candidate(state, clean, language, enclosing_types, allow_method_fallback):
         return
     detection_line = javascript_detection_line(clean, raw, language, enclosing_types, allow_method_fallback)
     detected = detect_brace_function(detection_line.strip(), language, enclosing_types, allow_method_fallback)

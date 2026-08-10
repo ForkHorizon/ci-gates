@@ -260,6 +260,23 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
 """
         self.assertEqual(self.lengths(source), [("run", 3, 1, 3)])
 
+    def test_split_constructor_and_parenthesized_assignment_objects_are_measured(self):
+        sources = (
+            "new Box(\n{\n run(a,b,c) {}\n}\n);\n",
+            "export const object = (\n{\n run(a,b,c) {}\n}\n);\n",
+        )
+        for source in sources:
+            self.assertEqual(self.lengths(source), [("run", 3, 1, 3)])
+
+    def test_malformed_labeled_block_does_not_emit_phantom_method(self):
+        source = """class C {
+  private #broken
+  cleanup: { work(); }
+  run(a,b,c) {}
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 4, 1, 3)])
+
 
 if __name__ == "__main__":
     unittest.main()
