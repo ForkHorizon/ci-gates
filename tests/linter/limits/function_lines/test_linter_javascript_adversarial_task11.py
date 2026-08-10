@@ -277,6 +277,22 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
 """
         self.assertEqual(self.lengths(source), [("run", 4, 1, 3)])
 
+    def test_module_scope_multiline_arrows_preserve_names_and_parameters(self):
+        javascript = """const fn = (a,
+  b,
+  c) => {
+  return a;
+};
+"""
+        typescript = """const fn = (a: A,
+  b: B,
+  c: C): D => {
+  return a;
+};
+"""
+        self.assertEqual(self.lengths(javascript, "javascript"), [("fn", 1, 5, 3)])
+        self.assertEqual(self.lengths(typescript, "typescript"), [("fn", 1, 5, 3)])
+
 
 if __name__ == "__main__":
     unittest.main()

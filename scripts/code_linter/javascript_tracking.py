@@ -4,6 +4,8 @@ import re
 from typing import TYPE_CHECKING
 
 from .javascript_candidates import (
+    javascript_arrow_assignment_candidate,
+    javascript_assignment_name,
     javascript_candidate_continues,
     javascript_header_candidate,
     javascript_new_method_start,
@@ -205,6 +207,8 @@ def track_javascript_candidate(
     state.javascript_candidate.append(clean)
     candidate = "\n".join(state.javascript_candidate)
     detected = detect_brace_function(candidate, language, enclosing_types, allow_method_fallback)
+    if detected == "<anonymous>":
+        detected = javascript_assignment_name(candidate) or detected
     generic_incomplete = (
         language == "typescript" and "<" in candidate and generic_parameter_opening(candidate, candidate.find("<")) < 0
     )
@@ -269,6 +273,6 @@ def track_javascript_signature(
         signature = "\n".join(state.pending_signature)
         params = count_params_in_signature(signature, state.pending[0], language)
         state.pending = (*state.pending[:2], params, state.pending[3])
-    elif allow_method_fallback and javascript_header_candidate(clean):
+    elif (allow_method_fallback or javascript_arrow_assignment_candidate(clean)) and javascript_header_candidate(clean):
         state.javascript_candidate = [clean]
         state.javascript_candidate_start = line_number

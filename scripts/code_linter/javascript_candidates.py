@@ -5,6 +5,23 @@ import re
 from .javascript_generics import generic_parameter_opening
 
 
+def javascript_arrow_assignment_candidate(line: str) -> bool:
+    return bool(
+        re.match(
+            r"^\s*(?:(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*|module\.exports)\s*=\s*(?:\(|<)",
+            line,
+        )
+    )
+
+
+def javascript_assignment_name(line: str) -> str | None:
+    match = re.match(
+        r"^\s*(?:(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)|module\.exports)\s*=",
+        line,
+    )
+    return match.group(1) if match and match.group(1) else None
+
+
 def javascript_header_candidate(line: str) -> bool:
     stripped = line.strip()
     if not stripped or ";" in stripped:
@@ -21,7 +38,8 @@ def javascript_header_candidate(line: str) -> bool:
     )
     if "{" in stripped and not field_start and not generic_start:
         return False
-    if "=" in stripped and not field_start:
+    arrow_assignment = javascript_arrow_assignment_candidate(stripped)
+    if "=" in stripped and not field_start and not arrow_assignment:
         return False
     return bool(
         re.match(
@@ -32,6 +50,7 @@ def javascript_header_candidate(line: str) -> bool:
         or stripped.endswith("<")
         or field_start
         or generic_start
+        or arrow_assignment
     )
 
 
@@ -40,6 +59,8 @@ def javascript_candidate_continues(candidate: list[str], clean: str) -> bool:
     if not stripped or ";" in stripped:
         return False
     text = " ".join(candidate)
+    if javascript_arrow_assignment_candidate(text) and text.count("(") > text.count(")"):
+        return True
     if "<" in text and generic_parameter_opening(text, text.find("<")) < 0:
         return True
     if "{" in text and "}" not in text:
