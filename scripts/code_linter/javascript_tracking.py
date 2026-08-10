@@ -25,7 +25,8 @@ def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> l
         return [clean[: leading_close + 1], clean[leading_close + 1 :]]
     if not allow_continuation and not re.search(
         r"\bclass\b|\binterface\b|\bexport\s+default\b|\bmodule\.exports\b|"
-        r"\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\{",
+        r"\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\{|"
+        r"\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*\{",
         clean,
     ):
         return [clean]
@@ -56,29 +57,23 @@ def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> l
     return fragments
 
 
-def javascript_fragment_name(
-    fragment: str,
-    language: str,
-    type_scopes: list[tuple[int, str]],
-    method_scopes: list[int],
-) -> str | None:
-    if language not in {"javascript", "typescript"}:
-        return None
-    return detect_brace_function(
-        fragment.strip(), language, frozenset(name for _, name in type_scopes), bool(method_scopes)
-    )
-
-
 def javascript_fragments_for_line(clean: str, language: str, method_scopes: list[int]) -> list[str]:
     return (
         javascript_line_fragments(clean, bool(method_scopes)) if language in {"javascript", "typescript"} else [clean]
     )
 
 
-def order_javascript_results(results: list[tuple[str, int, int, int]], start: int, names: list[str]) -> None:
-    if len(names) > 1:
-        order = {name: index for index, name in enumerate(names)}
-        results[start:] = sorted(results[start:], key=lambda result: order.get(result[0], len(order)))
+def order_javascript_results(results: list[tuple[str, int, int, int]], positions: list[tuple[int, int]]) -> None:
+    groups: dict[int, list[int]] = {}
+    for index, (line, _) in enumerate(positions):
+        groups.setdefault(line, []).append(index)
+    for indices in groups.values():
+        ordered = sorted(indices, key=lambda index: positions[index][1])
+        values = [results[index] for index in ordered]
+        ordered_positions = [positions[index] for index in ordered]
+        for index, value, position in zip(indices, values, ordered_positions, strict=True):
+            results[index] = value
+            positions[index] = position
 
 
 def track_split_type_context(state: FunctionScanState, clean: str) -> None:
@@ -192,7 +187,7 @@ def javascript_detection_line(
         tail = source[opening + 1 :].lstrip()
         tail_detected = detect_brace_function(tail, language, enclosing_types, allow_method_fallback)
         object_prefix = re.match(
-            r"^(?:[A-Za-z_$][A-Za-z0-9_$]*\s*\(|class\s|interface\s|export\s+default\s|module\.exports)",
+            r"^(?:[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{|class\s|interface\s|export\s+default\s|module\.exports)",
             source.lstrip(),
         )
         if (
@@ -200,18 +195,30 @@ def javascript_detection_line(
             and object_prefix
             and (
                 tail_detected != detected
+                or re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{", source.lstrip())
                 or source.lstrip().startswith(("class ", "interface ", "export default ", "module.exports"))
             )
         ):
-            if tail.rstrip().endswith("}"):
+            declaration_prefix = source.lstrip().startswith(
+                ("class ", "interface ", "export default ", "module.exports")
+            )
+            if declaration_prefix and tail.count("}") > tail.count("{") and tail.rstrip().endswith("}"):
                 tail = tail.rstrip()[:-1].rstrip()
             return tail
     return source
 
 
 def javascript_arrow_method(detected: str, clean: str) -> bool:
+    arrow = clean.find("=>")
+    assignment = clean.find("=")
     return bool(
-        (detected != "<anonymous>" and "=>" in clean)
+        (
+            detected != "<anonymous>"
+            and arrow >= 0
+            and assignment >= 0
+            and assignment < arrow
+            and not re.search(r"\)\s*\{", clean[:assignment])
+        )
         or (
             detected != "<anonymous>"
             and "=>" not in clean
@@ -233,12 +240,13 @@ def track_javascript_signature(
     enclosing_types = frozenset(name for _, name in state.type_scopes)
     allow_method_fallback = bool(state.method_scopes)
     if ";" in clean:
-        tail = clean.split(";", 1)[-1].strip()
-        if tail != clean and detect_brace_function(tail, language, enclosing_types, allow_method_fallback):
-            state.pending = None
-            state.pending_signature = []
-            clean = tail
-            raw = tail
+        prefix, tail = (part.strip() for part in clean.split(";", 1))
+        if (
+            tail != clean
+            and prefix.count("{") - prefix.count("}") <= 1
+            and detect_brace_function(tail, language, enclosing_types, allow_method_fallback)
+        ):
+            state.pending, state.pending_signature, clean, raw = None, [], tail, tail
     if continue_pending_javascript(state, clean, language):
         return
     if state.javascript_candidate:
@@ -248,12 +256,7 @@ def track_javascript_signature(
         if detected and javascript_header_complete(candidate, language):
             state.pending_signature = candidate.splitlines()
             params = count_params_in_signature(candidate, detected, language)
-            state.pending = (
-                detected,
-                state.javascript_candidate_start,
-                params,
-                False,
-            )
+            state.pending = (detected, state.javascript_candidate_start, params, False)
             clear_javascript_candidate(state)
         elif not javascript_candidate_continues(state.javascript_candidate, clean):
             clear_javascript_candidate(state)

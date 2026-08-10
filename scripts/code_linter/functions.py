@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, field
 
 from .model import FunctionBlock
-from .pending_functions import finish_pending_line
+from .pending_functions import close_functions, finish_pending_line
 from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
@@ -39,6 +39,9 @@ class FunctionScanState:
     javascript_candidate_start: int = 0
     javascript_type_candidate: list[str] = field(default_factory=list)
     javascript_declaration_scopes: list[int] = field(default_factory=list)
+    result_positions: list[tuple[int, int]] = field(default_factory=list)
+    active_columns: dict[int, int] = field(default_factory=dict)
+    current_source_column: int = 0
 
 
 def clear_objective_c_candidate(state: FunctionScanState) -> None:
@@ -267,34 +270,31 @@ def track_signature(
         state.pending = (*state.pending[:2], params, state.pending[3])
 
 
-def close_functions(state: FunctionScanState, line_number: int) -> None:
-    while state.active and state.brace_depth <= state.active[-1].parent_depth:
-        block = state.active.pop()
-        length = line_number - block.start_line + 1
-        state.results.append((block.name, block.start_line, length, block.param_count))
-
-
 def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
     state = FunctionScanState()
     for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
         fragments = javascript_tracking.javascript_fragments_for_line(clean, language, state.method_scopes)
-        result_start, fragment_names = len(state.results), []
-        for fragment in fragments:
+        raw_fragments = (
+            javascript_tracking.javascript_fragments_for_line(raw, language, state.method_scopes)
+            if raw != clean and language in {"javascript", "typescript"}
+            else fragments
+        )
+        fragment_search_start = 0
+        for index, fragment in enumerate(fragments):
+            state.current_source_column = max(0, clean.find(fragment, fragment_search_start))
+            fragment_search_start = state.current_source_column + len(fragment)
             track_declaration_context(state, fragment, language)
-            candidate = javascript_tracking.javascript_fragment_name(
-                fragment, language, state.type_scopes, state.method_scopes
-            )
-            if candidate:
-                fragment_names.append(candidate)
-            fragment_raw = raw if raw != clean and fragment == fragments[0] else fragment
+            fragment_raw = raw_fragments[index] if len(raw_fragments) == len(fragments) else fragment
             track_signature(state, fragment, line_number, language, fragment_raw)
             opens, closes = fragment.count("{"), fragment.count("}")
             finish_pending_line(state, fragment.strip(), line_number, language, (opens, closes))
             state.brace_depth = max(0, state.brace_depth + opens - closes)
             close_functions(state, line_number)
-        javascript_tracking.order_javascript_results(state.results, result_start, fragment_names)
+    if language in {"javascript", "typescript"}:
+        javascript_tracking.order_javascript_results(state.results, state.result_positions)
     line_count = len(text.splitlines())
     for block in reversed(state.active):
         length = line_count - block.start_line + 1
         state.results.append((block.name, block.start_line, length, block.param_count))
+        state.result_positions.append((block.start_line, state.active_columns.pop(id(block), 0)))
     return state.results

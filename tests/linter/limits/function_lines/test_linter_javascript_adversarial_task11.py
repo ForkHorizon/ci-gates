@@ -95,6 +95,31 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
             [("a", 1, 1, 3), ("b", 1, 1, 3), ("c", 1, 1, 3)],
         )
 
+    def test_same_name_call_and_object_method_are_both_measured(self):
+        for source in (
+            "run({ run(first, second, third) {} });\n",
+            "run(( { run(first, second, third) {} } ));\n",
+        ):
+            self.assertEqual(self.lengths(source, "javascript"), [("run", 1, 1, 3)])
+
+    def test_same_line_literal_and_computed_method_order_is_preserved(self):
+        source = 'class Worker { "run"(a, b, c) {} 1(a, b, c) {} [factory()](a, b, c) {} 2(a, b, c) {} }\n'
+        self.assertEqual(
+            self.lengths(source, "javascript"),
+            [('"run"', 1, 1, 3), ("1", 1, 1, 3), ("[factory()]", 1, 1, 3), ("2", 1, 1, 3)],
+        )
+
+    def test_template_interpolation_does_not_create_return_method(self):
+        source = 'class Worker { real(a, b, c) { const s = "fake(x,y,z) {}"; return `${(q,r)=>q+r}`; } }\n'
+        self.assertEqual(self.lengths(source, "javascript"), [("real", 1, 1, 3)])
+
+    def test_same_line_arrow_field_and_method_keep_source_order(self):
+        source = "class Worker { c = (a, b, c) => { return a; }; d(a, b, c) {} }\n"
+        self.assertEqual(
+            self.lengths(source, "javascript"),
+            [("c", 1, 1, 3), ("d", 1, 1, 3)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

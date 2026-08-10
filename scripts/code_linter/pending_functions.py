@@ -55,6 +55,7 @@ def finish_expression_body(
     incomplete = stripped.endswith(",") or (len(state.pending_signature) > 1 and not stripped.endswith(";"))
     if not incomplete:
         state.results.append((name, start, 1, params))
+        state.result_positions.append((start, state.current_source_column))
         clear_pending(state)
 
 
@@ -71,6 +72,7 @@ def finish_declaration(
     )
     if declaration:
         state.results.append((name, start, line_number - start + 1, params))
+        state.result_positions.append((start, state.current_source_column))
     clear_pending(state)
 
 
@@ -123,6 +125,7 @@ def finish_pending_closing_brace(
         clear_pending(state)
         return True
     state.results.append((name, start, max(1, line_number - start), params))
+    state.result_positions.append((start, state.current_source_column))
     clear_pending(state)
     return True
 
@@ -147,6 +150,7 @@ def finish_pending_line(
     (opens, closes), waiting_for_function_body = pending_body_braces(signature, name, language, braces)
     if confirmed and opens:
         state.active.append(FunctionBlock(name, start, state.brace_depth, params))
+        state.active_columns[id(state.active[-1])] = state.current_source_column
         clear_pending(state)
     elif (
         confirmed
@@ -161,3 +165,11 @@ def finish_pending_line(
         state, stripped, state.pending, line_number, language
     ) or finish_pending_closing_brace(state, state.pending, line_number, language, (opens, closes)):
         return
+
+
+def close_functions(state: FunctionScanState, line_number: int) -> None:
+    while state.active and state.brace_depth <= state.active[-1].parent_depth:
+        block = state.active.pop()
+        length = line_number - block.start_line + 1
+        state.results.append((block.name, block.start_line, length, block.param_count))
+        state.result_positions.append((block.start_line, state.active_columns.pop(id(block), 0)))
