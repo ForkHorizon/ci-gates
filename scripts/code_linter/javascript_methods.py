@@ -30,12 +30,18 @@ _FIELD_ARROW_PATTERN = re.compile(
     r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
     r"(?P<name>#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\s*=\s*(?:async\s+)?"
-    r"(?P<parameters>\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>"
+    r"(?P<parameters>\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"(?:\s*:\s*[^=,{]+)?\s*=>"
 )
 
 
 def method_name(line: str, typescript: bool = False) -> str | None:
-    match = _METHOD_PATTERN.match(line.strip())
+    stripped = line.strip()
+    match = _METHOD_PATTERN.match(stripped)
+    if not match:
+        opening = stripped.find("{")
+        if opening >= 0:
+            match = _METHOD_PATTERN.match(stripped[opening + 1 :].lstrip())
     if not match:
         return None
     name = match.group("name")
@@ -90,14 +96,17 @@ def is_typescript_method_declaration(signature: str, name: str) -> bool:
         return False
     if method_name(signature, typescript=True) != name:
         return False
-    if re.search(r"\b(?:public|private|protected|abstract|declare)\b", signature):
-        return True
     name_start = signature.find(name)
     opening = signature.find("(", max(0, name_start))
     close = matching_parenthesis(signature, opening)
     if close < 0:
         return False
-    return signature[close + 1 :].lstrip().startswith(":")
+    if ";" in signature[opening + 1 : close]:
+        return False
+    suffix = signature[close + 1 :].lstrip()
+    if re.search(r"\b(?:public|private|protected|abstract|declare)\b", signature):
+        return suffix.startswith((":", ";"))
+    return suffix.startswith(":")
 
 
 def matching_parenthesis(signature: str, opening: int) -> int:
@@ -142,18 +151,33 @@ def has_complete_method_header(signature: str, name: str) -> bool:
     return not header or header.startswith(":")
 
 
+def has_method_body_brace(signature: str, name: str) -> bool:
+    name_start = signature.find(name)
+    opening = signature.find("(", max(0, name_start))
+    if opening < 0:
+        return False
+    depth = 0
+    for index in range(opening, len(signature)):
+        if signature[index] == "(":
+            depth += 1
+        elif signature[index] == ")":
+            depth = max(0, depth - 1)
+        elif signature[index] == "{" and depth == 0:
+            return True
+    return False
+
+
 def should_reject_incomplete_method(
     language: str,
     pending_arrow: bool,
     name: str,
     signature: str,
-    braces: tuple[int, int],
 ) -> bool:
     return (
         language in {"javascript", "typescript"}
         and not pending_arrow
         and name != "<anonymous>"
-        and bool(braces[0])
+        and has_method_body_brace(signature, name)
         and not has_complete_method_header(signature, name)
     )
 

@@ -28,15 +28,45 @@ def javascript_header_candidate(line: str) -> bool:
     )
 
 
+def javascript_new_method_start(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or any(mark in stripped for mark in (";", "=", "{")):
+        return False
+    return bool(
+        re.match(
+            r"^(?:async|static|get|set|abstract|declare|override|public|private|"
+            r"protected|readonly|\*|#|\[)",
+            stripped,
+        )
+        or re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*\s*\(", stripped)
+    )
+
+
 def javascript_header_complete(signature: str, language: str) -> bool:
     if "{" in signature:
         return True
     return language == "typescript" and ":" in signature and signature.rstrip().endswith(";")
 
 
+def continue_pending_javascript(state: FunctionScanState, clean: str, language: str) -> bool:
+    if not state.pending:
+        return False
+    if javascript_new_method_start(clean):
+        state.pending = None
+        state.pending_signature = []
+        return False
+    state.pending_signature.append(clean)
+    signature = "\n".join(state.pending_signature)
+    params = count_params_in_signature(signature, state.pending[0], language)
+    state.pending = (*state.pending[:2], params, state.pending[3])
+    return True
+
+
 def track_javascript_signature(state: FunctionScanState, clean: str, line_number: int, language: str) -> None:
     enclosing_types = frozenset(name for _, name in state.type_scopes)
     allow_method_fallback = bool(state.method_scopes)
+    if continue_pending_javascript(state, clean, language):
+        return
     if state.javascript_candidate:
         state.javascript_candidate.append(clean)
         candidate = "\n".join(state.javascript_candidate)

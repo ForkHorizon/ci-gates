@@ -39,6 +39,15 @@ class ModernJavaScriptEdgeCaseTests(unittest.TestCase):
             issues = linter.check_paths(root, [path], {**LIMITS, "max_parameters": 0})
         self.assertEqual([issue.kind for issue in issues], ["max_parameters"])
 
+    def test_typed_private_arrow_field_counts_parameters_before_return_annotation(self):
+        source = """class Worker {
+  #run = (first: number, second: number, third: number): void => {
+    return;
+  };
+}
+"""
+        self.assertEqual(self.lengths(source), [("#run", 2, 3, 3)])
+
     def test_typescript_named_access_modified_arrow_field_is_named(self):
         source = "class Worker {\n  private run = (first, second) => first + second;\n}\n"
         self.assertEqual(self.lengths(source), [("run", 2, 1, 2)])
@@ -84,6 +93,29 @@ declare class External {
 }
 """
         self.assertEqual(self.lengths(source), [("run", 2, 1, 2), ("load", 5, 1, 2)])
+
+    def test_multiline_parameter_object_braces_do_not_drop_the_method(self):
+        source = """class Worker {
+  #run(
+    options = {
+      enabled: true
+    }
+  ) {
+    return options.enabled;
+  }
+}
+"""
+        self.assertEqual(self.lengths(source, "javascript"), [("#run", 2, 7, 1)])
+
+    def test_same_line_private_method_after_class_brace_is_measured(self):
+        source = "class Worker { #run(first, second, third) { work(); } }\n"
+        self.assertEqual(self.lengths(source, "javascript"), [("#run", 1, 1, 3)])
+
+    def test_same_line_interface_and_ambient_methods_are_measured(self):
+        source = (
+            "interface Contract { run(first, second): void; }\ndeclare class External { load(first, second): void; }\n"
+        )
+        self.assertEqual(self.lengths(source), [("run", 1, 1, 2), ("load", 2, 1, 2)])
 
 
 if __name__ == "__main__":

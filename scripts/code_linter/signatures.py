@@ -73,12 +73,13 @@ def parameter_start(signature: str, name: str | None, language: str) -> tuple[in
             return operator_start, 0
     if name and re.search(r"(?:\[[^\]]+\]|#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*)$", name):
         field_arrow = re.search(
-            re.escape(name) + r"\s*=\s*(?:async\s+)?(?:\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>",
+            re.escape(name)
+            + r"\s*=\s*(?:async\s+)?(?:\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)"
+            + r"(?:\s*:\s*[^=,{]+)?\s*=>",
             signature,
         )
         if field_arrow:
-            parameters = field_arrow.group(0).split("=>", 1)[0].rstrip()
-            if parameters.endswith(")"):
+            if "(" in field_arrow.group(0):
                 return signature.find("(", field_arrow.start()), 0
             return -1, 1
         anchored = re.search(
@@ -142,6 +143,13 @@ def pending_body_braces(
         and re.search(r"\bfunction\b", signature)
     )
     if not waiting:
+        if language in {"javascript", "typescript"} and name != "<anonymous>":
+            parameter_index, _ = parameter_start(signature, name, language)
+            parameter_end = matching_paren(signature, parameter_index)
+            if parameter_end >= 0:
+                body = signature[parameter_end + 1 :]
+                return (body.count("{"), body.count("}")), False
+            return (0, 0), False
         return braces, False
     parameter_index, _ = parameter_start(signature, name, language)
     parameter_end = matching_paren(signature, parameter_index)

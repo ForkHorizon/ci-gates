@@ -87,7 +87,7 @@ def finish_pending_line(
     name, start, params, _ = state.pending
     if reject_incomplete_cpp_special(state, signature, name, stripped, (language, braces)):
         return
-    if should_reject_incomplete_method(language, state.pending[3], name, signature, braces):
+    if should_reject_incomplete_method(language, state.pending[3], name, signature):
         clear_pending(state)
         return
     (opens, closes), waiting_for_function_body = pending_body_braces(signature, name, language, braces)
