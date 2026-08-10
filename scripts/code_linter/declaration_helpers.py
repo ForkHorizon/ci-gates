@@ -70,6 +70,29 @@ def is_c_family_declaration(
     return language in C_FAMILY_LANGUAGES and match.group(1) in enclosing_types and not prefix.endswith(".")
 
 
+_CSHARP_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
+_CSHARP_TYPE_ARGUMENTS = r"(?:\s*<[^(){};]+>)?"
+_CSHARP_EXPLICIT_INTERFACE = re.compile(
+    r"^(?:\[[^]\n]+\]\s*)*"
+    r"(?:(?:async|unsafe|readonly|ref|scoped)\s+)*"
+    r"(?:[A-Za-z_][A-Za-z0-9_:.?]*(?:\s*<[^(){};]+>)?(?:\s*\[\])?)\s+"
+    r"(?P<qualifier>(?:global::)?"
+    + _CSHARP_IDENTIFIER
+    + _CSHARP_TYPE_ARGUMENTS
+    + r"(?:\s*\.\s*"
+    + _CSHARP_IDENTIFIER
+    + _CSHARP_TYPE_ARGUMENTS
+    + r")*)\s*\.\s*"
+    r"(?P<name>" + _CSHARP_IDENTIFIER + r")"
+    r"(?:\s*<[^>]+>)?\s*\("
+)
+
+
+def detect_csharp_explicit_interface(line: str) -> str | None:
+    match = _CSHARP_EXPLICIT_INTERFACE.match(line.strip())
+    return match.group("name") if match else None
+
+
 def detect_c_family(
     line: str,
     language: str = "",
@@ -77,6 +100,10 @@ def detect_c_family(
 ) -> str | None:
     if "(" not in line:
         return None
+    if language == "csharp":
+        explicit = detect_csharp_explicit_interface(line)
+        if explicit:
+            return explicit
     prefix = (
         r"(?:\[[^\]]+\]\s*)*"
         r"(?:(?:public|private|protected|internal|static|virtual|override|async|"
