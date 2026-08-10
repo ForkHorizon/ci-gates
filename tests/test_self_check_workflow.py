@@ -59,9 +59,12 @@ def workflow_job_commands(workflow, job_name):
     lines = workflow.splitlines()
     jobs_index = next(index for index, line in enumerate(lines) if line.strip() == "jobs:")
     job_marker = f"  {job_name}:"
-    job_index = next(
+    job_indices = [
         index for index, line in enumerate(lines[jobs_index + 1 :], jobs_index + 1) if line.rstrip() == job_marker
-    )
+    ]
+    if len(job_indices) != 1:
+        raise ValueError(f"expected exactly one {job_marker!r} job mapping")
+    job_index = job_indices[0]
     next_job = next(
         (
             index
@@ -70,7 +73,15 @@ def workflow_job_commands(workflow, job_name):
         ),
         len(lines),
     )
-    return run_commands("\n".join(lines[job_index:next_job]))
+    job_lines = lines[job_index:next_job]
+    step_indices = [
+        index
+        for index, line in enumerate(job_lines)
+        if len(line) - len(line.lstrip()) == 4 and line.strip() == "steps:"
+    ]
+    if len(step_indices) != 1:
+        raise ValueError("expected exactly one steps mapping in self-check job")
+    return run_commands("\n".join(job_lines))
 
 
 class SelfCheckWorkflowTests(unittest.TestCase):
@@ -133,6 +144,14 @@ class SelfCheckWorkflowTests(unittest.TestCase):
             workflow_job_commands(workflow, "self-check"),
             ["echo inline", "echo block", "echo separate"],
         )
+
+    def test_workflow_parser_rejects_duplicate_job_and_steps_mappings(self):
+        duplicate_steps = self.workflow.replace("    steps:\n", "    steps:\n    steps:\n", 1)
+        duplicate_job = self.workflow + "\n  self-check:\n    steps:\n      - run: true\n"
+        with self.assertRaises(ValueError):
+            workflow_job_commands(duplicate_steps, "self-check")
+        with self.assertRaises(ValueError):
+            workflow_job_commands(duplicate_job, "self-check")
 
     def test_repository_uses_default_linter_policy(self):
         config = json.loads((ROOT / ".code-linter.json").read_text(encoding="utf-8"))
