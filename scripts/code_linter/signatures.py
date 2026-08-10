@@ -9,7 +9,7 @@ from .declaration_helpers import (
     detect_with_context,
 )
 from .literals import strip_strings
-from .javascript_generics import method_generic_parameter_opening
+from .javascript_generics import generic_angle_open, method_generic_parameter_opening
 from .objective_c import objective_c_parameter_count, objective_c_selector
 from .php_signatures import detect_php, php_parameter_start
 from .swift_syntax import detect_swift
@@ -264,24 +264,17 @@ BRACE_FUNCTION_DETECTORS = {
 }
 
 
-def _generic_angle_open(text: str, index: int) -> bool:
-    if index + 1 >= len(text) or text[index + 1].isspace():
-        return False
-    previous = text[index - 1] if index else ""
-    return previous.isalnum() or previous in "_$=([{,"
-
-
 def javascript_brace_counts(fragment: str, context: str | list[str] = "") -> tuple[int, int]:
     context = " ".join(context) if isinstance(context, list) else context
     angles = 0
     for index, char in enumerate(context):
-        if char == "<" and _generic_angle_open(context, index):
+        if char == "<" and generic_angle_open(context, index):
             angles += 1
         elif char == ">" and (index == 0 or context[index - 1] != "="):
             angles = max(0, angles - 1)
     opens = closes = 0
     for index, char in enumerate(fragment):
-        if char == "<" and _generic_angle_open(fragment, index):
+        if char == "<" and generic_angle_open(fragment, index):
             angles += 1
         elif char == ">" and (index == 0 or fragment[index - 1] != "="):
             angles = max(0, angles - 1)

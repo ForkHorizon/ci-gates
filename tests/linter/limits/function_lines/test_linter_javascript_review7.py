@@ -19,6 +19,10 @@ class ModernJavaScriptReview7Tests(unittest.TestCase):
         source = "const first = (a,b,c) => a; const second = (x,y,z) => x;\n"
         self.assertEqual(self.lengths(source, "javascript"), [("first", 1, 1, 3), ("second", 1, 1, 3)])
 
+    def test_same_line_block_arrow_declarations_are_all_enforced(self):
+        source = "const first=(a,b,c)=>{ return a; }; const second=(x,y,z)=>x;\n"
+        self.assertEqual(self.lengths(source, "javascript"), [("first", 1, 1, 3), ("second", 1, 1, 3)])
+
     def test_generic_constraint_braces_do_not_shorten_method_body(self):
         source = """class Worker {
   run<T extends {
@@ -42,6 +46,17 @@ class ModernJavaScriptReview7Tests(unittest.TestCase):
 }
 """
         self.assertEqual(self.lengths(source, "javascript"), [("outer", 1, 5, 0)])
+
+    def test_no_space_comparisons_are_not_generic_constraints(self):
+        source = """function outer() {
+  if (a<b) {
+    if (a<=b) {
+      work();
+    }
+  }
+}
+"""
+        self.assertEqual(self.lengths(source, "javascript"), [("outer", 1, 7, 0)])
 
 
 if __name__ == "__main__":

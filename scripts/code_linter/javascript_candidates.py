@@ -23,8 +23,9 @@ def javascript_assignment_name(line: str) -> str | None:
 
 
 def javascript_semicolon_fragments(clean: str, allow_continuation: bool = False) -> list[str]:
-    if allow_continuation or ("{" in clean and not re.search(r"\bdeclare\b", clean)):
+    if allow_continuation:
         return [clean]
+    split_inside_braces = bool(re.search(r"\bdeclare\b", clean))
     parts: list[str] = []
     start = 0
     depths = {"(": 0, "[": 0, "{": 0}
@@ -37,7 +38,7 @@ def javascript_semicolon_fragments(clean: str, allow_continuation: bool = False)
             depths["["] = max(0, depths["["] - 1)
         elif char == "}":
             depths["{"] = max(0, depths["{"] - 1)
-        elif char == ";" and not depths["("] and not depths["["]:
+        elif char == ";" and not depths["("] and not depths["["] and (split_inside_braces or not depths["{"]):
             parts.append(clean[start : index + 1].strip())
             start = index + 1
     remainder = clean[start:].strip()

@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+import re
+
+
+def generic_angle_open(text: str, index: int) -> bool:
+    previous = text[index - 1] if index else ""
+    if index + 1 >= len(text) or text[index + 1].isspace():
+        return False
+    return bool(
+        (previous.isalnum() or previous in "_$=([{,")
+        and re.match(r"[A-Za-z_$][\w$]*\s*(?:extends|[>,=])", text[index + 1 :])
+    )
+
 
 def generic_parameter_opening(signature: str, start: int = 0) -> int:
     depth = 0
