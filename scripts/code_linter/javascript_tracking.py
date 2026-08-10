@@ -15,6 +15,44 @@ def clear_javascript_candidate(state: FunctionScanState) -> None:
     state.javascript_candidate_start = 0
 
 
+def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> list[str]:
+    leading_close = clean.find("}")
+    if (
+        leading_close >= 0
+        and clean[: leading_close + 1].strip() == "}"
+        and re.search(r"(?:#?[A-Za-z_$][A-Za-z0-9_$]*|\[[^]]+\])\s*\(", clean[leading_close + 1 :])
+    ):
+        return [clean[: leading_close + 1], clean[leading_close + 1 :]]
+    if not allow_continuation and not re.search(
+        r"\bclass\b|\binterface\b|\bexport\s+default\b|\bmodule\.exports\b|"
+        r"\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\{",
+        clean,
+    ):
+        return [clean]
+    opening = clean.find("{")
+    if opening < 0:
+        return [clean]
+    fragments, start, depth, body_depth = [], 0, 1, 0
+    for index in range(opening + 1, len(clean)):
+        char = clean[index]
+        if char == "{":
+            previous = clean[:index].rstrip()[-1:]
+            if depth == 1 and previous in {")", "]"}:
+                body_depth = depth + 1
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if body_depth and depth == body_depth - 1:
+                fragments.append(clean[start : index + 1].lstrip(" ,"))
+                start, body_depth = index + 1, 0
+    if not fragments:
+        return [clean]
+    remainder = clean[start:].lstrip(" ,")
+    if remainder.strip():
+        fragments.append(remainder)
+    return fragments
+
+
 def track_split_type_context(state: FunctionScanState, clean: str) -> None:
     candidate = state.javascript_type_candidate
     if candidate:
@@ -37,7 +75,12 @@ def track_split_type_context(state: FunctionScanState, clean: str) -> None:
 
 def javascript_header_candidate(line: str) -> bool:
     stripped = line.strip()
-    if not stripped or any(mark in stripped for mark in (";", "=", "{")):
+    if not stripped or any(mark in stripped for mark in (";", "{")):
+        return False
+    if "=" in stripped and not re.match(
+        r"^(?:(?:async|static|abstract|declare|override|public|private|protected|readonly)\s+)*#?[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\(",
+        stripped,
+    ):
         return False
     return bool(
         re.match(
@@ -51,7 +94,9 @@ def javascript_header_candidate(line: str) -> bool:
 
 def javascript_candidate_continues(candidate: list[str], clean: str) -> bool:
     stripped = clean.strip()
-    if not stripped or any(mark in stripped for mark in (";", "=")):
+    if not stripped or ";" in stripped:
+        return False
+    if "=" in stripped and "=>" not in stripped:
         return False
     text = " ".join(candidate).lstrip()
     if text.startswith("["):
@@ -119,7 +164,7 @@ def javascript_detection_line(
         tail = source[opening + 1 :].lstrip()
         if detect_brace_function(
             tail, language, enclosing_types, allow_method_fallback
-        ) == detected and source.lstrip().startswith(("class ", "interface ")):
+        ) == detected and source.lstrip().startswith(("class ", "interface ", "export default ", "module.exports")):
             if tail.rstrip().endswith("}"):
                 tail = tail.rstrip()[:-1].rstrip()
             return tail

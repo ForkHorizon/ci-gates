@@ -10,12 +10,7 @@ from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
 from .objective_c import objective_c_method_start, objective_c_selector
-from .javascript_tracking import track_javascript_signature, track_split_type_context
-from .signatures import (
-    count_params_in_signature,
-    csharp_lambda_match,
-    detect_brace_function,
-)
+from . import javascript_tracking, signatures
 from .swift_closures import track_swift_signature
 
 
@@ -109,13 +104,14 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
             depth = state.brace_depth + clean[: match.end()].count("{")
             state.type_scopes.append((depth, match.group(1)))
     if language in {"javascript", "typescript"}:
-        track_split_type_context(state, clean)
+        javascript_tracking.track_split_type_context(state, clean)
         class_pattern = r"\b(?:class|interface)(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
         object_pattern = r"(?:\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)\{"
         scope_matches = [
             *re.finditer(class_pattern, clean),
             *re.finditer(object_pattern, clean),
             *re.finditer(r"(?:\breturn\s*|\(\s*|,\s*)\{", clean),
+            *re.finditer(r"\bexport\s+default\s*\{|\bmodule\.exports\s*=\s*\{", clean),
         ]
         for scope_match in scope_matches:
             depth = state.brace_depth + clean[: scope_match.end()].count("{")
@@ -132,7 +128,7 @@ def set_pending_signature(
     arrow: bool = False,
 ) -> None:
     state.pending_signature = signature.splitlines()
-    params = count_params_in_signature(signature, detected, "csharp")
+    params = signatures.count_params_in_signature(signature, detected, "csharp")
     state.pending = (detected, line_number, params, arrow)
 
 
@@ -157,13 +153,13 @@ def track_csharp_signature(
     if state.pending:
         state.pending_signature.append(clean)
         signature = "\n".join(state.pending_signature)
-        params = count_params_in_signature(signature, state.pending[0], "csharp")
+        params = signatures.count_params_in_signature(signature, state.pending[0], "csharp")
         state.pending = (*state.pending[:2], params, state.pending[3])
         return
 
     signature_lines = [*state.csharp_candidate, clean]
     signature = "\n".join(signature_lines)
-    match = csharp_lambda_match(signature)
+    match = signatures.csharp_lambda_match(signature)
     if match:
         start = state.csharp_candidate_start or line_number
         lambda_line = start + signature[: match[0]].count("\n")
@@ -171,7 +167,7 @@ def track_csharp_signature(
         clear_csharp_candidate(state)
         return
 
-    detected = detect_brace_function(clean.strip(), "csharp", enclosing_types)
+    detected = signatures.detect_brace_function(clean.strip(), "csharp", enclosing_types)
     expression_context = bool(re.search(r"\b(?:return|throw|await)\b", clean))
     if detected and detected != "<anonymous>" and not expression_context:
         set_pending_signature(state, detected, clean.strip(), line_number)
@@ -205,7 +201,7 @@ def track_objective_c_signature(
                 state.pending = None
                 state.pending_signature = []
             else:
-                params = count_params_in_signature(signature, detected, "objective_c")
+                params = signatures.count_params_in_signature(signature, detected, "objective_c")
                 state.pending = (
                     detected or state.pending[0],
                     state.pending[1],
@@ -224,7 +220,7 @@ def track_objective_c_signature(
     detected = objective_c_selector(signature)
     if detected:
         state.pending_signature = signature.splitlines()
-        params = count_params_in_signature(signature, detected, "objective_c")
+        params = signatures.count_params_in_signature(signature, detected, "objective_c")
         state.pending = (detected, state.objective_c_candidate_start, params, False)
         clear_objective_c_candidate(state)
     elif "{" in clean or ";" in clean:
@@ -247,11 +243,11 @@ def track_signature(
         track_swift_signature(state, clean, line_number)
         return
     if language in {"javascript", "typescript"}:
-        track_javascript_signature(state, clean, line_number, language, raw)
+        javascript_tracking.track_javascript_signature(state, clean, line_number, language, raw)
         return
     if language == "objective_c" and track_objective_c_signature(state, clean, line_number):
         return
-    detected = detect_brace_function(
+    detected = signatures.detect_brace_function(
         clean.strip(),
         language,
         enclosing_types,
@@ -261,12 +257,12 @@ def track_signature(
         php_arrow = language == "php" and re.search(r"\bfn\s*\(", clean)
         arrow = bool(php_arrow)
         state.pending_signature = [clean]
-        params = count_params_in_signature(clean, detected, language)
+        params = signatures.count_params_in_signature(clean, detected, language)
         state.pending = (detected, line_number, params, arrow)
     elif state.pending:
         state.pending_signature.append(clean)
         signature = "\n".join(state.pending_signature)
-        params = count_params_in_signature(signature, state.pending[0], language)
+        params = signatures.count_params_in_signature(signature, state.pending[0], language)
         state.pending = (*state.pending[:2], params, state.pending[3])
 
 
@@ -280,12 +276,22 @@ def close_functions(state: FunctionScanState, line_number: int) -> None:
 def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
     state = FunctionScanState()
     for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
-        track_declaration_context(state, clean, language)
-        track_signature(state, clean, line_number, language, raw)
-        opens, closes = clean.count("{"), clean.count("}")
-        finish_pending_line(state, clean.strip(), line_number, language, (opens, closes))
-        state.brace_depth = max(0, state.brace_depth + opens - closes)
-        close_functions(state, line_number)
+        fragments = (
+            javascript_tracking.javascript_line_fragments(clean, bool(state.method_scopes))
+            if language in {"javascript", "typescript"}
+            else [clean]
+        )
+        result_start = len(state.results)
+        for fragment in fragments:
+            track_declaration_context(state, fragment, language)
+            fragment_raw = raw if fragment == clean else fragment
+            track_signature(state, fragment, line_number, language, fragment_raw)
+            opens, closes = fragment.count("{"), fragment.count("}")
+            finish_pending_line(state, fragment.strip(), line_number, language, (opens, closes))
+            state.brace_depth = max(0, state.brace_depth + opens - closes)
+            close_functions(state, line_number)
+        if len(fragments) > 1:
+            state.results[result_start:] = reversed(state.results[result_start:])
     line_count = len(text.splitlines())
     for block in reversed(state.active):
         length = line_count - block.start_line + 1

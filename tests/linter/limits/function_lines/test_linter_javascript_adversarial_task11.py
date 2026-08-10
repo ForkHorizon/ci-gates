@@ -54,6 +54,25 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
         source = "function broken(first, second, third); function valid(first, second, third) { return first; }\n"
         self.assertEqual(self.lengths(source, "javascript"), [("valid", 1, 1, 3)])
 
+    def test_multiline_typed_arrow_field_with_object_return_is_measured(self):
+        source = """class Worker {
+  private run = (first: number, second: number, third: number):
+    { value: number } => ({ value: first });
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 2, 2, 3)])
+
+    def test_multiple_same_line_private_methods_are_all_measured(self):
+        source = "class Worker { #first(a, b, c) {} #second(a, b, c) {} }\n"
+        self.assertEqual(
+            self.lengths(source, "javascript"),
+            [("#first", 1, 1, 3), ("#second", 1, 1, 3)],
+        )
+
+    def test_exported_object_computed_method_is_measured(self):
+        source = "export default { [factory()](first, second, third) { return first; } };\n"
+        self.assertEqual(self.lengths(source, "javascript"), [("[factory()]", 1, 1, 3)])
+
 
 if __name__ == "__main__":
     unittest.main()
