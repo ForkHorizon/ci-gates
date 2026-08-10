@@ -19,6 +19,10 @@ on:
         description: Coverage policy override; empty uses the repository config.
         type: string
         default: ''
+      gates-ref:
+        description: ci-gates ref to fetch scripts from.
+        type: string
+        default: main
       explain-model:
         description: Ollama model that explains failures; empty string disables.
         type: string
@@ -48,7 +52,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: ForkHorizon/ci-gates
-          ref: main
+          ref: ${{ inputs.gates-ref }}
           path: .ci-gates
           persist-credentials: false
 

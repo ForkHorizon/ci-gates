@@ -222,8 +222,8 @@ class SafetyAndCommentTests(unittest.TestCase):
         self.assertNotIn('--model "${{ inputs.explain-model }}"', workflow)
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("contents: read", workflow)
-        self.assertNotIn("gates-ref:", workflow)
-        self.assertIn("ref: main", workflow)
+        self.assertIn("gates-ref:", workflow)
+        self.assertIn("ref: ${{ inputs.gates-ref }}", workflow)
 
 
 if __name__ == "__main__":
