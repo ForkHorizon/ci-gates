@@ -5,28 +5,20 @@ import re
 from dataclasses import dataclass, field
 
 from .model import FunctionBlock
-from .pending_functions import finish_pending_line
+from .pending_functions import close_functions, finish_pending_line
 from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
-from .objective_c import objective_c_method_start, objective_c_selector
-from .signatures import (
-    count_params_in_signature,
-    csharp_lambda_match,
-    detect_brace_function,
-)
+from .objective_c import clear_objective_c_candidate, objective_c_method_start, objective_c_selector
+from . import javascript_ordering, javascript_tracking, signatures
 from .swift_closures import track_swift_signature
-
-
-FunctionResult = tuple[str, int, int, int]
-PendingFunction = tuple[str, int, int, bool]
 
 
 @dataclass
 class FunctionScanState:
-    results: list[FunctionResult] = field(default_factory=list)
+    results: list[tuple[str, int, int, int]] = field(default_factory=list)
     active: list[FunctionBlock] = field(default_factory=list)
-    pending: PendingFunction | None = None
+    pending: tuple[str, int, int, bool] | None = None
     pending_signature: list[str] = field(default_factory=list)
     brace_depth: int = 0
     type_scopes: list[tuple[int, str]] = field(default_factory=list)
@@ -39,11 +31,13 @@ class FunctionScanState:
     swift_candidate_open: bool = False
     objective_c_candidate: list[str] = field(default_factory=list)
     objective_c_candidate_start: int = 0
-
-
-def clear_objective_c_candidate(state: FunctionScanState) -> None:
-    state.objective_c_candidate = []
-    state.objective_c_candidate_start = 0
+    javascript_candidate: list[str] = field(default_factory=list)
+    javascript_candidate_start: int = 0
+    javascript_type_candidate: list[str] = field(default_factory=list)
+    javascript_declaration_scopes: list[int] = field(default_factory=list)
+    result_positions: list[tuple[int, int]] = field(default_factory=list)
+    active_columns: dict[int, int] = field(default_factory=dict)
+    current_source_column: int = 0
 
 
 def function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
@@ -86,6 +80,9 @@ def clear_csharp_candidate(state: FunctionScanState) -> None:
 def track_declaration_context(state: FunctionScanState, clean: str, language: str) -> None:
     state.type_scopes = [scope for scope in state.type_scopes if scope[0] <= state.brace_depth]
     state.method_scopes = [depth for depth in state.method_scopes if depth <= state.brace_depth]
+    state.javascript_declaration_scopes = [
+        depth for depth in state.javascript_declaration_scopes if depth <= state.brace_depth
+    ]
     if language in {
         "c",
         "cpp",
@@ -101,10 +98,23 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
             depth = state.brace_depth + clean[: match.end()].count("{")
             state.type_scopes.append((depth, match.group(1)))
     if language in {"javascript", "typescript"}:
-        class_pattern = r"\bclass(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
+        javascript_tracking.track_split_type_context(state, clean)
+        class_pattern = r"\b(?:class|interface)(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
         object_pattern = r"(?:\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)\{"
-        if re.search(class_pattern, clean) or re.search(object_pattern, clean):
-            state.method_scopes.append(state.brace_depth + clean.count("{"))
+        scope_matches = [
+            *re.finditer(class_pattern, clean),
+            *re.finditer(object_pattern, clean),
+            *re.finditer(r"(?:\breturn\s*|\(\s*|,\s*)\{", clean),
+            *re.finditer(r"\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*\{", clean),
+            *re.finditer(r"\bexport\s+default\s*\{|\bmodule\.exports\s*=\s*\{", clean),
+        ]
+        for scope_match in scope_matches:
+            depth = state.brace_depth + clean[: scope_match.end()].count("{")
+            state.method_scopes.append(depth)
+            if re.search(r"\binterface\b|\bdeclare\s+class\b", scope_match.group()) or (
+                re.search(r"\bdeclare\b", clean) and "class" in scope_match.group()
+            ):
+                state.javascript_declaration_scopes.append(depth)
 
 
 def set_pending_signature(
@@ -115,7 +125,7 @@ def set_pending_signature(
     arrow: bool = False,
 ) -> None:
     state.pending_signature = signature.splitlines()
-    params = count_params_in_signature(signature, detected, "csharp")
+    params = signatures.count_params_in_signature(signature, detected, "csharp")
     state.pending = (detected, line_number, params, arrow)
 
 
@@ -140,13 +150,13 @@ def track_csharp_signature(
     if state.pending:
         state.pending_signature.append(clean)
         signature = "\n".join(state.pending_signature)
-        params = count_params_in_signature(signature, state.pending[0], "csharp")
+        params = signatures.count_params_in_signature(signature, state.pending[0], "csharp")
         state.pending = (*state.pending[:2], params, state.pending[3])
         return
 
     signature_lines = [*state.csharp_candidate, clean]
     signature = "\n".join(signature_lines)
-    match = csharp_lambda_match(signature)
+    match = signatures.csharp_lambda_match(signature)
     if match:
         start = state.csharp_candidate_start or line_number
         lambda_line = start + signature[: match[0]].count("\n")
@@ -154,7 +164,7 @@ def track_csharp_signature(
         clear_csharp_candidate(state)
         return
 
-    detected = detect_brace_function(clean.strip(), "csharp", enclosing_types)
+    detected = signatures.detect_brace_function(clean.strip(), "csharp", enclosing_types)
     expression_context = bool(re.search(r"\b(?:return|throw|await)\b", clean))
     if detected and detected != "<anonymous>" and not expression_context:
         set_pending_signature(state, detected, clean.strip(), line_number)
@@ -188,7 +198,7 @@ def track_objective_c_signature(
                 state.pending = None
                 state.pending_signature = []
             else:
-                params = count_params_in_signature(signature, detected, "objective_c")
+                params = signatures.count_params_in_signature(signature, detected, "objective_c")
                 state.pending = (
                     detected or state.pending[0],
                     state.pending[1],
@@ -207,7 +217,7 @@ def track_objective_c_signature(
     detected = objective_c_selector(signature)
     if detected:
         state.pending_signature = signature.splitlines()
-        params = count_params_in_signature(signature, detected, "objective_c")
+        params = signatures.count_params_in_signature(signature, detected, "objective_c")
         state.pending = (detected, state.objective_c_candidate_start, params, False)
         clear_objective_c_candidate(state)
     elif "{" in clean or ";" in clean:
@@ -220,6 +230,7 @@ def track_signature(
     clean: str,
     line_number: int,
     language: str,
+    raw: str | None = None,
 ) -> None:
     enclosing_types = frozenset(name for _, name in state.type_scopes)
     if language == "csharp":
@@ -228,53 +239,60 @@ def track_signature(
     if language == "swift":
         track_swift_signature(state, clean, line_number)
         return
-    allow_method_fallback = language in {"javascript", "typescript"} and bool(state.method_scopes)
+    if language in {"javascript", "typescript"}:
+        javascript_tracking.track_javascript_signature(state, clean, line_number, language, raw)
+        return
     if language == "objective_c" and track_objective_c_signature(state, clean, line_number):
         return
-    detected = detect_brace_function(
+    detected = signatures.detect_brace_function(
         clean.strip(),
         language,
         enclosing_types,
-        allow_method_fallback,
+        False,
     )
     if detected:
         php_arrow = language == "php" and re.search(r"\bfn\s*\(", clean)
-        arrow = bool(php_arrow) or bool(
-            language in {"javascript", "typescript"}
-            and detected != "<anonymous>"
-            and "=>" not in clean
-            and "function" not in clean
-            and re.search(r"\b(?:const|let|var)\s+\w+\s*=", clean)
-            and not re.search(r"=\s*\{", clean)
-        )
+        arrow = bool(php_arrow)
         state.pending_signature = [clean]
-        params = count_params_in_signature(clean, detected, language)
+        params = signatures.count_params_in_signature(clean, detected, language)
         state.pending = (detected, line_number, params, arrow)
     elif state.pending:
         state.pending_signature.append(clean)
         signature = "\n".join(state.pending_signature)
-        params = count_params_in_signature(signature, state.pending[0], language)
+        params = signatures.count_params_in_signature(signature, state.pending[0], language)
         state.pending = (*state.pending[:2], params, state.pending[3])
 
 
-def close_functions(state: FunctionScanState, line_number: int) -> None:
-    while state.active and state.brace_depth <= state.active[-1].parent_depth:
-        block = state.active.pop()
-        length = line_number - block.start_line + 1
-        state.results.append((block.name, block.start_line, length, block.param_count))
-
-
-def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
+def brace_function_lengths(text: str, language: str) -> list[tuple[str, int, int, int]]:
     state = FunctionScanState()
-    for line_number, (_, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
-        track_declaration_context(state, clean, language)
-        track_signature(state, clean, line_number, language)
-        opens, closes = clean.count("{"), clean.count("}")
-        finish_pending_line(state, clean.strip(), line_number, language, (opens, closes))
-        state.brace_depth = max(0, state.brace_depth + opens - closes)
-        close_functions(state, line_number)
+    for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
+        fragments = javascript_tracking.javascript_fragments_for_line(clean, language, state.method_scopes)
+        raw_fragments = (
+            javascript_tracking.javascript_fragments_for_line(raw, language, state.method_scopes)
+            if raw != clean and language in {"javascript", "typescript"}
+            else fragments
+        )
+        fragment_search_start = 0
+        for index, fragment in enumerate(fragments):
+            state.current_source_column = max(0, clean.find(fragment, fragment_search_start))
+            fragment_search_start = state.current_source_column + len(fragment)
+            track_declaration_context(state, fragment, language)
+            opens, closes = signatures.source_brace_counts(fragment, language, state.javascript_candidate)
+            track_signature(
+                state,
+                fragment,
+                line_number,
+                language,
+                raw_fragments[index] if len(raw_fragments) == len(fragments) else fragment,
+            )
+            finish_pending_line(state, fragment.strip(), line_number, language, (opens, closes))
+            state.brace_depth = max(0, state.brace_depth + opens - closes)
+            close_functions(state, line_number)
+    if language in {"javascript", "typescript"}:
+        javascript_ordering.order_javascript_results(state.results, state.result_positions)
     line_count = len(text.splitlines())
     for block in reversed(state.active):
         length = line_count - block.start_line + 1
         state.results.append((block.name, block.start_line, length, block.param_count))
+        state.result_positions.append((block.start_line, state.active_columns.pop(id(block), 0)))
     return state.results
