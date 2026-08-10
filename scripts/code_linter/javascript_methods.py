@@ -20,7 +20,10 @@ TYPESCRIPT_METHOD_MODIFIERS = JAVASCRIPT_METHOD_MODIFIERS | {
     "readonly",
 }
 
-_METHOD_NAME = r"(?:#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]]+\])"
+_METHOD_NAME = (
+    r"(?:#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]]+\]"
+    r"|'(?:\\.|[^'])*'|\"(?:\\.|[^\"])*\"|[0-9]+(?:\.[0-9]+)?)"
+)
 _METHOD_PATTERN = re.compile(
     r"^(?P<prefix>(?:(?:[A-Za-z_$][A-Za-z0-9_$]*|\*)\s+)*?)"
     r"(?P<generator>\*)?\s*(?P<name>" + _METHOD_NAME + r")"
@@ -96,8 +99,7 @@ def is_typescript_method_declaration(signature: str, name: str, allow_bare: bool
         return False
     if method_name(signature, typescript=True) != name:
         return False
-    name_start = signature.find(name)
-    opening = signature.find("(", max(0, name_start))
+    opening = method_parameter_opening(signature, name)
     close = matching_parenthesis(signature, opening)
     if close < 0:
         return False
@@ -125,9 +127,25 @@ def matching_parenthesis(signature: str, opening: int) -> int:
     return -1
 
 
+def method_parameter_opening(signature: str, name: str) -> int:
+    start = signature.find(name)
+    if start < 0:
+        return -1
+    if name.startswith("["):
+        depth = 0
+        for index in range(start, len(signature)):
+            if signature[index] == "[":
+                depth += 1
+            elif signature[index] == "]":
+                depth -= 1
+                if depth == 0:
+                    return signature.find("(", index + 1)
+        return -1
+    return signature.find("(", start + len(name))
+
+
 def has_complete_method_header(signature: str, name: str) -> bool:
-    name_start = signature.find(name)
-    opening = signature.find("(", max(0, name_start))
+    opening = method_parameter_opening(signature, name)
     if opening < 0:
         return False
     depth = 0
@@ -152,8 +170,7 @@ def has_complete_method_header(signature: str, name: str) -> bool:
 
 
 def has_method_body_brace(signature: str, name: str) -> bool:
-    name_start = signature.find(name)
-    opening = signature.find("(", max(0, name_start))
+    opening = method_parameter_opening(signature, name)
     if opening < 0:
         return False
     depth = 0

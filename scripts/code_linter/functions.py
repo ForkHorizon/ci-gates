@@ -232,6 +232,7 @@ def track_signature(
     clean: str,
     line_number: int,
     language: str,
+    raw: str | None = None,
 ) -> None:
     enclosing_types = frozenset(name for _, name in state.type_scopes)
     if language == "csharp":
@@ -241,7 +242,7 @@ def track_signature(
         track_swift_signature(state, clean, line_number)
         return
     if language in {"javascript", "typescript"}:
-        track_javascript_signature(state, clean, line_number, language)
+        track_javascript_signature(state, clean, line_number, language, raw)
         return
     if language == "objective_c" and track_objective_c_signature(state, clean, line_number):
         return
@@ -273,9 +274,9 @@ def close_functions(state: FunctionScanState, line_number: int) -> None:
 
 def brace_function_lengths(text: str, language: str) -> list[FunctionResult]:
     state = FunctionScanState()
-    for line_number, (_, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
+    for line_number, (raw, clean, _) in enumerate(scan_c_style_lines(text, language), start=1):
         track_declaration_context(state, clean, language)
-        track_signature(state, clean, line_number, language)
+        track_signature(state, clean, line_number, language, raw)
         opens, closes = clean.count("{"), clean.count("}")
         finish_pending_line(state, clean.strip(), line_number, language, (opens, closes))
         state.brace_depth = max(0, state.brace_depth + opens - closes)

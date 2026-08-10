@@ -71,7 +71,7 @@ def parameter_start(signature: str, name: str | None, language: str) -> tuple[in
         operator_start = cpp_operator_parameter_start(signature, name)
         if operator_start >= 0:
             return operator_start, 0
-    if name and re.search(r"(?:\[[^\]]+\]|#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*)$", name):
+    if name and name != "<anonymous>":
         field_arrow = re.search(
             re.escape(name)
             + r"\s*=\s*(?:async\s+)?(?:\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)"

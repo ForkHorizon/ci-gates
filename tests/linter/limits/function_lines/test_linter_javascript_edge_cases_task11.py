@@ -136,6 +136,33 @@ interface Contract
 """
         self.assertEqual(self.lengths(source), [("run", 2, 1, 2)])
 
+    def test_computed_method_expression_with_call_is_measured(self):
+        source = "class Worker { [factory()](first, second, third) { return first; } }\n"
+        self.assertEqual(self.lengths(source, "javascript"), [("[factory()]", 1, 1, 3)])
+
+    def test_array_destructured_parameter_continuation_is_preserved(self):
+        source = """class Worker {
+  run(
+    [first, second],
+    third
+  ) {
+    return first + third;
+  }
+}
+"""
+        self.assertEqual(self.lengths(source, "javascript"), [("run", 2, 6, 2)])
+
+    def test_literal_method_names_are_measured(self):
+        source = """class Worker {
+  "run"(first, second, third) { return first; }
+  1(a, b, c) { return a; }
+}
+"""
+        self.assertEqual(
+            self.lengths(source, "javascript"),
+            [('"run"', 2, 1, 3), ("1", 3, 1, 3)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -48,9 +48,11 @@ def javascript_header_candidate(line: str) -> bool:
     )
 
 
-def javascript_new_method_start(line: str) -> bool:
+def javascript_new_method_start(line: str, signature: str = "") -> bool:
     stripped = line.strip()
     if not stripped or any(mark in stripped for mark in (";", "=", "{")):
+        return False
+    if stripped.startswith("[") and signature.count("(") > signature.count(")"):
         return False
     return bool(
         re.match(
@@ -71,7 +73,7 @@ def javascript_header_complete(signature: str, language: str) -> bool:
 def continue_pending_javascript(state: FunctionScanState, clean: str, language: str) -> bool:
     if not state.pending:
         return False
-    if javascript_new_method_start(clean):
+    if javascript_new_method_start(clean, "\n".join(state.pending_signature)):
         state.pending = None
         state.pending_signature = []
         return False
@@ -82,7 +84,40 @@ def continue_pending_javascript(state: FunctionScanState, clean: str, language: 
     return True
 
 
-def track_javascript_signature(state: FunctionScanState, clean: str, line_number: int, language: str) -> None:
+def javascript_detection_line(
+    clean: str,
+    raw: str | None,
+    language: str,
+    enclosing_types: frozenset[str],
+    allow_method_fallback: bool,
+) -> str:
+    if raw and raw != clean:
+        detected = detect_brace_function(raw.strip(), language, enclosing_types, allow_method_fallback)
+        if detected and (detected[0] in "'\"" or detected[0].isdigit()):
+            return raw
+    return clean
+
+
+def javascript_arrow_method(detected: str, clean: str) -> bool:
+    return bool(
+        (detected != "<anonymous>" and "=>" in clean)
+        or (
+            detected != "<anonymous>"
+            and "=>" not in clean
+            and "function" not in clean
+            and re.search(r"\b(?:const|let|var)\s+\w+\s*=", clean)
+            and not re.search(r"=\s*\{", clean)
+        )
+    )
+
+
+def track_javascript_signature(
+    state: FunctionScanState,
+    clean: str,
+    line_number: int,
+    language: str,
+    raw: str | None = None,
+) -> None:
     enclosing_types = frozenset(name for _, name in state.type_scopes)
     allow_method_fallback = bool(state.method_scopes)
     if continue_pending_javascript(state, clean, language):
@@ -104,20 +139,12 @@ def track_javascript_signature(state: FunctionScanState, clean: str, line_number
         elif "{" in clean or ";" in clean or "}" in clean or not javascript_header_candidate(clean):
             clear_javascript_candidate(state)
         return
-    detected = detect_brace_function(clean.strip(), language, enclosing_types, allow_method_fallback)
+    detection_line = javascript_detection_line(clean, raw, language, enclosing_types, allow_method_fallback)
+    detected = detect_brace_function(detection_line.strip(), language, enclosing_types, allow_method_fallback)
     if detected:
-        arrow = bool(
-            (detected != "<anonymous>" and "=>" in clean)
-            or (
-                detected != "<anonymous>"
-                and "=>" not in clean
-                and "function" not in clean
-                and re.search(r"\b(?:const|let|var)\s+\w+\s*=", clean)
-                and not re.search(r"=\s*\{", clean)
-            )
-        )
-        state.pending_signature = [clean]
-        params = count_params_in_signature(clean, detected, language)
+        arrow = javascript_arrow_method(detected, clean)
+        state.pending_signature = [detection_line]
+        params = count_params_in_signature(detection_line, detected, language)
         state.pending = (detected, line_number, params, arrow)
     elif state.pending:
         state.pending_signature.append(clean)
