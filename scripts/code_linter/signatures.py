@@ -12,6 +12,7 @@ from .literals import strip_strings
 from .objective_c import objective_c_parameter_count, objective_c_selector
 from .php_signatures import detect_php, php_parameter_start
 from .swift_syntax import detect_swift
+from .javascript_methods import detect_javascript, detect_typescript
 
 
 def _javascript_parameter_start(signature: str) -> tuple[int, int]:
@@ -70,9 +71,15 @@ def parameter_start(signature: str, name: str | None, language: str) -> tuple[in
         operator_start = cpp_operator_parameter_start(signature, name)
         if operator_start >= 0:
             return operator_start, 0
-    if name and name.isidentifier():
+    if name and re.search(r"(?:\[[^\]]+\]|#[A-Za-z_$][A-Za-z0-9_$]*|[A-Za-z_$][A-Za-z0-9_$]*)$", name):
+        field_arrow = re.search(
+            re.escape(name) + r"\s*=\s*(?:async\s+)?(?:\([^()]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>",
+            signature,
+        )
+        if field_arrow:
+            return signature.find("(", field_arrow.start()), 0
         anchored = re.search(
-            r"\b" + re.escape(name) + r"\b\s*(?:<[^<>]*>|\[[^\[\]]*\])?\s*\(",
+            re.escape(name) + r"\s*(?:<[^<>]*>|\[[^\[\]]*\])?\s*\(",
             signature,
         )
         if anchored:
@@ -161,43 +168,6 @@ def detect_go(line: str) -> str | None:
     if match and match.group(1) not in CONTROL_WORDS:
         return match.group(1)
     return "<anonymous>" if re.search(r"\bfunc\s*\(", line) else None
-
-
-def detect_javascript(line: str, allow_method_fallback: bool = False) -> str | None:
-    patterns = (
-        r"\bfunction\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*<[^>]+>)?\s*\(",
-        r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=.*=>",
-        r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?\(?\s*$",
-        r"(?:static\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?.*=>",
-        r"(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?\*?\s*"
-        r"([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{?",
-    )
-    for index, pattern in enumerate(patterns[:4]):
-        match = re.search(pattern, line) if index < 3 else re.match(pattern, line)
-        if match and match.group(1) not in CONTROL_WORDS:
-            return match.group(1)
-    object_method = re.search(
-        r"\{\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?\*?\s*"
-        r"([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{",
-        line,
-    )
-    if object_method and object_method.group(1) not in CONTROL_WORDS:
-        return object_method.group(1)
-    if allow_method_fallback:
-        method = re.match(patterns[4], line)
-        if method and method.group(1) not in CONTROL_WORDS:
-            return method.group(1)
-    function_expression = re.search(
-        r"\b(?:async\s+)?function\s*\*?\s*(?:<[^(){}]*>)?\s*\(",
-        line,
-    )
-    if function_expression:
-        return "<anonymous>"
-    anonymous = re.search(
-        r"(?:\([^()]*(?:\([^()]*\)[^()]*)*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>",
-        line,
-    )
-    return "<anonymous>" if anonymous else None
 
 
 def _matching_open_paren(signature: str, close: int) -> int:
@@ -292,5 +262,5 @@ BRACE_FUNCTION_DETECTORS = {
     "rust": detect_rust,
     "scala": detect_c_family,
     "swift": detect_swift,
-    "typescript": detect_javascript,
+    "typescript": detect_typescript,
 }

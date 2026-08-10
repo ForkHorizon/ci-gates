@@ -5,6 +5,10 @@ from typing import TYPE_CHECKING
 
 from .cpp_operators import cpp_operator_signature_complete
 from .cpp_destructors import cpp_destructor_has_body, cpp_destructor_signature_complete
+from .javascript_methods import (
+    is_typescript_method_declaration,
+    should_reject_incomplete_method,
+)
 from .model import FunctionBlock
 from .signatures import pending_body_braces
 
@@ -40,6 +44,35 @@ def reject_incomplete_cpp_special(
     return False
 
 
+def finish_expression_body(
+    state: FunctionScanState,
+    stripped: str,
+    name: str,
+    start: int,
+    params: int,
+) -> None:
+    incomplete = stripped.endswith(",") or (len(state.pending_signature) > 1 and not stripped.endswith(";"))
+    if not incomplete:
+        state.results.append((name, start, 1, params))
+        clear_pending(state)
+
+
+def finish_declaration(
+    state: FunctionScanState,
+    signature: str,
+    context: tuple[str, int, int, int, str],
+) -> None:
+    name, start, params, line_number, language = context
+    declaration = bool(
+        (language in {"csharp", "java"} and re.search(r"\b(?:abstract|extern|native)\b", signature))
+        or (language == "typescript" and re.search(r"\bdeclare\s+function\b", signature))
+        or (language == "typescript" and is_typescript_method_declaration(signature, name))
+    )
+    if declaration:
+        state.results.append((name, start, line_number - start + 1, params))
+    clear_pending(state)
+
+
 def finish_pending_line(
     state: FunctionScanState,
     stripped: str,
@@ -54,6 +87,9 @@ def finish_pending_line(
     name, start, params, _ = state.pending
     if reject_incomplete_cpp_special(state, signature, name, stripped, (language, braces)):
         return
+    if should_reject_incomplete_method(language, state.pending[3], name, signature, braces):
+        clear_pending(state)
+        return
     (opens, closes), waiting_for_function_body = pending_body_braces(signature, name, language, braces)
     if confirmed and opens:
         state.active.append(FunctionBlock(name, start, state.brace_depth, params))
@@ -66,20 +102,9 @@ def finish_pending_line(
         and (language != "csharp" or ";" in signature)
         and ("=" in stripped or "=>" in stripped)
     ):
-        # Expression-bodied anonymous functions are intentionally one line;
-        # call-like blocks are not classified as functions here.
-        incomplete = stripped.endswith(",") or (len(state.pending_signature) > 1 and not stripped.endswith(";"))
-        if not incomplete:
-            state.results.append((name, start, 1, params))
-            clear_pending(state)
+        finish_expression_body(state, stripped, name, start, params)
     elif stripped.endswith(";"):
-        declaration = bool(
-            (language in {"csharp", "java"} and re.search(r"\b(?:abstract|extern|native)\b", signature))
-            or (language == "typescript" and re.search(r"\bdeclare\s+function\b", signature))
-        )
-        if declaration:
-            state.results.append((name, start, line_number - start + 1, params))
-        clear_pending(state)
+        finish_declaration(state, signature, (name, start, params, line_number, language))
     elif closes and not opens and (language != "csharp" or signature.count("(") == signature.count(")")):
         state.results.append((name, start, max(1, line_number - start), params))
         clear_pending(state)

@@ -10,6 +10,7 @@ from .ruby import ruby_function_lengths
 from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
 from .objective_c import objective_c_method_start, objective_c_selector
+from .javascript_tracking import track_javascript_signature
 from .signatures import (
     count_params_in_signature,
     csharp_lambda_match,
@@ -228,25 +229,20 @@ def track_signature(
     if language == "swift":
         track_swift_signature(state, clean, line_number)
         return
-    allow_method_fallback = language in {"javascript", "typescript"} and bool(state.method_scopes)
+    if language in {"javascript", "typescript"}:
+        track_javascript_signature(state, clean, line_number, language)
+        return
     if language == "objective_c" and track_objective_c_signature(state, clean, line_number):
         return
     detected = detect_brace_function(
         clean.strip(),
         language,
         enclosing_types,
-        allow_method_fallback,
+        False,
     )
     if detected:
         php_arrow = language == "php" and re.search(r"\bfn\s*\(", clean)
-        arrow = bool(php_arrow) or bool(
-            language in {"javascript", "typescript"}
-            and detected != "<anonymous>"
-            and "=>" not in clean
-            and "function" not in clean
-            and re.search(r"\b(?:const|let|var)\s+\w+\s*=", clean)
-            and not re.search(r"=\s*\{", clean)
-        )
+        arrow = bool(php_arrow)
         state.pending_signature = [clean]
         params = count_params_in_signature(clean, detected, language)
         state.pending = (detected, line_number, params, arrow)
