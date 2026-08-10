@@ -120,6 +120,52 @@ class ModernJavaScriptAdversarialTests(unittest.TestCase):
             [("c", 1, 1, 3), ("d", 1, 1, 3)],
         )
 
+    def test_outer_function_survives_return_and_call_object_methods(self):
+        self.assertEqual(
+            self.lengths("function outer(){ return { run(a,b,c) {} }; }\n", "javascript"),
+            [("outer", 1, 1, 0), ("run", 1, 1, 3)],
+        )
+        self.assertEqual(
+            self.lengths("function outer(){ consume({ run(a,b,c) {} }); return 1; }\n", "javascript"),
+            [("outer", 1, 1, 0), ("run", 1, 1, 3)],
+        )
+
+    def test_multiline_object_default_and_generic_arrow_fields_are_measured(self):
+        default = """class X {
+  run = (a = {
+    x: 1
+  }, b, c) => a;
+}
+"""
+        generic = """class X {
+  run = <T extends {
+    x: number
+  }>(a, b, c) => a;
+}
+"""
+        self.assertEqual(self.lengths(default), [("run", 2, 1, 3)])
+        self.assertEqual(self.lengths(generic), [("run", 2, 1, 3)])
+
+    def test_quoted_nested_methods_keep_parameter_metadata(self):
+        self.assertEqual(
+            self.lengths('export default (({ "run"(a,b,c) {} }));\n', "javascript"),
+            [('"run"', 1, 1, 3)],
+        )
+        self.assertEqual(
+            self.lengths('call({ "run"(a,b,c) {} });\n', "javascript"),
+            [('"run"', 1, 1, 3)],
+        )
+
+    def test_typescript_object_return_annotation_does_not_close_early(self):
+        source = """class X {
+  run(a,b): { value: {x:number} }
+  {
+    work();
+  }
+}
+"""
+        self.assertEqual(self.lengths(source), [("run", 2, 4, 2)])
+
 
 if __name__ == "__main__":
     unittest.main()

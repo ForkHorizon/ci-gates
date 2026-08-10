@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from .javascript_methods import detect_javascript_method
 from .signatures import count_params_in_signature, detect_brace_function
 
 
@@ -11,8 +12,11 @@ if TYPE_CHECKING:
 
 
 def clear_javascript_candidate(state: FunctionScanState) -> None:
-    state.javascript_candidate = []
-    state.javascript_candidate_start = 0
+    state.javascript_candidate, state.javascript_candidate_start = [], 0
+
+
+def javascript_method_body_header(text: str) -> bool:
+    return bool(detect_javascript_method(text.rsplit("{", 1)[-1], True))
 
 
 def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> list[str]:
@@ -26,19 +30,21 @@ def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> l
     if not allow_continuation and not re.search(
         r"\bclass\b|\binterface\b|\bexport\s+default\b|\bmodule\.exports\b|"
         r"\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\{|"
-        r"\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*\{",
+        r"\breturn\s*\{|\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*(?:\(\s*)*\{",
         clean,
     ):
         return [clean]
     opening = clean.find("{")
     if opening < 0:
         return [clean]
-    fragments, start, depth, body_depth = [], 0, 1, 0
+    initial_function = re.search(r"\bfunction\s*\*?\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\([^{}]*\)\s*$", clean[:opening])
+    fragments = [clean[: opening + 1]] if initial_function else []
+    start, depth, body_depth = (opening + 1 if initial_function else 0), 1, 0
     for index in range(opening + 1, len(clean)):
         char = clean[index]
         if char == "{":
             previous = clean[:index].rstrip()[-1:]
-            if depth == 1 and previous in {")", "]"}:
+            if previous in {")", "]"} and (depth == 1 or javascript_method_body_header(clean[start:index])):
                 body_depth = depth + 1
             depth += 1
         elif char == "}":
@@ -59,7 +65,9 @@ def javascript_line_fragments(clean: str, allow_continuation: bool = False) -> l
 
 def javascript_fragments_for_line(clean: str, language: str, method_scopes: list[int]) -> list[str]:
     return (
-        javascript_line_fragments(clean, bool(method_scopes)) if language in {"javascript", "typescript"} else [clean]
+        [clean]
+        if language not in {"javascript", "typescript"}
+        else javascript_line_fragments(clean, bool(method_scopes))
     )
 
 
@@ -98,10 +106,18 @@ def track_split_type_context(state: FunctionScanState, clean: str) -> None:
 
 def javascript_header_candidate(line: str) -> bool:
     stripped = line.strip()
-    if not stripped or any(mark in stripped for mark in (";", "{")):
+    if not stripped or ";" in stripped:
+        return False
+    field_start = re.match(
+        r"^(?:(?:async|static|abstract|declare|override|public|private|protected|readonly)\s+)*"
+        r"#?[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\(|<)",
+        stripped,
+    )
+    if "{" in stripped and not field_start:
         return False
     if "=" in stripped and not re.match(
-        r"^(?:(?:async|static|abstract|declare|override|public|private|protected|readonly)\s+)*#?[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*\(",
+        r"^(?:(?:async|static|abstract|declare|override|public|private|protected|readonly)\s+)*"
+        r"#?[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*(?:\(|<)",
         stripped,
     ):
         return False
@@ -112,6 +128,7 @@ def javascript_header_candidate(line: str) -> bool:
             stripped,
         )
         or stripped.endswith("<")
+        or field_start
     )
 
 
@@ -119,6 +136,8 @@ def javascript_candidate_continues(candidate: list[str], clean: str) -> bool:
     stripped = clean.strip()
     if not stripped or ";" in stripped:
         return False
+    if "{" in " ".join(candidate) and "}" not in " ".join(candidate):
+        return True
     if "=" in stripped and "=>" not in stripped:
         return False
     text = " ".join(candidate).lstrip()
@@ -147,12 +166,6 @@ def javascript_new_method_start(line: str, signature: str = "") -> bool:
     return method_start
 
 
-def javascript_header_complete(signature: str, language: str) -> bool:
-    if "{" in signature:
-        return True
-    return language == "typescript" and ":" in signature and signature.rstrip().endswith(";")
-
-
 def continue_pending_javascript(state: FunctionScanState, clean: str, language: str) -> bool:
     if not state.pending:
         return False
@@ -177,7 +190,11 @@ def javascript_detection_line(
     source = clean
     if raw and raw != clean:
         raw_detected = detect_brace_function(raw.strip(), language, enclosing_types, allow_method_fallback)
-        if raw_detected and (raw_detected[0] in "'\"." or raw_detected[0].isdigit()):
+        raw_tail = raw[raw.find("{") + 1 :].lstrip() if "{" in raw else ""
+        raw_tail_detected = detect_brace_function(raw_tail, language, enclosing_types, allow_method_fallback)
+        if (raw_detected and (raw_detected[0] in "'\"." or raw_detected[0].isdigit())) or (
+            raw_tail_detected and raw_tail_detected[0] in "'\"."
+        ):
             source = raw
     detected = detect_brace_function(source.strip(), language, enclosing_types, allow_method_fallback)
     if detected and (detected[0] in "'\"." or detected[0].isdigit()):
@@ -238,7 +255,7 @@ def track_javascript_signature(
     raw: str | None = None,
 ) -> None:
     enclosing_types = frozenset(name for _, name in state.type_scopes)
-    allow_method_fallback = bool(state.method_scopes)
+    allow_method_fallback = bool(state.method_scopes or state.active)
     if ";" in clean:
         prefix, tail = (part.strip() for part in clean.split(";", 1))
         if (
@@ -253,7 +270,9 @@ def track_javascript_signature(
         state.javascript_candidate.append(clean)
         candidate = "\n".join(state.javascript_candidate)
         detected = detect_brace_function(candidate, language, enclosing_types, allow_method_fallback)
-        if detected and javascript_header_complete(candidate, language):
+        if detected and (
+            "{" in candidate or (language == "typescript" and ":" in candidate and candidate.rstrip().endswith(";"))
+        ):
             state.pending_signature = candidate.splitlines()
             params = count_params_in_signature(candidate, detected, language)
             state.pending = (detected, state.javascript_candidate_start, params, False)

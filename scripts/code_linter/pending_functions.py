@@ -11,10 +11,49 @@ from .javascript_methods import (
     should_reject_incomplete_method,
 )
 from .model import FunctionBlock
-from .signatures import pending_body_braces
+from .signatures import matching_paren, parameter_start
 
 if TYPE_CHECKING:
     from .functions import FunctionScanState
+
+
+def pending_body_braces(
+    signature: str,
+    name: str,
+    language: str,
+    braces: tuple[int, int],
+) -> tuple[tuple[int, int], bool]:
+    waiting = (
+        name == "<anonymous>"
+        and language in {"javascript", "typescript", "php"}
+        and re.search(r"\bfunction\b", signature)
+    )
+    if waiting:
+        parameter_index, _ = parameter_start(signature, name, language)
+        parameter_end = matching_paren(signature, parameter_index)
+        if parameter_end < 0:
+            return (0, 0), True
+        body = signature[parameter_end + 1 :]
+        return (body.count("{"), body.count("}")), True
+    if language not in {"javascript", "typescript"} or name == "<anonymous>":
+        return braces, False
+    parameter_index, _ = parameter_start(signature, name, language)
+    parameter_end = matching_paren(signature, parameter_index)
+    if parameter_end < 0:
+        return (0, 0), False
+    body = signature[parameter_end + 1 :]
+    if body.lstrip().startswith(":"):
+        annotation = body.lstrip()[1:].lstrip()
+        if annotation.startswith("{"):
+            depth = 0
+            close = -1
+            for index, char in enumerate(annotation):
+                depth += (char == "{") - (char == "}")
+                if depth == 0:
+                    close = index
+                    break
+            body = annotation[close + 1 :] if close >= 0 else ""
+    return (body.count("{"), body.count("}")), False
 
 
 def clear_pending(state: FunctionScanState) -> None:

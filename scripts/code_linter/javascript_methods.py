@@ -250,9 +250,6 @@ def should_reject_incomplete_method(
 
 
 def detect_javascript(line: str, allow_method_fallback: bool = False) -> str | None:
-    modern_method = detect_javascript_method(line, allow_method_fallback)
-    if modern_method:
-        return modern_method
     patterns = (
         r"\bfunction\s*\*?\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*<[^>]+>)?\s*\(",
         r"\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=.*=>",
@@ -262,6 +259,10 @@ def detect_javascript(line: str, allow_method_fallback: bool = False) -> str | N
         r"([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{?",
     )
     for index, pattern in enumerate(patterns[:4]):
+        if index == 1:
+            modern_method = detect_javascript_method(line, allow_method_fallback)
+            if modern_method:
+                return modern_method
         match = re.search(pattern, line) if index < 3 else re.match(pattern, line)
         if match and match.group(1) not in CONTROL_WORDS:
             return match.group(1)

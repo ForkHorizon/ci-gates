@@ -130,6 +130,9 @@ def top_level_parameter_count(parameters: str) -> int:
 
 def count_params_in_signature(signature_line: str, name: str | None = None, language: str = "") -> int:
     signature = strip_strings(signature_line, language)
+    if name and name[:1] in {"'", '"'} and name in signature_line:
+        start = signature_line.find(name)
+        signature = signature[:start] + name + signature[start + len(name) :]
     if language == "objective_c" and objective_c_selector(signature) is not None:
         return objective_c_parameter_count(signature)
     start, bare_count = parameter_start(signature, name, language)
@@ -139,34 +142,6 @@ def count_params_in_signature(signature_line: str, name: str | None = None, lang
     if end <= start:
         return 0
     return top_level_parameter_count(signature[start + 1 : end])
-
-
-def pending_body_braces(
-    signature: str,
-    name: str,
-    language: str,
-    braces: tuple[int, int],
-) -> tuple[tuple[int, int], bool]:
-    waiting = (
-        name == "<anonymous>"
-        and language in {"javascript", "typescript", "php"}
-        and re.search(r"\bfunction\b", signature)
-    )
-    if not waiting:
-        if language in {"javascript", "typescript"} and name != "<anonymous>":
-            parameter_index, _ = parameter_start(signature, name, language)
-            parameter_end = matching_paren(signature, parameter_index)
-            if parameter_end >= 0:
-                body = signature[parameter_end + 1 :]
-                return (body.count("{"), body.count("}")), False
-            return (0, 0), False
-        return braces, False
-    parameter_index, _ = parameter_start(signature, name, language)
-    parameter_end = matching_paren(signature, parameter_index)
-    if parameter_end < 0:
-        return (0, 0), True
-    body = signature[parameter_end + 1 :]
-    return (body.count("{"), body.count("}")), True
 
 
 def detect_kotlin(line: str) -> str | None:
