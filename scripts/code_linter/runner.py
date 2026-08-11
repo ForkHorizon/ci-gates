@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from importlib import import_module
 import os
 import stat
 from collections.abc import Iterable, Sequence
 from pathlib import Path
-
-from _progress import progress
 
 from .config import (
     LIMIT_DEFAULTS,
@@ -25,6 +24,11 @@ from .paths import collect_path_inventory, matches_ignore_pattern, to_relative
 from .source_validation import decode_source as _decode_source
 from .structure import check_comment_blocks, check_types_per_file
 from .syntax import check_syntax
+
+
+def progress(*args, **kwargs):
+    """Emit progress only after the package has finished initializing."""
+    import_module("_progress").progress(*args, **kwargs)
 
 
 def main(argv: Sequence[str]) -> int:
