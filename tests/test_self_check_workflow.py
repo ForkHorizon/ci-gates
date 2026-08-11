@@ -177,8 +177,8 @@ class SelfCheckWorkflowTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 15", workflow)
         self.assertIn("coverage-mode:", workflow)
         self.assertIn("COVERAGE_MODE: ${{ inputs['coverage-mode'] }}", workflow)
-        self.assertIn('coverage_args+=(--coverage-mode "$COVERAGE_MODE")', workflow)
-        self.assertIn('--coverage-mode "$COVERAGE_MODE"', workflow)
+        self.assertIn('set -- "$@" --coverage-mode "$COVERAGE_MODE"', workflow)
+        self.assertNotIn("coverage_args=()", workflow)
 
 
 if __name__ == "__main__":
