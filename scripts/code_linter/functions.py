@@ -12,6 +12,7 @@ from .scanner import scan_c_style_lines
 from .objective_c import clear_objective_c_candidate, objective_c_method_start, objective_c_selector
 from . import javascript_ordering, javascript_tracking, signatures
 from .swift_closures import track_swift_signature
+from .swift_syntax import swift_type_declaration_kind
 
 
 @dataclass
@@ -29,6 +30,7 @@ class FunctionScanState:
     swift_candidate_start: int = 0
     swift_candidate_parent_depth: int = 0
     swift_candidate_open: bool = False
+    swift_type_scopes: list[tuple[int, str]] = field(default_factory=list)
     objective_c_candidate: list[str] = field(default_factory=list)
     objective_c_candidate_start: int = 0
     javascript_candidate: list[str] = field(default_factory=list)
@@ -79,6 +81,7 @@ def clear_csharp_candidate(state: FunctionScanState) -> None:
 
 def track_declaration_context(state: FunctionScanState, clean: str, language: str) -> None:
     state.type_scopes = [scope for scope in state.type_scopes if scope[0] <= state.brace_depth]
+    state.swift_type_scopes = [scope for scope in state.swift_type_scopes if scope[0] <= state.brace_depth]
     state.method_scopes = [depth for depth in state.method_scopes if depth <= state.brace_depth]
     state.javascript_declaration_scopes = [
         depth for depth in state.javascript_declaration_scopes if depth <= state.brace_depth
@@ -115,6 +118,11 @@ def track_declaration_context(state: FunctionScanState, clean: str, language: st
                 re.search(r"\bdeclare\b", clean) and "class" in scope_match.group()
             ):
                 state.javascript_declaration_scopes.append(depth)
+    if language == "swift":
+        kind = swift_type_declaration_kind(clean)
+        opening = clean.find("{")
+        if kind and opening >= 0:
+            state.swift_type_scopes.append((state.brace_depth + 1, kind))
 
 
 def set_pending_signature(

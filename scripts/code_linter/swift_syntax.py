@@ -3,7 +3,23 @@ from __future__ import annotations
 import re
 
 
+SWIFT_TYPE_DECLARATION = re.compile(
+    r"^(?:(?:@\w+(?:\([^{}]*\))?|"
+    r"(?:public|private|fileprivate|internal|open|final|indirect|nonisolated)\s+))*"
+    r"(class|struct|enum|protocol|extension|actor)\b"
+)
+
+
+def swift_type_declaration_kind(line: str) -> str | None:
+    match = SWIFT_TYPE_DECLARATION.match(line.strip())
+    return match.group(1) if match else None
+
+
 def detect_swift(line: str) -> str | None:
+    type_kind = swift_type_declaration_kind(line)
+    if type_kind:
+        opening = line.find("{")
+        line = line[opening + 1 :] if opening >= 0 else ""
     match = re.search(
         r"\bfunc\s+(?:`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*)|([^\s<(]+))",
         line,
