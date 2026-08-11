@@ -21,6 +21,15 @@ from _progress import progress
 
 
 class GithubAnnotationSafetyTests(unittest.TestCase):
+    def test_swift_compile_gate_imports_without_a_circular_progress_dependency(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS_DIR / "swift-compile-gate.py"), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_command_formatter_escapes_every_property_and_data_field(self):
         command = format_github_command(
             "error",
