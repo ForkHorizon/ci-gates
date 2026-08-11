@@ -11,6 +11,7 @@ from .shell import shell_function_lengths
 from .scanner import scan_c_style_lines
 from .objective_c import clear_objective_c_candidate, objective_c_method_start, objective_c_selector
 from . import javascript_ordering, javascript_tracking, signatures
+from .declaration_context import track_declaration_context
 from .swift_closures import track_swift_signature
 
 
@@ -29,6 +30,7 @@ class FunctionScanState:
     swift_candidate_start: int = 0
     swift_candidate_parent_depth: int = 0
     swift_candidate_open: bool = False
+    swift_type_scopes: list[tuple[int, str]] = field(default_factory=list)
     objective_c_candidate: list[str] = field(default_factory=list)
     objective_c_candidate_start: int = 0
     javascript_candidate: list[str] = field(default_factory=list)
@@ -75,46 +77,6 @@ def python_function_lengths(text: str) -> list[tuple[str, int, int, int]]:
 def clear_csharp_candidate(state: FunctionScanState) -> None:
     state.csharp_candidate = []
     state.csharp_candidate_start = 0
-
-
-def track_declaration_context(state: FunctionScanState, clean: str, language: str) -> None:
-    state.type_scopes = [scope for scope in state.type_scopes if scope[0] <= state.brace_depth]
-    state.method_scopes = [depth for depth in state.method_scopes if depth <= state.brace_depth]
-    state.javascript_declaration_scopes = [
-        depth for depth in state.javascript_declaration_scopes if depth <= state.brace_depth
-    ]
-    if language in {
-        "c",
-        "cpp",
-        "csharp",
-        "java",
-        "dart",
-        "groovy",
-        "objective_c",
-        "scala",
-    }:
-        type_pattern = r"\b(?:class|struct|interface|record)\s+([A-Za-z_][A-Za-z0-9_]*)[^{}]*\{"
-        for match in re.finditer(type_pattern, clean):
-            depth = state.brace_depth + clean[: match.end()].count("{")
-            state.type_scopes.append((depth, match.group(1)))
-    if language in {"javascript", "typescript"}:
-        javascript_tracking.track_split_type_context(state, clean)
-        class_pattern = r"\b(?:class|interface)(?:\s+[A-Za-z_$][A-Za-z0-9_$]*)?[^{}]*\{"
-        object_pattern = r"(?:\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)\{"
-        scope_matches = [
-            *re.finditer(class_pattern, clean),
-            *re.finditer(object_pattern, clean),
-            *re.finditer(r"(?:\breturn\s*|\(\s*|,\s*)\{", clean),
-            *re.finditer(r"\b[A-Za-z_$][A-Za-z0-9_$]*\s*\(\s*\{", clean),
-            *re.finditer(r"\bexport\s+default\s*\{|\bmodule\.exports\s*=\s*\{", clean),
-        ]
-        for scope_match in scope_matches:
-            depth = state.brace_depth + clean[: scope_match.end()].count("{")
-            state.method_scopes.append(depth)
-            if re.search(r"\binterface\b|\bdeclare\s+class\b", scope_match.group()) or (
-                re.search(r"\bdeclare\b", clean) and "class" in scope_match.group()
-            ):
-                state.javascript_declaration_scopes.append(depth)
 
 
 def set_pending_signature(
