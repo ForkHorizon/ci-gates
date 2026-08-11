@@ -77,7 +77,10 @@ class SwiftTypeDeclarationP1Tests(unittest.TestCase):
     def assert_method_limits(self, source, name):
         functions = self.functions(source)
         self.assertEqual([(item[0], item[3]) for item in functions], [(name, 3)])
-        self.assertEqual([issue.kind for issue in self.issues(source)], ["function_length", "max_parameters"])
+        self.assertEqual(
+            [issue.kind for issue in self.issues(source)],
+            ["function_length", "max_parameters"],
+        )
 
     def test_class_declaration_is_not_a_function(self):
         self.assertEqual(self.functions("final class AppLogger(a: Int, b: Int, c: Int) {}\n"), [])
@@ -92,20 +95,32 @@ class SwiftTypeDeclarationP1Tests(unittest.TestCase):
         self.assertEqual(self.functions("protocol Service { init(a: Int, b: Int, c: Int) }\n"), [])
 
     def test_extension_declaration_is_not_a_function(self):
-        source = "private extension String { static let sample = String(repeating: \"x\", count: 3) }\n"
+        source = 'private extension String { static let sample = String(repeating: "x", count: 3) }\n'
         self.assertEqual(self.functions(source), [])
 
     def test_class_method_still_has_both_limits(self):
-        self.assert_method_limits("class Box {\n    func run(a: Int, b: Int, c: Int) {\n        a\n        b\n        c\n    }\n}\n", "run")
+        self.assert_method_limits(
+            "class Box {\n    func run(a: Int, b: Int, c: Int) {\n        a\n        b\n        c\n    }\n}\n",
+            "run",
+        )
 
     def test_struct_initializer_still_has_both_limits(self):
-        self.assert_method_limits("struct Box {\n    init(a: Int, b: Int, c: Int) {\n        self.a = a\n        self.b = b\n        self.c = c\n    }\n}\n", "init")
+        self.assert_method_limits(
+            "struct Box {\n    init(a: Int, b: Int, c: Int) {\n        self.a = a\n        self.b = b\n        self.c = c\n    }\n}\n",
+            "init",
+        )
 
     def test_enum_method_still_has_both_limits(self):
-        self.assert_method_limits("enum Box {\n    func value(a: Int, b: Int, c: Int) {\n        print(a)\n        print(b)\n        print(c)\n    }\n}\n", "value")
+        self.assert_method_limits(
+            "enum Box {\n    func value(a: Int, b: Int, c: Int) {\n        print(a)\n        print(b)\n        print(c)\n    }\n}\n",
+            "value",
+        )
 
     def test_extension_method_still_has_both_limits(self):
-        self.assert_method_limits("extension Box {\n    func value(a: Int, b: Int, c: Int) {\n        print(a)\n        print(b)\n        print(c)\n    }\n}\n", "value")
+        self.assert_method_limits(
+            "extension Box {\n    func value(a: Int, b: Int, c: Int) {\n        print(a)\n        print(b)\n        print(c)\n    }\n}\n",
+            "value",
+        )
 
     def test_protocol_requirement_is_not_measured_without_a_body(self):
         source = "protocol Service {\n    func run(a: Int, b: Int, c: Int)\n}\n"
