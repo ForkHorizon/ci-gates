@@ -114,24 +114,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          coverage_args=()
-          if [ -n "$COVERAGE_MODE" ]; then
-            coverage_args+=(--coverage-mode "$COVERAGE_MODE")
-          fi
-
           if [ "$SCAN_MODE" = "changed" ]; then
-            python3 .ci-gates/scripts/code-linter.py \
-              --config "$CONFIG_PATH" \
-              --mode changed \
-              --base "$BASE_SHA" \
-              --head "$HEAD_SHA" \
-              "${coverage_args[@]}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
+            set -- --config "$CONFIG_PATH" --mode changed --base "$BASE_SHA" --head "$HEAD_SHA"
           else
-            python3 .ci-gates/scripts/code-linter.py \
-              --config "$CONFIG_PATH" \
-              --mode all \
-              "${coverage_args[@]}" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
+            set -- --config "$CONFIG_PATH" --mode all
           fi
+          if [ -n "$COVERAGE_MODE" ]; then
+            set -- "$@" --coverage-mode "$COVERAGE_MODE"
+          fi
+          python3 .ci-gates/scripts/code-linter.py "$@" 2>&1 | tee "$RUNNER_TEMP/ci-gate.log"
 
       - name: Explain failure
         if: ${{ failure() && inputs.explain-model != '' }}
