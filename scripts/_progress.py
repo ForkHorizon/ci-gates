@@ -1,3 +1,4 @@
+# CI approval probe: harmless code-file comment; no runtime behavior change.
 """Shared stdout progress marker for CI Scope's local log tailer.
 
 Prints a `::ci-scope-progress::` line, following the same GitHub Actions
