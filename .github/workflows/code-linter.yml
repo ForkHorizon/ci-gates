@@ -7,6 +7,26 @@ on:
         description: JSON array of runner labels to target.
         type: string
         default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+      runner-group:
+        description: Runner group for the routing contract.
+        type: string
+        default: ci-scope
+      runner-labels:
+        description: JSON array of runner labels to target.
+        type: string
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+      routing-generation:
+        description: Routing generation; v1 remains the production default.
+        type: string
+        default: v1
+      workflow-contract-version:
+        description: Workflow contract version; v1 remains the production default.
+        type: string
+        default: v1
+      trust-fixture-mode:
+        description: Canary-only trust fixture mode; empty/off in production.
+        type: string
+        default: ''
       mode:
         description: "Files to scan: auto (derive from event), all, or changed."
         type: string
@@ -31,7 +51,10 @@ on:
 jobs:
   code-linter:
     name: Code Linter
-    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    if: ${{ (inputs['routing-generation'] == 'v1' && inputs['workflow-contract-version'] == 'v1') || (inputs['routing-generation'] == 'v2' && inputs['workflow-contract-version'] == 'v2') }}
+    runs-on:
+      group: ${{ inputs['runner-group'] }}
+      labels: ${{ fromJSON(inputs['runner-labels']) }}
     timeout-minutes: 15
     permissions:
       contents: read

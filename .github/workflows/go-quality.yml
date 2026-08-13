@@ -7,6 +7,26 @@ on:
         description: JSON array of runner labels to target.
         type: string
         default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+      runner-group:
+        description: Runner group for the routing contract.
+        type: string
+        default: ci-scope
+      runner-labels:
+        description: JSON array of runner labels to target.
+        type: string
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+      routing-generation:
+        description: Routing generation; v1 remains the production default.
+        type: string
+        default: v1
+      workflow-contract-version:
+        description: Workflow contract version; v1 remains the production default.
+        type: string
+        default: v1
+      trust-fixture-mode:
+        description: Canary-only trust fixture mode; empty/off in production.
+        type: string
+        default: ''
       working-directory:
         description: Directory containing the Go module.
         type: string
@@ -27,7 +47,10 @@ on:
 jobs:
   go-quality-gate:
     name: Go Quality Gate
-    runs-on: ${{ fromJSON(inputs['runs-on']) }}
+    if: ${{ (inputs['routing-generation'] == 'v1' && inputs['workflow-contract-version'] == 'v1') || (inputs['routing-generation'] == 'v2' && inputs['workflow-contract-version'] == 'v2') }}
+    runs-on:
+      group: ${{ inputs['runner-group'] }}
+      labels: ${{ fromJSON(inputs['runner-labels']) }}
     defaults:
       run:
         shell: bash
@@ -40,7 +63,7 @@ jobs:
           python-version: "3.11.9"
 
       - name: Checkout project
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 

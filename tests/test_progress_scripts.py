@@ -47,8 +47,76 @@ class ProgressScriptTests(unittest.TestCase):
         self.assertEqual(prefix, "::ci-scope-progress::")
         self.assertEqual(
             json.loads(payload),
-            {"step": "lint", "current": 3, "total": 10, "detail": "Sources/Foo.swift"},
+            {
+                "step": "lint",
+                "current": 3,
+                "total": 10,
+                "detail": "Sources/Foo.swift",
+                "version": 1,
+            },
         )
+
+    def test_progress_bounds_and_redacts_long_values(self):
+        progress = load_script("_progress.py")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            progress.progress(
+                "s" * (progress.MAX_TEXT_LENGTH + 20),
+                detail="d" * (progress.MAX_TEXT_LENGTH + 20),
+            )
+
+        payload = json.loads(output.getvalue().split(" ", maxsplit=1)[1])
+        self.assertLessEqual(len(payload["step"]), progress.MAX_TEXT_LENGTH)
+        self.assertLessEqual(len(payload["detail"]), progress.MAX_TEXT_LENGTH)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "_progress.py"),
+                "--step",
+                "lint",
+                "--total",
+                str(progress.MAX_INTEGER + 1),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_progress_rejects_negative_and_mismatched_counters(self):
+        for arguments in (
+            ["--step", "lint", "--current", "-1"],
+            ["--step", "lint", "--total", "-1"],
+            ["--step", "lint", "--current", "4", "--total", "3"],
+        ):
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS / "_progress.py"), *arguments],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_progress_redacts_secrets_and_absolute_paths(self):
+        progress = load_script("_progress.py")
+        secret = "ghp_" + "A" * 36
+        absolute_path = "/Users/alice/private/repository/config.json"
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            progress.progress(
+                f"token={secret}",
+                detail=f"Reading {absolute_path}; bearer {secret}",
+            )
+
+        payload = json.loads(output.getvalue().split(" ", maxsplit=1)[1])
+        marker = json.dumps(payload)
+        self.assertNotIn(secret, marker)
+        self.assertNotIn(absolute_path, marker)
+        self.assertIn("[REDACTED]", payload["step"])
+        self.assertIn("[REDACTED_PATH]", payload["detail"])
 
     def test_code_linter_reports_each_of_ten_files(self):
         code_linter = load_script("code-linter.py")

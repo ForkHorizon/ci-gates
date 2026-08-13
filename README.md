@@ -1,8 +1,8 @@
 # ci-gates
 
 Reusable GitHub Actions quality gates for all ForkHorizon projects. The gate
-logic lives here once; each project only carries a thin caller workflow, so
-pushing to `main` in this repo updates every project instantly.
+logic lives here once; each project only carries a thin caller workflow. Use a
+commit SHA for production callers so a gate rollout is reproducible.
 
 ## Gates
 
@@ -112,19 +112,32 @@ policy, checks Ruff lint/format, and validates all workflow files. The public
 `scripts/code-linter.py` entry point remains stable; its implementation is split
 across the small modules in `scripts/code_linter/`.
 
+The manual `CI Scope v2 Canary` workflow runs two same-label v2 jobs against
+the dedicated trusted group. It is an evidence fixture only; it does not
+change v1 defaults or activate production routing.
+
 ## Inputs
 
 Common to all workflows:
 
 - `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope` for the Code Linter, `ci-scope-broker` for Swift gates).
+- `runner-group` — optional GitHub-hosted runner-group name. v1 defaults keep
+  the existing placement; v2 requires the dedicated trusted group.
+- `runner-labels` — JSON array used by the v2 routing contract. It must be
+  non-empty and is validated together with `routing-generation`.
+- `routing-generation` — `v1` (default) or `v2`; unknown generations fail
+  closed and v1/v2 routing fields cannot be mixed.
+- `workflow-contract-version` — workflow-facing contract version, `v1` by
+  default until a consumer is migrated.
+- `trust-fixture-mode` — empty by default; only canary workflows may enable a
+  named trust-policy fixture.
 - `config` — path to the gate's JSON config in the calling repo; the Code
   Linter defaults to `.code-linter.json`.
 - `coverage-mode` — optional `report` or `strict` override; when omitted, the
   repository config's `coverage_mode` is used.
 - `gates-ref` — which ref of this repo to fetch scripts from where supported.
-  It defaults to `main`, so downstream repositories receive the latest scripts
-  automatically. Callers may override it with a branch, tag, or commit SHA when
-  a reproducible gate revision is required.
+  It defaults to `main` for backward compatibility. Production release
+  manifests must override it with a full commit SHA.
 
 - `explain-model` — Ollama model used by the failure explainer (default `qwen3-coder:30b-a3b-q4_K_M`); set to `''` to disable.
 
