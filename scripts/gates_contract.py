@@ -58,7 +58,98 @@ def _normalise_aliases(values: dict[str, object]) -> dict[str, object]:
     return values
 
 
-def validate_routing(  # noqa: PLR0912, PLR0915
+ALLOWED_FIELDS = frozenset({"generation", "group", "labels", "workflow-contract-version", "trust-fixture-mode"})
+
+
+def _validate_context(routing: Mapping[str, object], environment: str, trusted_input: bool) -> None:
+    if not isinstance(routing, Mapping):
+        raise _error("routing", "must be an object")
+    if environment not in {"production", "canary"}:
+        raise _error("environment", "must be production or canary")
+    if not isinstance(trusted_input, bool):
+        raise _error("trusted_input", "must be boolean")
+
+
+def _canonical_values(routing: Mapping[str, object]) -> dict[str, object]:
+    values = dict(routing)
+    if any(not isinstance(field, str) for field in values):
+        raise _error("routing", "field names must be strings")
+    values = _normalise_aliases(values)
+    unknown = sorted(set(values) - ALLOWED_FIELDS)
+    if unknown:
+        raise _error("routing", f"unknown field(s): {', '.join(unknown)}")
+    for field in ("generation", "group", "labels"):
+        if field not in values:
+            raise _error(field, "is required")
+    return values
+
+
+def _validate_generation(values: Mapping[str, object]) -> str:
+    generation = values["generation"]
+    if not isinstance(generation, str):
+        raise _error("generation", "must be a string")
+    if generation not in {V1, V2}:
+        raise _error("generation", "must be v1 or v2; unknown generations are rejected")
+    return generation
+
+
+def _validate_labels(value: object) -> list[str]:
+    if not isinstance(value, list):
+        raise _error("labels", "must be an array")
+    if not value:
+        raise _error("labels", "must not be empty")
+    if len(value) > MAX_LABELS:
+        raise _error("labels", f"must contain at most {MAX_LABELS} entries")
+    labels = [_text(f"labels[{index}]", label, MAX_LABEL_LENGTH) for index, label in enumerate(value)]
+    if len({label.casefold() for label in labels}) != len(labels):
+        raise _error("labels", "must not contain duplicates")
+    return labels
+
+
+def _validate_identity(values: Mapping[str, object], generation: str) -> tuple[str, list[str]]:
+    group = _text("group", values["group"], MAX_GROUP_LENGTH)
+    labels = _validate_labels(values["labels"])
+    if generation == V2 and group != V2_TRUSTED_GROUP:
+        raise _error("group", f"v2 requires {V2_TRUSTED_GROUP!r}")
+    if generation == V2 and V2_LABEL not in labels:
+        raise _error("labels", f"v2 requires the {V2_LABEL!r} label")
+    if generation == V1 and (group == V2_TRUSTED_GROUP or V2_LABEL in labels):
+        raise _error("routing", "v1 and v2 routing inputs must not be mixed")
+    return group, labels
+
+
+def _validate_trust(group: str, environment: str, trusted_input: bool) -> None:
+    approved = (*V1_APPROVED_GROUPS, V2_TRUSTED_GROUP)
+    if environment == "production" and not trusted_input and group not in approved:
+        raise _error("group", "production rejects arbitrary groups from untrusted input")
+
+
+def _add_optional_fields(
+    result: dict[str, object], values: Mapping[str, object], generation: str, environment: str
+) -> None:
+    if "workflow-contract-version" in values:
+        version = _text("workflow-contract-version", values["workflow-contract-version"], 16)
+        normalised = version if version in {V1, V2} else f"v{version}" if version in {"1", "2"} else None
+        if normalised is None:
+            raise _error("workflow-contract-version", "must be v1, v2, 1, or 2")
+        if normalised != generation:
+            raise _error("workflow-contract-version", "must match generation")
+        result["workflow-contract-version"] = normalised
+    if "trust-fixture-mode" in values:
+        _validate_fixture_mode(values["trust-fixture-mode"], generation, environment)
+        result["trust-fixture-mode"] = CANARY_ONLY
+
+
+def _validate_fixture_mode(value: object, generation: str, environment: str) -> None:
+    if value != CANARY_ONLY:
+        raise _error("trust-fixture-mode", "only canary-only is supported")
+    if environment != "canary":
+        raise _error("trust-fixture-mode", "canary-only is forbidden in production")
+    if generation != V2:
+        raise _error("trust-fixture-mode", "canary-only requires v2 routing")
+
+
+def validate_routing(
     routing: Mapping[str, object],
     *,
     environment: str = "production",
@@ -70,89 +161,13 @@ def validate_routing(  # noqa: PLR0912, PLR0915
     v1 default group or the v2 dedicated group from an untrusted workflow input.
     """
 
-    if not isinstance(routing, Mapping):
-        raise _error("routing", "must be an object")
-    if environment not in {"production", "canary"}:
-        raise _error("environment", "must be production or canary")
-    if not isinstance(trusted_input, bool):
-        raise _error("trusted_input", "must be boolean")
-
-    values = dict(routing)
-    if any(not isinstance(field, str) for field in values):
-        raise _error("routing", "field names must be strings")
-    values = _normalise_aliases(values)
-    allowed = {
-        "generation",
-        "group",
-        "labels",
-        "workflow-contract-version",
-        "trust-fixture-mode",
-    }
-    unknown = sorted(set(values) - allowed)
-    if unknown:
-        raise _error("routing", f"unknown field(s): {', '.join(unknown)}")
-    for field in ("generation", "group", "labels"):
-        if field not in values:
-            raise _error(field, "is required")
-
-    generation = values["generation"]
-    if not isinstance(generation, str):
-        raise _error("generation", "must be a string")
-    if generation not in {V1, V2}:
-        raise _error("generation", "must be v1 or v2; unknown generations are rejected")
-
-    group = _text("group", values["group"], MAX_GROUP_LENGTH)
-    labels_value = values["labels"]
-    if not isinstance(labels_value, list):
-        raise _error("labels", "must be an array")
-    if not labels_value:
-        raise _error("labels", "must not be empty")
-    if len(labels_value) > MAX_LABELS:
-        raise _error("labels", f"must contain at most {MAX_LABELS} entries")
-    labels = [_text(f"labels[{index}]", label, MAX_LABEL_LENGTH) for index, label in enumerate(labels_value)]
-    lowered = [label.casefold() for label in labels]
-    if len(set(lowered)) != len(lowered):
-        raise _error("labels", "must not contain duplicates")
-
-    if generation == V2:
-        if group != V2_TRUSTED_GROUP:
-            raise _error("group", f"v2 requires {V2_TRUSTED_GROUP!r}")
-        if V2_LABEL not in labels:
-            raise _error("labels", f"v2 requires the {V2_LABEL!r} label")
-    elif group == V2_TRUSTED_GROUP or V2_LABEL in labels:
-        raise _error("routing", "v1 and v2 routing inputs must not be mixed")
-
-    if environment == "production" and not trusted_input and group not in (*V1_APPROVED_GROUPS, V2_TRUSTED_GROUP):
-        raise _error("group", "production rejects arbitrary groups from untrusted input")
-
-    result: dict[str, object] = {
-        "generation": generation,
-        "group": group,
-        "labels": labels,
-    }
-
-    version_present = "workflow-contract-version" in values
-    version = values.get("workflow-contract-version")
-    if version_present:
-        version = _text("workflow-contract-version", version, 16)
-        normalised_version = version if version in {V1, V2} else f"v{version}" if version in {"1", "2"} else None
-        if normalised_version is None:
-            raise _error("workflow-contract-version", "must be v1, v2, 1, or 2")
-        if normalised_version != generation:
-            raise _error("workflow-contract-version", "must match generation")
-        result["workflow-contract-version"] = normalised_version
-
-    mode_present = "trust-fixture-mode" in values
-    mode = values.get("trust-fixture-mode")
-    if mode_present:
-        if mode != CANARY_ONLY:
-            raise _error("trust-fixture-mode", "only canary-only is supported")
-        if environment != "canary":
-            raise _error("trust-fixture-mode", "canary-only is forbidden in production")
-        if generation != V2:
-            raise _error("trust-fixture-mode", "canary-only requires v2 routing")
-        result["trust-fixture-mode"] = CANARY_ONLY
-
+    _validate_context(routing, environment, trusted_input)
+    values = _canonical_values(routing)
+    generation = _validate_generation(values)
+    group, labels = _validate_identity(values, generation)
+    _validate_trust(group, environment, trusted_input)
+    result: dict[str, object] = {"generation": generation, "group": group, "labels": labels}
+    _add_optional_fields(result, values, generation, environment)
     return result
 
 
