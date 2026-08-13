@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS.parent))
 spec = importlib.util.spec_from_file_location("release_manifest", SCRIPTS / "release_manifest.py")
 release_manifest = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
