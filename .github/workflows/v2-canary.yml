@@ -1,0 +1,38 @@
+name: CI Scope v2 Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      trust-fixture-mode:
+        description: Canary trust fixture to exercise; production callers must leave this disabled.
+        required: false
+        type: choice
+        options:
+          - canary-only
+        default: canary-only
+
+permissions:
+  contents: read
+
+jobs:
+  same-label-a:
+    name: Same-label canary A
+    uses: ./.github/workflows/code-linter.yml
+    with:
+      runner-group: ci-scope-v2-trusted
+      runner-labels: '["self-hosted", "macOS", "ARM64", "ci-scope-v2"]'
+      routing-generation: v2
+      workflow-contract-version: v2
+      trust-fixture-mode: canary-only
+      mode: all
+
+  same-label-b:
+    name: Same-label canary B
+    uses: ./.github/workflows/code-linter.yml
+    with:
+      runner-group: ci-scope-v2-trusted
+      runner-labels: '["self-hosted", "macOS", "ARM64", "ci-scope-v2"]'
+      routing-generation: v2
+      workflow-contract-version: v2
+      trust-fixture-mode: canary-only
+      mode: all
