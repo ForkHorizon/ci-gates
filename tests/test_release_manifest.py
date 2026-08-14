@@ -22,7 +22,7 @@ def manifest(**overrides):
         "ci_gates_sha": SHA,
         "workflow_sha": OTHER_SHA,
         "routing_generation": "v2",
-        "group": "ci-scope-v2-trusted",
+        "group": "ci-scope-v2-canary",
         "labels": ["self-hosted", "macOS", "ARM64", "ci-scope-v2"],
         "progress_marker_version": 1,
         "release_manifest_version": 1,
@@ -56,7 +56,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_routing_and_versions_are_bounded(self):
         errors = release_manifest.validate_manifest(
             manifest(
-                group="ci-scope-v2-trusted",
+                group="ci-scope-v2-canary",
                 labels=["self-hosted"],
                 progress_marker_version=0,
                 release_manifest_version=True,
