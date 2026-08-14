@@ -1,0 +1,12 @@
+{
+  "ci_gates_sha": "8b216020f179766ecaa65e19be14342cc6072648",
+  "gates_ref": "8b216020f179766ecaa65e19be14342cc6072648",
+  "workflow_sha": "0123456789abcdef0123456789abcdef01234567",
+  "routing_generation": "v2",
+  "group": "ci-scope-v2-canary",
+  "labels": ["self-hosted", "macOS", "ARM64", "ci-scope-v2"],
+  "progress_marker_version": 1,
+  "release_manifest_version": 1,
+  "activation_timestamp": "2026-08-14T12:00:00Z",
+  "rollback_target": "fedcba9876543210fedcba9876543210fedcba98"
+}

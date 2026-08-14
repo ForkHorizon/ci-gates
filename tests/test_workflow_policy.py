@@ -17,7 +17,7 @@ jobs:
   gate:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on:
-      group: ci-scope-v2-trusted
+      group: ci-scope-v2-canary
       labels: [self-hosted, macOS, ARM64, ci-scope-v2]
     routing-generation: v2
     uses: ForkHorizon/ci-gates/.github/workflows/code-linter.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -69,7 +69,7 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertEqual(validate_workflow_text(workflow, production=False), [])
 
     def test_routing_group_and_labels_must_match_generation(self):
-        workflow = VALID_V2.replace("ci-scope-v2-trusted", "ci-scope-v1").replace("ci-scope-v2]", "ci-scope-v1]")
+        workflow = VALID_V2.replace("ci-scope-v2-canary", "ci-scope-v1").replace("ci-scope-v2]", "ci-scope-v1]")
         issues = validate_workflow_text(workflow)
         self.assertTrue(any("group" in issue for issue in issues))
         self.assertTrue(any("labels" in issue for issue in issues))
@@ -89,6 +89,11 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_check_input_source_sha_fails_closed(self):
         issues = validate_workflow_text(VALID_V2, manifest={"check_input": {}})
         self.assertTrue(any("source SHA" in issue for issue in issues))
+
+    def test_source_sha_matches_release_manifest_shape(self):
+        for source_sha in ("A" * 40, "a" * 64):
+            issues = validate_workflow_text(VALID_V2, manifest={"source_sha": source_sha})
+            self.assertTrue(any("source SHA" in issue for issue in issues))
 
 
 if __name__ == "__main__":

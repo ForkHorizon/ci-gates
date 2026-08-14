@@ -7,9 +7,11 @@ from collections.abc import Mapping
 
 
 APPROVED_REUSABLE_ORIGINS = frozenset({"ForkHorizon/ci-gates"})
-TRUSTED_GROUP = "ci-scope-v2-trusted"
+TRUSTED_GROUP = "ci-scope-v2-canary"
 V2_LABELS = frozenset({"self-hosted", "macOS", "ARM64", "ci-scope-v2"})
-SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$", re.IGNORECASE)
+# Release manifests pin immutable Git commits; keep this identical to
+# release_manifest.py instead of accepting alternate-length or uppercase refs.
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 _KEY_RE = re.compile(r"^\s*([A-Za-z0-9_-]+)\s*:\s*(.*?)\s*$")
 _USES_RE = re.compile(r"^\s*uses\s*:\s*([^\s#]+)", re.MULTILINE)
