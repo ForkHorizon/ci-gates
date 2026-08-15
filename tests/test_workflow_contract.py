@@ -9,6 +9,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 CONTRACT_INPUTS = (
     "runner-group",
     "runner-labels",
+    "runner-label",
     "routing-generation",
     "workflow-contract-version",
     "trust-fixture-mode",
@@ -36,7 +37,11 @@ CONTRACT_GUARD = (
 
 
 def _gate_workflows():
-    return sorted(path for path in WORKFLOWS.glob("*.yml") if "  workflow_call:" in path.read_text(encoding="utf-8"))
+    return sorted(
+        path
+        for path in WORKFLOWS.glob("*.yml")
+        if path.name != "routing-validation.yml" and "  workflow_call:" in path.read_text(encoding="utf-8")
+    )
 
 
 def _workflow_inputs(workflow):
@@ -86,9 +91,9 @@ class WorkflowContractTests(unittest.TestCase):
                     workflow,
                     r"(?m)^    runs-on:\n"
                     r"      group: \$\{\{ inputs\['runner-group'\] \}\}\n"
-                    r"      labels: \$\{\{ fromJSON\(inputs\['runner-labels'\]\) \}\}$",
+                    r"      labels: \$\{\{ inputs\['runner-label'\] \}\}$",
                 )
-                self.assertIn(f"    if: ${{{{ {CONTRACT_GUARD} }}}}", workflow)
+                self.assertIn("uses: ./.github/workflows/routing-validation.yml", workflow)
 
     def test_v1_defaults_and_existing_gates_ref_behavior_are_unchanged(self):
         for path in _gate_workflows():
@@ -99,6 +104,7 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertEqual(_scalar(inputs["runs-on"]["default"]), json.dumps(labels))
                 self.assertEqual(_scalar(inputs["runner-group"]["default"]), runner_group)
                 self.assertEqual(json.loads(_scalar(inputs["runner-labels"]["default"])), labels)
+                self.assertEqual(_scalar(inputs["runner-label"]["default"]), runner_group)
                 self.assertEqual(_scalar(inputs["routing-generation"]["default"]), "v1")
                 self.assertEqual(_scalar(inputs["workflow-contract-version"]["default"]), "v1")
                 self.assertEqual(_scalar(inputs["trust-fixture-mode"]["default"]), "")
@@ -109,7 +115,9 @@ class WorkflowContractTests(unittest.TestCase):
         for path in _gate_workflows():
             with self.subTest(workflow=path.name):
                 workflow = path.read_text(encoding="utf-8")
-                self.assertEqual(workflow.count(f"    if: ${{{{ {CONTRACT_GUARD} }}}}"), 1)
+                self.assertIn("uses: ./.github/workflows/routing-validation.yml", workflow)
+                self.assertIn("needs: routing-validation", workflow)
+                self.assertIn("needs.routing-validation.result == 'success'", workflow)
                 self.assertNotIn("runs-on: ${{ fromJSON(inputs['runs-on']) }}", workflow)
 
     def test_existing_pinned_checkout_refs_do_not_become_unpinned(self):

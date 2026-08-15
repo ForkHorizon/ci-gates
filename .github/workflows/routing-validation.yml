@@ -1,0 +1,91 @@
+name: Validate Gate Routing
+
+on:
+  workflow_call:
+    inputs:
+      runner-group:
+        type: string
+        required: true
+      runner-labels:
+        type: string
+        required: true
+      routing-generation:
+        type: string
+        required: true
+      workflow-contract-version:
+        type: string
+        required: true
+      trust-fixture-mode:
+        type: string
+        required: true
+      gates-ref:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate routing inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11.9"
+
+      - name: Checkout ci-gates validator
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ForkHorizon/ci-gates
+          ref: ${{ inputs.gates-ref }}
+          path: .ci-gates
+          persist-credentials: false
+
+      - name: Reject invalid routing and floating v2 refs
+        env:
+          RUNNER_GROUP: ${{ inputs.runner-group }}
+          RUNNER_LABELS: ${{ inputs.runner-labels }}
+          ROUTING_GENERATION: ${{ inputs.routing-generation }}
+          WORKFLOW_CONTRACT_VERSION: ${{ inputs.workflow-contract-version }}
+          TRUST_FIXTURE_MODE: ${{ inputs.trust-fixture-mode }}
+          GATES_REF: ${{ inputs.gates-ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          sys.path.insert(0, os.path.abspath(".ci-gates"))
+          from scripts.gates_contract import RoutingContractError, validate_routing
+
+          generation = os.environ["ROUTING_GENERATION"]
+          environment = "canary" if os.environ["TRUST_FIXTURE_MODE"] else "production"
+          routing = {
+              "generation": generation,
+              "group": os.environ["RUNNER_GROUP"],
+              "labels": json.loads(os.environ["RUNNER_LABELS"]),
+              "workflow-contract-version": os.environ["WORKFLOW_CONTRACT_VERSION"],
+          }
+          if os.environ["TRUST_FIXTURE_MODE"]:
+              routing["trust-fixture-mode"] = os.environ["TRUST_FIXTURE_MODE"]
+          errors = []
+          try:
+              validate_routing(routing, environment=environment)
+          except RoutingContractError as error:
+              errors.append(f"routing contract: {error}")
+          if (generation == "v2" or environment == "canary") and not re.fullmatch(
+              r"[0-9a-f]{40}", os.environ["GATES_REF"]
+          ):
+              errors.append("gates-ref must be a full lowercase 40-character commit SHA")
+          if errors:
+              for error in errors:
+                  print(f"routing validation error: {error}", file=sys.stderr)
+              raise SystemExit(2)
+          print(f"Routing validation passed: {environment} {generation}.")
+          PY
