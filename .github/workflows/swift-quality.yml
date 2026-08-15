@@ -15,6 +15,10 @@ on:
         description: JSON array of runner labels to target.
         type: string
         default: '["self-hosted", "macOS", "ARM64", "ci-scope-broker"]'
+      runner-label:
+        description: Single runner label used by the GitHub group-and-label scheduler.
+        type: string
+        default: ci-scope-broker
       routing-generation:
         description: Routing generation; v1 remains the production default.
         type: string
@@ -49,12 +53,23 @@ on:
         default: qwen3-coder:30b-a3b-q4_K_M
 
 jobs:
+  routing-validation:
+    uses: ./.github/workflows/routing-validation.yml
+    with:
+      runner-group: ${{ inputs['runner-group'] }}
+      runner-labels: ${{ inputs['runner-labels'] }}
+      routing-generation: ${{ inputs['routing-generation'] }}
+      workflow-contract-version: ${{ inputs['workflow-contract-version'] }}
+      trust-fixture-mode: ${{ inputs['trust-fixture-mode'] }}
+      gates-ref: ${{ inputs['gates-ref'] }}
+
   swift-quality-gate:
     name: Swift Quality Gate
-    if: ${{ (inputs['routing-generation'] == 'v1' && inputs['workflow-contract-version'] == 'v1') || (inputs['routing-generation'] == 'v2' && inputs['workflow-contract-version'] == 'v2') }}
+    needs: routing-validation
+    if: ${{ needs.routing-validation.result == 'success' }}
     runs-on:
       group: ${{ inputs['runner-group'] }}
-      labels: ${{ fromJSON(inputs['runner-labels']) }}
+      labels: ${{ inputs['runner-label'] }}
 
     steps:
       - name: Set up Python
