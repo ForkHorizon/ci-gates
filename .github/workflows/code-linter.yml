@@ -69,7 +69,7 @@ jobs:
     if: ${{ needs.routing-validation.result == 'success' }}
     runs-on:
       group: ${{ inputs['runner-group'] }}
-      labels: ${{ inputs['runner-label'] }}
+      labels: ${{ fromJSON(inputs['runner-labels']) }}
     timeout-minutes: 15
     permissions:
       contents: read

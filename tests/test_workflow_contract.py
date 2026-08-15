@@ -87,11 +87,16 @@ class WorkflowContractTests(unittest.TestCase):
                 labels = json.loads(_scalar(inputs["runner-labels"]["default"]))
                 self.assertIsInstance(labels, list)
                 self.assertTrue(labels)
+                labels_expression = (
+                    r"      labels: \$\{\{ fromJSON\(inputs\['runner-labels'\]\) \}\}"
+                    if path.name == "code-linter.yml"
+                    else r"      labels: \$\{\{ inputs\['runner-label'\] \}\}"
+                )
                 self.assertRegex(
                     workflow,
                     r"(?m)^    runs-on:\n"
                     r"      group: \$\{\{ inputs\['runner-group'\] \}\}\n"
-                    r"      labels: \$\{\{ inputs\['runner-label'\] \}\}$",
+                    + labels_expression + "$",
                 )
                 self.assertIn("uses: ./.github/workflows/routing-validation.yml", workflow)
 
