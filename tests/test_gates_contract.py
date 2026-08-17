@@ -39,7 +39,7 @@ class RoutingContractTests(unittest.TestCase):
 
     def test_v1_default_remains_valid(self):
         self.assertEqual(
-            gates_contract.validate_routing({"generation": "v1", "group": "ci-scope", "labels": ["self-hosted"]})[
+            gates_contract.validate_routing({"generation": "v1", "group": "Default", "labels": ["self-hosted"]})[
                 "generation"
             ],
             "v1",
@@ -113,7 +113,7 @@ class RoutingContractTests(unittest.TestCase):
         self.assert_invalid(
             {
                 "generation": "v1",
-                "group": "ci-scope",
+                "group": "Default",
                 "labels": ["self-hosted"],
                 "trust-fixture-mode": "canary-only",
             },
