@@ -1,7 +1,8 @@
 {
-  "ci_gates_sha": "8b216020f179766ecaa65e19be14342cc6072648",
-  "gates_ref": "8b216020f179766ecaa65e19be14342cc6072648",
-  "workflow_sha": "0123456789abcdef0123456789abcdef01234567",
+  "ci_gates_sha": "a94e73b2f0935bd11f47f269f1c18bc9469daaa4",
+  "gates_ref": "a94e73b2f0935bd11f47f269f1c18bc9469daaa4",
+  "workflow_sha": "<required: independently verified GitHub workflow SHA>",
+  "worker_deployment_id": "<required: verified Worker deployment UUID>",
   "routing_generation": "v2",
   "group": "ci-scope-v2-canary",
   "labels": ["self-hosted", "macOS", "ARM64", "ci-scope-v2"],

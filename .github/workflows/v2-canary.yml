@@ -25,7 +25,7 @@ jobs:
       routing-generation: v2
       workflow-contract-version: v2
       trust-fixture-mode: canary-only
-      gates-ref: 8b216020f179766ecaa65e19be14342cc6072648
+      gates-ref: a94e73b2f0935bd11f47f269f1c18bc9469daaa4
       mode: all
 
   same-label-b:
@@ -38,5 +38,5 @@ jobs:
       routing-generation: v2
       workflow-contract-version: v2
       trust-fixture-mode: canary-only
-      gates-ref: 8b216020f179766ecaa65e19be14342cc6072648
+      gates-ref: a94e73b2f0935bd11f47f269f1c18bc9469daaa4
       mode: all

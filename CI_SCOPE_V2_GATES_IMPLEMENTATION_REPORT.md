@@ -4,7 +4,7 @@
 Репозиторий: `ForkHorizon/ci-gates`  
 Ветка: `daliys/fix-empty-coverage-args`  
 PR: [#64](https://github.com/ForkHorizon/ci-gates/pull/64)  
-Итоговый commit: `f10f47b1dab83473c0e55111979cd92e1b501a8c`
+Итоговый commit на момент локальной сверки: `a94e73b2f0935bd11f47f269f1c18bc9469daaa4`
 
 ## 1. Назначение отчёта
 
@@ -63,7 +63,7 @@ Canonical routing object:
 ```json
 {
   "generation": "v2",
-  "group": "ci-scope-v2-trusted",
+  "group": "ci-scope-v2-canary",
   "labels": ["self-hosted", "macOS", "ARM64", "ci-scope-v2"]
 }
 ```
@@ -72,7 +72,7 @@ Reusable workflows принимают следующие inputs:
 
 | Input | Значение |
 |---|---|
-| `runner-group` | GitHub runner group; v2 требует `ci-scope-v2-trusted` |
+| `runner-group` | GitHub runner group; v2 требует `ci-scope-v2-canary` |
 | `runner-labels` | JSON array labels; v2 требует полный набор v2 labels |
 | `routing-generation` | Только `v1` или `v2`; unknown generation отклоняется |
 | `workflow-contract-version` | `v1` или `v2`, должен совпадать с generation |
@@ -123,7 +123,9 @@ workflow text. При наличии manifest/check input проверяется
 - reusable workflow origin должен быть approved;
 - v1 и v2 routing fields не могут использоваться одновременно;
 - generation, group и labels должны соответствовать approved routing;
-- отсутствующий/невалидный source SHA в manifest отклоняется.
+- отсутствующий/невалидный source SHA в manifest отклоняется;
+- release enforcement требует наблюдаемый workflow SHA из внешнего CI context;
+  одного self-declared `workflow_sha` недостаточно.
 
 Это structural policy, а не замена server trust predicate. Реальная eligibility
 также должна проверяться server-side по repository ID, head repository ID, event,
@@ -158,6 +160,8 @@ release metadata. Обязательные поля:
 
 - `ci_gates_sha`;
 - `workflow_sha`;
+- deployment identity: `worker_deployment_id` for Cloudflare Worker manifests,
+  or `deployment_kind: vps` with `control_plane_endpoint` for VPS manifests;
 - `routing_generation`;
 - `group` и `labels`;
 - `progress_marker_version`;
@@ -169,6 +173,30 @@ release metadata. Обязательные поля:
 timestamp и совпадение `ci_gates_sha` с ожидаемым SHA. Floating `main` не может
 быть принят как release SHA.
 
+Для control-plane migration manifest поддерживает additive metadata:
+
+- `deployment_kind`: `cloudflare-worker` (legacy default) или `vps`;
+- `control_plane_endpoint`: абсолютный HTTPS endpoint control plane; для `vps`
+  поле обязательно и `worker_deployment_id` не используется.
+
+Существующие Cloudflare manifests остаются совместимыми: отсутствие
+`deployment_kind` означает `cloudflare-worker`, который по-прежнему требует
+проверенный `worker_deployment_id`. Для VPS external provenance содержит
+`workflow_sha` и `control_plane_endpoint` с source `vps-control-plane`; для
+Cloudflare сохраняется provenance `worker_deployment_id` с source
+`cloudflare-workers`. Endpoint является metadata и не меняет scheduler,
+routing или gate execution contract.
+
+Сами `workflow_sha` и deployment claim являются только claims до тех пор, пока
+`scripts/release_enforcement.py` не получает внешний provenance handoff. Каждый
+handoff обязан содержать для `workflow_sha` и соответствующего deployment поля
+`value`, ожидаемый внешний `source`, `verified: true` и непустой `evidence_id`;
+shape-only SHA/UUID/endpoint, placeholder и локально объявленный
+`observed_workflow_sha` не являются proof.
+Локальный fixture `tests/fixtures/release-provenance-unresolved.json` намеренно
+содержит unresolved evidence и должен блокировать release. Этот репозиторий не
+создаёт и не подменяет GitHub run evidence или Cloudflare deployment evidence.
+
 Важно: validator существует в `ci-gates`, но фактический release manifest,
 consumer migration matrix и deployment IDs должны быть заполнены интеграционным
 агентом на основании реальных SHA всех трёх репозиториев.
@@ -177,7 +205,7 @@ consumer migration matrix и deployment IDs должны быть заполне
 
 `.github/workflows/v2-canary.yml` — manual evidence fixture:
 
-- использует dedicated group `ci-scope-v2-trusted`;
+- использует dedicated group `ci-scope-v2-canary`;
 - использует labels `self-hosted`, `macOS`, `ARM64`, `ci-scope-v2`;
 - передаёт `routing-generation: v2` и `workflow-contract-version: v2`;
 - включает `trust-fixture-mode: canary-only`;
@@ -187,6 +215,10 @@ consumer migration matrix и deployment IDs должны быть заполне
 Сам факт существования YAML и прохождения structural CI не доказывает, что в
 GitHub organization реально существует корректно ограниченная runner group.
 Canary необходимо запустить в реальной организации и сохранить run/job evidence.
+
+Локальная сверка fixture pins выполнена с текущим `ci-gates` `HEAD`
+`a94e73b2f0935bd11f47f269f1c18bc9469daaa4`. Это pin текущего репозитория, а не
+утверждение о внешнем workflow run или Worker deployment.
 
 ## 8. Затронутые ключевые файлы
 
@@ -209,6 +241,8 @@ Canary необходимо запустить в реальной органи�
 | `tests/test_workflow_contract.py` | all reusable workflow inputs/defaults/guards |
 | `tests/test_workflow_policy.py` | trust and pinning policy tests |
 | `tests/test_release_manifest.py` | manifest fail-closed tests |
+| `tests/fixtures/release-provenance-unresolved.json` | deterministic missing/unverified external evidence fixture |
+| `CI_SCOPE_V2_GATES_ROLLBACK_RUNBOOK.md` | Gates-local rollback and evidence runbook |
 | `tests/test_progress_scripts.py` | marker schema/redaction/bounds tests |
 | `tests/test_workflow_ref_pinning.py` | ref fetch, SHA and detached checkout tests |
 | `CI_SCOPE_V2_GATES_PLAN.md` | gates scope, phases, test strategy and DoD |
@@ -270,9 +304,9 @@ job завершился `SUCCESS`.
 
 | Поле | CI-Scope | CI-Scope-Web | ci-gates |
 |---|---|---|---|
-| repository SHA | required | required | `f10f47b1dab83473c0e55111979cd92e1b501a8c` |
+| repository SHA | required | required | `a94e73b2f0935bd11f47f269f1c18bc9469daaa4` |
 | workflow SHA | required | n/a или required | required |
-| ci-gates SHA | required | n/a | `f10f47b1dab83473c0e55111979cd92e1b501a8c` |
+| ci-gates SHA | required | n/a | `a94e73b2f0935bd11f47f269f1c18bc9469daaa4` |
 | routing generation | v1/v2 | v1/v2 | v1/v2 contract |
 | runner group + labels | required | n/a | v2 values above |
 | progress marker version | required | consumer compatibility | `1` |
@@ -310,13 +344,14 @@ job завершился `SUCCESS`.
 `ci-gates` готов передать интеграции следующие стабильные значения:
 
 ```text
-ci-gates SHA: f10f47b1dab83473c0e55111979cd92e1b501a8c
+ci-gates SHA: a94e73b2f0935bd11f47f269f1c18bc9469daaa4
 v2 generation: v2
-v2 group: ci-scope-v2-trusted
+v2 group: ci-scope-v2-canary
 v2 labels: [self-hosted, macOS, ARM64, ci-scope-v2]
 workflow-contract-version: v2
 progress marker version: 1
 canary fixture mode: canary-only (canary only)
+rollback runbook: [CI_SCOPE_V2_GATES_ROLLBACK_RUNBOOK.md](CI_SCOPE_V2_GATES_ROLLBACK_RUNBOOK.md)
 ```
 
 Итоговая release readiness может быть объявлена только после совместной проверки

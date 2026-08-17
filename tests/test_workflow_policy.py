@@ -33,6 +33,16 @@ jobs:
       - run: echo ok
 """
 
+UNGUARDED_ADDITIONAL_JOB = VALID_V2 + """\
+  unguarded:
+    runs-on:
+      group: ci-scope-v2-canary
+      labels: [self-hosted, macOS, ARM64, ci-scope-v2]
+    routing-generation: v2
+    steps:
+      - run: echo unsafe
+"""
+
 
 class WorkflowPolicyTests(unittest.TestCase):
     def test_valid_v2_workflow_and_manifest_pass(self):
@@ -55,6 +65,10 @@ class WorkflowPolicyTests(unittest.TestCase):
             "if: github.event.pull_request.head.repo.full_name != github.repository",
         )
         self.assertTrue(any("external fork" in issue for issue in validate_workflow_text(workflow)))
+
+    def test_each_trusted_group_job_requires_its_own_fork_guard(self):
+        issues = validate_workflow_text(UNGUARDED_ADDITIONAL_JOB)
+        self.assertTrue(any("external fork" in issue for issue in issues))
 
     def test_pull_request_target_head_checkout_is_blocked(self):
         workflow = VALID_V1.replace("on: push", "on: pull_request_target\n").replace(

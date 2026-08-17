@@ -2,8 +2,10 @@ __pycache__/
 *.pyc
 
 # Local-only AI project memory and code graphs.
+.hermes/
 .projectmem/
 CLAUDE.md
+AGENTS.md
 graphify-out/
 .codebase-memory/
 
@@ -11,3 +13,4 @@ graphify-out/
 .projectmem/watch.pid
 .projectmem/watch.log
 .projectmem/structure.json
+.codex/

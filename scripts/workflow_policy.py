@@ -42,9 +42,11 @@ def validate_workflow_text(
     issues.extend(_source_sha_issues(manifest))
     issues.extend(_routing_issues(clean, config))
 
-    trusted = any(group in config["trusted_groups"] for group in _values(clean, "group"))
-    trusted = trusted or any(group in config["trusted_groups"] for group in _values(clean, "runner-group"))
-    if trusted and _has_event(clean, "pull_request") and not _same_repository_guard(clean):
+    unguarded_trusted_job = any(
+        _uses_trusted_group(job, config["trusted_groups"]) and not _same_repository_guard(_job_if(job))
+        for job in _job_blocks(clean)
+    )
+    if unguarded_trusted_job and _has_event(clean, "pull_request"):
         issues.append("external fork pull_request is eligible for a trusted runner group")
 
     if _has_event(clean, "pull_request_target") and _checks_out_untrusted_head(clean):
@@ -168,6 +170,62 @@ def _same_repository_guard(text: str) -> bool:
             text,
         )
     )
+
+
+def _uses_trusted_group(job: str, trusted_groups: object) -> bool:
+    groups = _values(job, "group") + _values(job, "runner-group")
+    return any(group in trusted_groups for group in groups)
+
+
+def _job_blocks(text: str) -> list[str]:
+    lines = text.splitlines()
+    for jobs_index, line in enumerate(lines):
+        match = _KEY_RE.match(line)
+        if match and match.group(1) == "jobs" and not match.group(2):
+            break
+    else:
+        return []
+
+    jobs_indent = len(lines[jobs_index]) - len(lines[jobs_index].lstrip())
+    job_indent = None
+    starts: list[int] = []
+    end = len(lines)
+    for index in range(jobs_index + 1, len(lines)):
+        line = lines[index]
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent <= jobs_indent:
+            end = index
+            break
+        if job_indent is None:
+            job_indent = indent
+        if indent == job_indent and _KEY_RE.match(line):
+            starts.append(index)
+    return [
+        "\n".join(lines[start : starts[position + 1] if position + 1 < len(starts) else end])
+        for position, start in enumerate(starts)
+    ]
+
+
+def _job_if(job: str) -> str:
+    lines = job.splitlines()
+    if not lines:
+        return ""
+    body_indents = [len(line) - len(line.lstrip()) for line in lines[1:] if line.strip()]
+    if not body_indents:
+        return ""
+    field_indent = min(body_indents)
+    for index, line in enumerate(lines[1:], start=1):
+        match = _KEY_RE.match(line)
+        if match and len(line) - len(line.lstrip()) == field_indent and match.group(1) == "if":
+            parts = [match.group(2)]
+            for continuation in lines[index + 1 :]:
+                if continuation.strip() and len(continuation) - len(continuation.lstrip()) <= field_indent:
+                    break
+                parts.append(continuation.strip())
+            return " ".join(parts)
+    return ""
 
 
 def _checks_out_untrusted_head(text: str) -> bool:
