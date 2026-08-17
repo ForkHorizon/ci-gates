@@ -10,7 +10,7 @@ on:
       runner-group:
         description: Runner group for the routing contract.
         type: string
-        default: ci-scope
+        default: Default
       runner-labels:
         description: JSON array of runner labels to target.
         type: string

@@ -14,10 +14,10 @@ CONTRACT_INPUTS = (
     "trust-fixture-mode",
 )
 EXPECTED_V1 = {
-    "code-linter.yml": ("ci-scope", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
-    "go-quality.yml": ("ci-scope", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
-    "python-quality.yml": ("ci-scope", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
-    "slop-review.yml": ("ci-scope", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
+    "code-linter.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
+    "go-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
+    "python-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
+    "slop-review.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
     "swift-compile.yml": (
         "ci-scope-broker",
         ["self-hosted", "macOS", "ARM64", "ci-scope-broker"],
@@ -26,8 +26,8 @@ EXPECTED_V1 = {
         "ci-scope-broker",
         ["self-hosted", "macOS", "ARM64", "ci-scope-broker"],
     ),
-    "unity-quality.yml": ("ci-scope", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
-    "web-quality.yml": ("ci-scope", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
+    "unity-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
+    "web-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
 }
 CONTRACT_GUARD = (
     "(inputs['routing-generation'] == 'v1' && inputs['workflow-contract-version'] == 'v1') "
