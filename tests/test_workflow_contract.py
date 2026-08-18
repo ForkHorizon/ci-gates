@@ -19,14 +19,8 @@ EXPECTED_V1 = {
     "go-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
     "python-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
     "slop-review.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
-    "swift-compile.yml": (
-        "ci-scope-broker",
-        ["self-hosted", "macOS", "ARM64", "ci-scope-broker"],
-    ),
-    "swift-quality.yml": (
-        "ci-scope-broker",
-        ["self-hosted", "macOS", "ARM64", "ci-scope-broker"],
-    ),
+    "swift-compile.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
+    "swift-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
     "unity-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
     "web-quality.yml": ("Default", ["self-hosted", "macOS", "ARM64", "ci-scope"]),
 }
