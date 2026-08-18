@@ -113,8 +113,9 @@ policy, checks Ruff lint/format, and validates all workflow files. The public
 across the small modules in `scripts/code_linter/`.
 
 The manual `CI Scope v2 Canary` workflow runs two same-label v2 jobs against
-the dedicated trusted group. It is an evidence fixture only; it does not
-change v1 defaults or activate production routing.
+the `ci-scope-v2-canary` runner group with isolated routing validation.
+Release provenance and manifest enforcement are validated fail-closed via
+`scripts/release_enforcement.py` and `scripts/release_manifest.py`.
 
 ## Inputs
 
