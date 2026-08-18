@@ -15,14 +15,16 @@ spec.loader.exec_module(release_manifest)
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 OTHER_SHA = "fedcba9876543210fedcba9876543210fedcba98"
+WORKER_DEPLOYMENT_ID = "11111111-2222-3333-4444-555555555555"
 
 
 def manifest(**overrides):
     value = {
         "ci_gates_sha": SHA,
         "workflow_sha": OTHER_SHA,
+        "worker_deployment_id": WORKER_DEPLOYMENT_ID,
         "routing_generation": "v2",
-        "group": "ci-scope-v2-trusted",
+        "group": "ci-scope-v2-canary",
         "labels": ["self-hosted", "macOS", "ARM64", "ci-scope-v2"],
         "progress_marker_version": 1,
         "release_manifest_version": 1,
@@ -48,15 +50,48 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertIn("missing field: workflow_sha", errors)
         self.assertIn("unknown field: floating_ref", errors)
 
+    def test_cloudflare_worker_deployment_id_is_required_and_must_not_be_placeholder(self):
+        missing = manifest()
+        del missing["worker_deployment_id"]
+        self.assertIn(
+            "worker_deployment_id is required for cloudflare-worker deployments",
+            release_manifest.validate_manifest(missing),
+        )
+        errors = release_manifest.validate_manifest(
+            manifest(worker_deployment_id="<required: verified Worker deployment UUID>")
+        )
+        self.assertTrue(any("worker_deployment_id" in error for error in errors))
+
+    def test_vps_manifest_uses_control_plane_endpoint(self):
+        value = manifest(
+            deployment_kind="vps",
+            control_plane_endpoint="https://ci.example.test/api/ci/v2",
+        )
+        del value["worker_deployment_id"]
+        self.assertEqual(release_manifest.validate_manifest(value), [])
+
+    def test_vps_manifest_requires_https_endpoint(self):
+        value = manifest(deployment_kind="vps", control_plane_endpoint="http://ci.example.test")
+        del value["worker_deployment_id"]
+        errors = release_manifest.validate_manifest(value)
+        self.assertIn("control_plane_endpoint must be an absolute HTTPS URL", errors)
+
     def test_sha_and_expected_sha_must_be_pinned(self):
         errors = release_manifest.validate_manifest(manifest(ci_gates_sha="main"), expected_ci_gates_sha=OTHER_SHA)
         self.assertTrue(any("ci_gates_sha" in error for error in errors))
         self.assertTrue(any("expected_ci_gates_sha" in error for error in errors))
 
+    def test_zero_sha_is_not_release_provenance(self):
+        errors = release_manifest.validate_manifest(manifest(workflow_sha="0" * 40))
+        self.assertIn(
+            "workflow_sha must be a full lowercase 40-character commit SHA",
+            errors,
+        )
+
     def test_routing_and_versions_are_bounded(self):
         errors = release_manifest.validate_manifest(
             manifest(
-                group="ci-scope-v2-trusted",
+                group="ci-scope-v2-canary",
                 labels=["self-hosted"],
                 progress_marker_version=0,
                 release_manifest_version=True,

@@ -1,0 +1,11 @@
+name: production gate caller
+on: push
+jobs:
+  gate:
+    uses: ForkHorizon/ci-gates/.github/workflows/code-linter.yml@a94e73b2f0935bd11f47f269f1c18bc9469daaa4
+    with:
+      runner-group: ci-scope-v2-canary
+      runner-labels: '["self-hosted", "macOS", "ARM64", "ci-scope-v2"]'
+      routing-generation: v2
+      workflow-contract-version: v2
+      gates-ref: a94e73b2f0935bd11f47f269f1c18bc9469daaa4

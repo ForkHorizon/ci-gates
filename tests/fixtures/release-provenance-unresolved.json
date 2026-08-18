@@ -1,0 +1,14 @@
+{
+  "workflow_sha": {
+    "value": null,
+    "source": "",
+    "evidence_id": "",
+    "verified": false
+  },
+  "worker_deployment_id": {
+    "value": null,
+    "source": "",
+    "evidence_id": "",
+    "verified": false
+  }
+}

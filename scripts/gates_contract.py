@@ -10,7 +10,7 @@ from collections.abc import Mapping
 
 V1 = "v1"
 V2 = "v2"
-V2_TRUSTED_GROUP = "ci-scope-v2-trusted"
+V2_TRUSTED_GROUP = "ci-scope-v2-canary"
 V2_LABEL = "ci-scope-v2"
 V1_APPROVED_GROUPS = frozenset({"Default", "ci-scope", "ci-scope-broker"})
 CANARY_ONLY = "canary-only"

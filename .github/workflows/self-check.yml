@@ -43,6 +43,17 @@ jobs:
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -q
 
+      - name: Enforce release manifest and pinned canary refs
+        run: |
+          if python3 scripts/release_enforcement.py \
+            tests/fixtures/release-manifest-v2.json \
+            --environment production \
+            --workflow tests/fixtures/production-caller.yml \
+            --provenance tests/fixtures/release-provenance-unresolved.json; then
+            echo "release fixture unexpectedly passed without verified external provenance"
+            exit 1
+          fi
+
       - name: Measure Python line and branch coverage
         run: |
           python3 -m coverage erase

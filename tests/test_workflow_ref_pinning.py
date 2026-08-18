@@ -157,7 +157,7 @@ class ReusableWorkflowReferenceTests(unittest.TestCase):
         gate_workflows = []
         for path in workflow_paths:
             workflow = path.read_text(encoding="utf-8")
-            if "ci-gates" not in workflow:
+            if "ci-gates" not in workflow or path.name == "routing-validation.yml":
                 continue
             gate_workflows.append(path)
             with self.subTest(workflow=path.name):

@@ -19,20 +19,24 @@ jobs:
     name: Same-label canary A
     uses: ./.github/workflows/code-linter.yml
     with:
-      runner-group: ci-scope-v2-trusted
+      runner-group: ci-scope-v2-canary
       runner-labels: '["self-hosted", "macOS", "ARM64", "ci-scope-v2"]'
+      runner-label: ci-scope-v2
       routing-generation: v2
       workflow-contract-version: v2
       trust-fixture-mode: canary-only
+      gates-ref: a94e73b2f0935bd11f47f269f1c18bc9469daaa4
       mode: all
 
   same-label-b:
     name: Same-label canary B
     uses: ./.github/workflows/code-linter.yml
     with:
-      runner-group: ci-scope-v2-trusted
+      runner-group: ci-scope-v2-canary
       runner-labels: '["self-hosted", "macOS", "ARM64", "ci-scope-v2"]'
+      runner-label: ci-scope-v2
       routing-generation: v2
       workflow-contract-version: v2
       trust-fixture-mode: canary-only
+      gates-ref: a94e73b2f0935bd11f47f269f1c18bc9469daaa4
       mode: all

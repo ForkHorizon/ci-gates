@@ -12,7 +12,7 @@ SPEC.loader.exec_module(gates_contract)
 
 V2 = {
     "generation": "v2",
-    "group": "ci-scope-v2-trusted",
+    "group": "ci-scope-v2-canary",
     "labels": ["self-hosted", "macOS", "ARM64", "ci-scope-v2"],
 }
 
