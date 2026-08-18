@@ -179,11 +179,13 @@ def _uses_trusted_group(job: str, trusted_groups: object) -> bool:
 
 def _job_blocks(text: str) -> list[str]:
     lines = text.splitlines()
-    for jobs_index, line in enumerate(lines):
+    jobs_index = None
+    for index, line in enumerate(lines):
         match = _KEY_RE.match(line)
         if match and match.group(1) == "jobs" and not match.group(2):
+            jobs_index = index
             break
-    else:
+    if jobs_index is None:
         return []
 
     jobs_indent = len(lines[jobs_index]) - len(lines[jobs_index].lstrip())

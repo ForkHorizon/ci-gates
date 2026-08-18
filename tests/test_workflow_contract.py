@@ -95,8 +95,7 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertRegex(
                     workflow,
                     r"(?m)^    runs-on:\n"
-                    r"      group: \$\{\{ inputs\['runner-group'\] \}\}\n"
-                    + labels_expression + "$",
+                    r"      group: \$\{\{ inputs\['runner-group'\] \}\}\n" + labels_expression + "$",
                 )
                 self.assertIn("uses: ./.github/workflows/routing-validation.yml", workflow)
 

@@ -33,7 +33,9 @@ jobs:
       - run: echo ok
 """
 
-UNGUARDED_ADDITIONAL_JOB = VALID_V2 + """\
+UNGUARDED_ADDITIONAL_JOB = (
+    VALID_V2
+    + """\
   unguarded:
     runs-on:
       group: ci-scope-v2-canary
@@ -42,6 +44,7 @@ UNGUARDED_ADDITIONAL_JOB = VALID_V2 + """\
     steps:
       - run: echo unsafe
 """
+)
 
 
 class WorkflowPolicyTests(unittest.TestCase):
