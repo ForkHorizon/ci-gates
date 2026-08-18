@@ -109,7 +109,7 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertEqual(_scalar(inputs["runs-on"]["default"]), json.dumps(labels))
                 self.assertEqual(_scalar(inputs["runner-group"]["default"]), runner_group)
                 self.assertEqual(json.loads(_scalar(inputs["runner-labels"]["default"])), labels)
-                self.assertEqual(_scalar(inputs["runner-label"]["default"]), runner_group)
+                self.assertEqual(_scalar(inputs["runner-label"]["default"]), labels[-1])
                 self.assertEqual(_scalar(inputs["routing-generation"]["default"]), "v1")
                 self.assertEqual(_scalar(inputs["workflow-contract-version"]["default"]), "v1")
                 self.assertEqual(_scalar(inputs["trust-fixture-mode"]["default"]), "")
