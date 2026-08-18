@@ -180,9 +180,13 @@ def run_dead_code(root: Path, config: dict) -> None:
     cmd.extend(str(arg) for arg in config.get("periphery_arguments", []))
 
     if project.kind == "xcode-workspace":
-        cmd.extend(["--workspace", project.project_path or "", "--schemes", project.scheme or ""])
+        cmd.extend(["--workspace", project.project_path or ""])
+        if not any(arg == "--schemes" for arg in config.get("periphery_arguments", [])):
+            cmd.extend(["--schemes", project.scheme or ""])
     elif project.kind == "xcode-project":
-        cmd.extend(["--project", project.project_path or "", "--schemes", project.scheme or ""])
+        cmd.extend(["--project", project.project_path or ""])
+        if not any(arg == "--schemes" for arg in config.get("periphery_arguments", [])):
+            cmd.extend(["--schemes", project.scheme or ""])
 
     xcode_args = []
     if project.kind.startswith("xcode"):
