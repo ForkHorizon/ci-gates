@@ -18,6 +18,7 @@ from _progress import progress
 from swift_quality_support import (
     collect_swift_paths,
     detect_project,
+    ensure_developer_dir,
     ensure_periphery,
     error,
     github_path,
@@ -151,6 +152,7 @@ def run_build(root: Path, config: dict) -> None:
 
 
 def run_format(root: Path, config: dict, args: argparse.Namespace) -> None:
+    ensure_developer_dir()
     swift_files = collect_swift_paths(root, config, args)
     if not swift_files:
         print(f"Swift format skipped: no Swift files in {args.mode} mode.")

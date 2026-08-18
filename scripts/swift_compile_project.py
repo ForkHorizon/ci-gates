@@ -1,11 +1,29 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
 from swift_compile_common import fail, require_path, stripped, trimmed_error
 from swift_compile_model import SwiftProject
+
+
+def ensure_developer_dir() -> None:
+    if "DEVELOPER_DIR" in os.environ:
+        return
+    try:
+        proc = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, check=False)
+        selected = proc.stdout.strip()
+        if selected and not selected.endswith("CommandLineTools"):
+            return
+    except Exception:
+        pass
+    for candidate in sorted(Path("/Applications").glob("Xcode*.app")):
+        dev_dir = candidate / "Contents" / "Developer"
+        if dev_dir.exists():
+            os.environ["DEVELOPER_DIR"] = str(dev_dir)
+            return
 
 
 def xcode_project(
@@ -27,6 +45,7 @@ def xcode_project(
 
 
 def detect_project(root: Path, config: dict) -> SwiftProject:
+    ensure_developer_dir()
     configuration = str(config.get("xcode_configuration") or "Debug")
     destination = str(config.get("xcode_destination") or "")
     scheme = stripped(config.get("xcode_scheme"))

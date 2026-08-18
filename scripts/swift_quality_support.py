@@ -24,7 +24,25 @@ class SwiftProject:
     configuration: str = "Debug"
 
 
+def ensure_developer_dir() -> None:
+    if "DEVELOPER_DIR" in os.environ:
+        return
+    try:
+        proc = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, check=False)
+        selected = proc.stdout.strip()
+        if selected and not selected.endswith("CommandLineTools"):
+            return
+    except Exception:
+        pass
+    for candidate in sorted(Path("/Applications").glob("Xcode*.app")):
+        dev_dir = candidate / "Contents" / "Developer"
+        if dev_dir.exists():
+            os.environ["DEVELOPER_DIR"] = str(dev_dir)
+            return
+
+
 def detect_project(root: Path, config: dict) -> SwiftProject:
+    ensure_developer_dir()
     configuration = str(config.get("xcode_configuration") or "Debug")
     destination = str(config.get("xcode_destination") or "")
     scheme = stripped(config.get("xcode_scheme"))
