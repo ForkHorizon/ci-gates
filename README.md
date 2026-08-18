@@ -121,7 +121,7 @@ Release provenance and manifest enforcement are validated fail-closed via
 
 Common to all workflows:
 
-- `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope` for the Code Linter, `ci-scope-broker` for Swift gates).
+- `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope`).
 - `runner-group` — optional GitHub-hosted runner-group name. v1 defaults keep
   the existing placement; v2 requires the dedicated trusted group.
 - `runner-labels` — JSON array used by the v2 routing contract. It must be
