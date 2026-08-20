@@ -104,15 +104,15 @@ jobs:
           set -euo pipefail
           python3 "$RUNNER_TEMP/ci-gates/scripts/_progress.py" --step unity --current 5 --total 5 --detail "Checking duplication"
           cd "$HOME/Library/Caches/ci-gates/unity-workspaces/$(echo '${{ github.repository }}' | sed 's#/#__#')"
-          TARGET_PATHS=""
+          TARGET_PATHS=()
           if [ -d "Assets" ]; then
-            TARGET_PATHS="Assets"
+            TARGET_PATHS+=("Assets")
           else
-            [ -d "Runtime" ] && TARGET_PATHS="$TARGET_PATHS Runtime"
-            [ -d "Editor" ] && TARGET_PATHS="$TARGET_PATHS Editor"
-            [ -z "$TARGET_PATHS" ] && TARGET_PATHS="."
+            [ -d "Runtime" ] && TARGET_PATHS+=("Runtime")
+            [ -d "Editor" ] && TARGET_PATHS+=("Editor")
+            [ "${#TARGET_PATHS[@]}" -eq 0 ] && TARGET_PATHS+=(".")
           fi
-          npx -y jscpd $TARGET_PATHS \
+          npx -y jscpd "${TARGET_PATHS[@]}" \
             --format "csharp" \
             --threshold "${{ inputs.duplication-threshold }}" \
             --ignore "**/Plugins/**,**/Libs/**,**/TextMesh Pro/**,**/ThirdParty/**,**/Tests~/**,**/tools~/**,**/.unity-harness/**" \
