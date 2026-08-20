@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Portable Unity C# quality gate for projects and UPM packages."""
+
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import subprocess
@@ -11,6 +13,7 @@ import urllib.request
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
+
 from _progress import progress
 
 ANALYZERS_URL = "https://www.nuget.org/api/v2/package/Microsoft.Unity.Analyzers"
@@ -18,7 +21,6 @@ CACHE_DIR = Path.home() / "Library/Caches/ci-gates"
 WARNING_RE = re.compile(
     r"^(?P<path>/[^(]+)\((?P<line>\d+),\d+\): warning (?P<code>[A-Z]+\d+): (?P<message>.*?)(?: \[[^\]]*\])?$"
 )
-
 DEFAULT_CONFIG = {
     "project": "Assembly-CSharp.csproj",
     "unity_path": "",
@@ -41,11 +43,7 @@ def is_unity_package(root: Path) -> bool:
 
 def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
-    if args.repo_url:
-        root = sync_workspace(args.repo_url, args.sha, args.slug)
-    else:
-        progress("unity", current=1, total=5, detail="Preparing workspace")
-        root = Path(args.root).resolve()
+    root = sync_workspace(args.repo_url, args.sha, args.slug) if args.repo_url else Path(args.root).resolve()
     config = load_config(root / args.config, is_pkg=is_unity_package(root))
 
     progress("unity", current=2, total=5, detail="Preparing project files")
@@ -55,17 +53,19 @@ def main(argv: Sequence[str]) -> int:
     progress("unity", current=4, total=5, detail="Compiling C#")
     warnings = build_and_collect(build_root, target, analyzer)
     offending = [
-        w for w in warnings
+        w
+        for w in warnings
         if is_first_party(root, w["path"], config) and w["code"] not in config["warning_exclude_codes"]
     ]
     if offending:
         for w in offending[:20]:
-            print(f"::error file={relative(root, w['path'])},line={w['line']},title={w['code']}::{escape(w['message'])}")
+            print(
+                f"::error file={relative(root, w['path'])},line={w['line']},title={w['code']}::{escape(w['message'])}"
+            )
         if len(offending) > 20:
             print(f"::notice::Unity Quality Gate suppressed {len(offending) - 20} additional annotations.")
         print(f"::error::Unity Quality Gate failed: {len(offending)} warning(s) in first-party code.")
         return 1
-
     print(f"Unity Quality Gate passed: build clean, {len(warnings)} third-party/excluded warning(s) ignored.")
     return 0
 
@@ -103,37 +103,48 @@ def sync_workspace(repo_url: str, sha: str, slug: str) -> Path:
     workspace = CACHE_DIR / "unity-workspaces" / slug.replace("/", "__")
     workspace.parent.mkdir(parents=True, exist_ok=True)
     if not (workspace / ".git").exists():
-        print(f"Priming Unity workspace cache at {workspace}...", flush=True)
-        run_checked(["git", "clone", repo_url, str(workspace)], cwd=workspace.parent)
-    run_checked(["git", "-C", str(workspace), "remote", "set-url", "origin", repo_url], cwd=workspace)
-    run_checked(["git", "-C", str(workspace), "fetch", "--force", "origin", sha], cwd=workspace)
-    run_checked(["git", "-C", str(workspace), "checkout", "--force", sha], cwd=workspace)
-    run_checked(["git", "-C", str(workspace), "clean", "-fdq"], cwd=workspace)
-    print(f"Workspace ready at {workspace} @ {sha[:12]}")
+        run_cmd(["git", "clone", repo_url, str(workspace)], cwd=workspace.parent)
+    run_cmd(["git", "-C", str(workspace), "remote", "set-url", "origin", repo_url])
+    run_cmd(["git", "-C", str(workspace), "fetch", "--force", "origin", sha])
+    run_cmd(["git", "-C", str(workspace), "checkout", "--force", sha])
+    run_cmd(["git", "-C", str(workspace), "clean", "-fdq"])
     return workspace
 
 
-def run_checked(command: list[str], cwd: Path) -> None:
+def run_cmd(command: list[str], cwd: Path | None = None, log_file: Path | None = None) -> str:
     res = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
+    output = res.stdout + res.stderr
     if res.returncode != 0:
-        fail(f"{' '.join(command[:3])}... failed: {(res.stderr or res.stdout).strip()[-1500:]}")
+        tail = log_file.read_text(encoding="utf-8", errors="replace")[-2000:] if log_file and log_file.exists() else ""
+        fail(f"{' '.join(command[:3])}... failed (exit {res.returncode}):\n{(tail or output).strip()[-1500:]}")
+    return output
+
+
+def _sync_rider(unity: str, project_dir: Path) -> None:
+    log = project_dir / "unity-sync.log"
+    cmd = [
+        unity,
+        "-batchmode",
+        "-nographics",
+        "-quit",
+        "-projectPath",
+        str(project_dir),
+        "-executeMethod",
+        "Packages.Rider.Editor.RiderScriptEditor.SyncSolution",
+        "-logFile",
+        str(log),
+    ]
+    run_cmd(cmd, log_file=log)
 
 
 def ensure_csproj(root: Path, config: dict, slug: str = "") -> tuple[Path, str]:
     if is_unity_package(root):
         return ensure_package_harness(root, config, slug=slug)
     target = config.get("project") or "Assembly-CSharp.csproj"
-    if (root / target).exists():
-        return root, target
-    unity = unity_binary(root, config)
-    print(f"{target} not found; generating via Unity batchmode...", flush=True)
-    cmd = [unity, "-batchmode", "-nographics", "-quit", "-projectPath", str(root),
-           "-executeMethod", "Packages.Rider.Editor.RiderScriptEditor.SyncSolution",
-           "-logFile", str(root / "unity-sync.log")]
-    res = subprocess.run(cmd, check=False)
-    if res.returncode != 0 or not (root / target).exists():
-        tail = (root / "unity-sync.log").read_text(encoding="utf-8", errors="replace")[-2000:] if (root / "unity-sync.log").exists() else ""
-        fail(f"Unity batchmode project generation failed (exit {res.returncode}).\n{tail}")
+    if not (root / target).exists():
+        _sync_rider(unity_binary(root, config), root)
+    if not (root / target).exists():
+        fail(f"Project file {target} not generated in {root}.")
     return root, target
 
 
@@ -143,13 +154,13 @@ def ensure_package_harness(root: Path, config: dict, slug: str = "") -> tuple[Pa
     harness.mkdir(parents=True, exist_ok=True)
     unity = unity_binary(root, config)
     if not (harness / "ProjectSettings").exists():
-        print(f"Creating Unity harness project at {harness}...", flush=True)
-        res = subprocess.run([unity, "-batchmode", "-nographics", "-quit", "-createProject", str(harness), "-logFile", str(harness / "create.log")], check=False)
-        if res.returncode != 0:
-            tail = (harness / "create.log").read_text(encoding="utf-8", errors="replace")[-2000:] if (harness / "create.log").exists() else ""
-            fail(f"Failed to create Unity harness at {harness}:\n{tail}")
+        log = harness / "create.log"
+        run_cmd(
+            [unity, "-batchmode", "-nographics", "-quit", "-createProject", str(harness), "-logFile", str(log)],
+            log_file=log,
+        )
     _configure_harness_manifest(harness, root)
-    _sync_harness_solution(unity, harness)
+    _sync_rider(unity, harness)
     sln_files = list(harness.glob("*.sln")) or list(harness.glob("*.csproj"))
     if not sln_files:
         fail(f"No solution or csproj files generated in {harness}.")
@@ -169,43 +180,27 @@ def _configure_harness_manifest(harness: Path, root: Path) -> None:
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
-def _sync_harness_solution(unity: str, harness: Path) -> None:
-    print(f"Syncing harness solution via Unity Rider in {harness.name}...", flush=True)
-    cmd = [unity, "-batchmode", "-nographics", "-quit", "-projectPath", str(harness),
-           "-executeMethod", "Packages.Rider.Editor.RiderScriptEditor.SyncSolution",
-           "-logFile", str(harness / "unity-sync.log")]
-    res = subprocess.run(cmd, check=False)
-    if res.returncode != 0:
-        tail = (harness / "unity-sync.log").read_text(encoding="utf-8", errors="replace")[-2000:] if (harness / "unity-sync.log").exists() else ""
-        fail(f"Unity harness solution sync failed (exit {res.returncode}):\n{tail}")
-
-
 def unity_binary(root: Path, config: dict) -> str:
-    configured = str(config.get("unity_path") or "").strip()
-    if configured:
-        return configured
+    if config.get("unity_path"):
+        return str(config["unity_path"]).strip()
     version_file = root / "ProjectSettings" / "ProjectVersion.txt"
     if version_file.exists():
         match = re.search(r"m_EditorVersion:\s*(\S+)", version_file.read_text(encoding="utf-8"))
-        if not match:
-            fail("Could not read m_EditorVersion from ProjectVersion.txt.")
-        binary = Path(f"/Applications/Unity/Hub/Editor/{match.group(1)}/Unity.app/Contents/MacOS/Unity")
-        if not binary.exists():
-            fail(f"Unity {match.group(1)} is not installed at {binary}. Install it or set unity_path in the config.")
-        return str(binary)
+        if match:
+            bin_path = Path(f"/Applications/Unity/Hub/Editor/{match.group(1)}/Unity.app/Contents/MacOS/Unity")
+            if bin_path.exists():
+                return str(bin_path)
     if is_unity_package(root):
         found = _find_installed_unity(root)
         if found:
             return found
-    fail("Not a Unity project or package: ProjectSettings/ProjectVersion.txt is missing and no compatible Unity installation found.")
+    fail("Not a Unity project or package: missing ProjectSettings/ProjectVersion.txt and no Unity editor found.")
 
 
 def _find_installed_unity(root: Path) -> str | None:
     req_ver = ""
-    try:
+    with contextlib.suppress(Exception):
         req_ver = str(json.loads((root / "package.json").read_text(encoding="utf-8")).get("unity") or "").strip()
-    except Exception:
-        pass
     hub_dir = Path("/Applications/Unity/Hub/Editor")
     if not hub_dir.exists():
         return None
@@ -224,7 +219,6 @@ def ensure_analyzers() -> Path:
         return dll
     dll.parent.mkdir(parents=True, exist_ok=True)
     archive = dll.parent / "package.nupkg"
-    print("Downloading Microsoft.Unity.Analyzers from NuGet...", flush=True)
     urllib.request.urlretrieve(ANALYZERS_URL, archive)
     with zipfile.ZipFile(archive) as bundle:
         for name in bundle.namelist():
@@ -241,15 +235,13 @@ def build_and_collect(build_root: Path, target: str, analyzer: Path) -> list[dic
     props = build_root / "Directory.Build.props"
     props_existed = props.exists()
     if not props_existed:
-        props.write_text(f'<Project>\n  <ItemGroup>\n    <Analyzer Include="{analyzer}" />\n  </ItemGroup>\n</Project>\n', encoding="utf-8")
+        props.write_text(
+            f'<Project>\n  <ItemGroup>\n    <Analyzer Include="{analyzer}" />\n  </ItemGroup>\n</Project>\n',
+            encoding="utf-8",
+        )
     try:
-        command = ["dotnet", "build", target, "-v", "q", "--nologo"]
-        print("$ " + " ".join(command), flush=True)
-        result = subprocess.run(command, cwd=build_root, text=True, capture_output=True, check=False)
-        output = result.stdout + result.stderr
+        output = run_cmd(["dotnet", "build", target, "-v", "q", "--nologo"], cwd=build_root)
         print(output, flush=True)
-        if result.returncode != 0:
-            fail(f"dotnet build failed with exit code {result.returncode}.")
     finally:
         if not props_existed:
             props.unlink(missing_ok=True)
@@ -261,13 +253,22 @@ def build_and_collect(build_root: Path, target: str, analyzer: Path) -> list[dic
             key = (match["path"], match["line"], match["code"])
             if key not in seen:
                 seen.add(key)
-                warnings.append({"path": match["path"], "line": int(match["line"]), "code": match["code"], "message": match["message"].strip()})
+                warnings.append(
+                    {
+                        "path": match["path"],
+                        "line": int(match["line"]),
+                        "code": match["code"],
+                        "message": match["message"].strip(),
+                    }
+                )
     return warnings
 
 
 def is_first_party(root: Path, path: str, config: dict) -> bool:
     rel = relative(root, path)
-    return any(rel.startswith(p) for p in config["include_paths"]) and not any(rel.startswith(p) for p in config["exclude_paths"])
+    return any(rel.startswith(p) for p in config["include_paths"]) and not any(
+        rel.startswith(p) for p in config["exclude_paths"]
+    )
 
 
 def relative(root: Path, path: str) -> str:

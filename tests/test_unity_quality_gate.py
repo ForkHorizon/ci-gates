@@ -21,7 +21,9 @@ class UnityQualityGateTests(unittest.TestCase):
             self.assertTrue(unity_quality_gate.is_unity_package(root))
 
             (root / "ProjectSettings").mkdir()
-            (root / "ProjectSettings" / "ProjectVersion.txt").write_text("m_EditorVersion: 6000.0.0f1", encoding="utf-8")
+            (root / "ProjectSettings" / "ProjectVersion.txt").write_text(
+                "m_EditorVersion: 6000.0.0f1", encoding="utf-8"
+            )
             self.assertFalse(unity_quality_gate.is_unity_package(root))
 
     def test_load_config_for_project_and_package(self):
@@ -36,9 +38,7 @@ class UnityQualityGateTests(unittest.TestCase):
             self.assertEqual(cfg_pkg["include_paths"], ["Runtime/", "Editor/"])
 
             # Test migration of default Assets/ template in package repos
-            (root / ".unity-quality-gate.json").write_text(
-                json.dumps({"include_paths": ["Assets/"]}), encoding="utf-8"
-            )
+            (root / ".unity-quality-gate.json").write_text(json.dumps({"include_paths": ["Assets/"]}), encoding="utf-8")
             cfg_migrated = unity_quality_gate.load_config(root / ".unity-quality-gate.json", is_pkg=True)
             self.assertEqual(cfg_migrated["include_paths"], ["Runtime/", "Editor/"])
 
