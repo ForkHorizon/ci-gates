@@ -36,6 +36,18 @@ DEFAULT_CONFIG = {
     "warning_exclude_codes": [],
 }
 
+DEFAULT_PACKAGE_CONFIG = {
+    "project": "",
+    "unity_path": "",
+    "include_paths": ["Runtime/", "Editor/"],
+    "exclude_paths": ["Tests~/", "tools~/", "Plugins/"],
+    "warning_exclude_codes": [],
+}
+
+
+def is_unity_package(root: Path) -> bool:
+    return (root / "package.json").exists() and not (root / "ProjectSettings" / "ProjectVersion.txt").exists()
+
 
 def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
@@ -44,14 +56,14 @@ def main(argv: Sequence[str]) -> int:
     else:
         progress("unity", current=1, total=5, detail="Preparing workspace")
         root = Path(args.root).resolve()
-    config = load_config(root / args.config)
+    config = load_config(root / args.config, is_pkg=is_unity_package(root))
 
     progress("unity", current=2, total=5, detail="Preparing project files")
-    ensure_csproj(root, config)
+    build_root, target_project = ensure_csproj(root, config, slug=args.slug)
     progress("unity", current=3, total=5, detail="Loading analyzers")
     analyzer = ensure_analyzers()
     progress("unity", current=4, total=5, detail="Compiling C#")
-    warnings = build_and_collect(root, config, analyzer)
+    warnings = build_and_collect(build_root, target_project, analyzer)
     offending = [
         w
         for w in warnings
@@ -82,8 +94,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def load_config(path: Path) -> dict:
-    config = {key: (list(value) if isinstance(value, list) else value) for key, value in DEFAULT_CONFIG.items()}
+def load_config(path: Path, is_pkg: bool = False) -> dict:
+    base = DEFAULT_PACKAGE_CONFIG if is_pkg else DEFAULT_CONFIG
+    config = {key: (list(value) if isinstance(value, list) else value) for key, value in base.items()}
     if path.exists():
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -91,6 +104,9 @@ def load_config(path: Path) -> dict:
             fail(f"Invalid JSON config {path.name}: {exc}")
         if not isinstance(loaded, dict):
             fail(f"{path.name} must be a JSON object.")
+        if is_pkg and loaded.get("include_paths") == ["Assets/"]:
+            # If a package config copied the default Unity project template, ensure Runtime/Editor are included
+            loaded["include_paths"] = ["Runtime/", "Editor/"]
         config.update(loaded)
     return config
 
@@ -123,12 +139,17 @@ def run_checked(command: list[str], cwd: Path) -> None:
         fail(f"{' '.join(command[:3])}... failed: {(result.stderr or result.stdout).strip()[-1500:]}")
 
 
-def ensure_csproj(root: Path, config: dict) -> None:
-    if (root / config["project"]).exists():
-        return
+def ensure_csproj(root: Path, config: dict, slug: str = "") -> tuple[Path, str]:
+    if is_unity_package(root):
+        return ensure_package_harness(root, config, slug=slug)
+
+    target_project = config.get("project") or "Assembly-CSharp.csproj"
+    if (root / target_project).exists():
+        return root, target_project
+
     unity = unity_binary(root, config)
     print(
-        f"{config['project']} not found; generating via Unity batchmode (first run imports the Library and can take a while)...",
+        f"{target_project} not found; generating via Unity batchmode (first run imports the Library and can take a while)...",
         flush=True,
     )
     result = subprocess.run(
@@ -146,12 +167,77 @@ def ensure_csproj(root: Path, config: dict) -> None:
         ],
         check=False,
     )
-    if result.returncode != 0 or not (root / config["project"]).exists():
+    if result.returncode != 0 or not (root / target_project).exists():
         tail = ""
         log = root / "unity-sync.log"
         if log.exists():
             tail = log.read_text(encoding="utf-8", errors="replace")[-2000:]
         fail(f"Unity batchmode project generation failed (exit {result.returncode}).\n{tail}")
+    return root, target_project
+
+
+def ensure_package_harness(root: Path, config: dict, slug: str = "") -> tuple[Path, str]:
+    key = slug.replace("/", "__") if slug else root.name
+    harness_dir = CACHE_DIR / "unity-package-harnesses" / key
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    unity = unity_binary(root, config)
+
+    if not (harness_dir / "ProjectSettings").exists():
+        print(f"Creating Unity harness project at {harness_dir}...", flush=True)
+        res = subprocess.run(
+            [unity, "-batchmode", "-nographics", "-quit", "-createProject", str(harness_dir), "-logFile", str(harness_dir / "create.log")],
+            check=False,
+        )
+        if res.returncode != 0:
+            tail = ""
+            log = harness_dir / "create.log"
+            if log.exists():
+                tail = log.read_text(encoding="utf-8", errors="replace")[-2000:]
+            fail(f"Failed to create Unity package harness at {harness_dir}:\n{tail}")
+
+    manifest_path = harness_dir / "Packages" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {"dependencies": {}}
+    pkg_json = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    pkg_name = pkg_json.get("name") or root.name
+
+    manifest.setdefault("dependencies", {})[pkg_name] = f"file:{root}"
+    for dep, ver in pkg_json.get("dependencies", {}).items():
+        manifest["dependencies"][dep] = ver
+    manifest["dependencies"]["com.unity.ide.rider"] = "3.0.38"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    print(f"Syncing solution for package {pkg_name} via Unity Rider...", flush=True)
+    res = subprocess.run(
+        [
+            unity,
+            "-batchmode",
+            "-nographics",
+            "-quit",
+            "-projectPath",
+            str(harness_dir),
+            "-executeMethod",
+            "Packages.Rider.Editor.RiderScriptEditor.SyncSolution",
+            "-logFile",
+            str(harness_dir / "unity-sync.log"),
+        ],
+        check=False,
+    )
+    if res.returncode != 0:
+        tail = ""
+        log = harness_dir / "unity-sync.log"
+        if log.exists():
+            tail = log.read_text(encoding="utf-8", errors="replace")[-2000:]
+        fail(f"Unity harness solution sync failed (exit {res.returncode}):\n{tail}")
+
+    sln_files = list(harness_dir.glob("*.sln"))
+    if sln_files:
+        return harness_dir, sln_files[0].name
+
+    csproj_files = list(harness_dir.glob("*.csproj"))
+    if csproj_files:
+        return harness_dir, csproj_files[0].name
+
+    fail(f"No solution or csproj files generated in {harness_dir}.")
 
 
 def unity_binary(root: Path, config: dict) -> str:
@@ -159,15 +245,34 @@ def unity_binary(root: Path, config: dict) -> str:
     if configured:
         return configured
     version_file = root / "ProjectSettings" / "ProjectVersion.txt"
-    if not version_file.exists():
-        fail("Not a Unity project: ProjectSettings/ProjectVersion.txt is missing.")
-    match = re.search(r"m_EditorVersion:\s*(\S+)", version_file.read_text(encoding="utf-8"))
-    if not match:
-        fail("Could not read m_EditorVersion from ProjectVersion.txt.")
-    binary = Path(f"/Applications/Unity/Hub/Editor/{match.group(1)}/Unity.app/Contents/MacOS/Unity")
-    if not binary.exists():
-        fail(f"Unity {match.group(1)} is not installed at {binary}. Install it or set unity_path in the config.")
-    return str(binary)
+    if version_file.exists():
+        match = re.search(r"m_EditorVersion:\s*(\S+)", version_file.read_text(encoding="utf-8"))
+        if not match:
+            fail("Could not read m_EditorVersion from ProjectVersion.txt.")
+        binary = Path(f"/Applications/Unity/Hub/Editor/{match.group(1)}/Unity.app/Contents/MacOS/Unity")
+        if not binary.exists():
+            fail(f"Unity {match.group(1)} is not installed at {binary}. Install it or set unity_path in the config.")
+        return str(binary)
+
+    if is_unity_package(root):
+        req_ver = ""
+        try:
+            pkg_data = json.loads((root / "package.json").read_text(encoding="utf-8"))
+            req_ver = str(pkg_data.get("unity") or "").strip()
+        except Exception:
+            pass
+        hub_dir = Path("/Applications/Unity/Hub/Editor")
+        if hub_dir.exists():
+            installed = sorted([p.name for p in hub_dir.iterdir() if (p / "Unity.app").exists()], reverse=True)
+            if req_ver:
+                prefix = req_ver.split(".")[0]
+                for v in installed:
+                    if v.startswith(prefix):
+                        return str(hub_dir / v / "Unity.app/Contents/MacOS/Unity")
+            if installed:
+                return str(hub_dir / installed[0] / "Unity.app/Contents/MacOS/Unity")
+
+    fail("Not a Unity project or package: ProjectSettings/ProjectVersion.txt is missing and no compatible Unity installation found.")
 
 
 def ensure_analyzers() -> Path:
@@ -189,8 +294,8 @@ def ensure_analyzers() -> Path:
     return dll
 
 
-def build_and_collect(root: Path, config: dict, analyzer: Path) -> list[dict]:
-    props = root / "Directory.Build.props"
+def build_and_collect(build_root: Path, target_project: str, analyzer: Path) -> list[dict]:
+    props = build_root / "Directory.Build.props"
     props_existed = props.exists()
     if not props_existed:
         props.write_text(
@@ -201,9 +306,9 @@ def build_and_collect(root: Path, config: dict, analyzer: Path) -> list[dict]:
         print("::notice::Directory.Build.props already exists; assuming it wires analyzers itself.")
 
     try:
-        command = ["dotnet", "build", config["project"], "-v", "q", "--nologo"]
+        command = ["dotnet", "build", target_project, "-v", "q", "--nologo"]
         print("$ " + " ".join(command), flush=True)
-        result = subprocess.run(command, cwd=root, text=True, capture_output=True, check=False)
+        result = subprocess.run(command, cwd=build_root, text=True, capture_output=True, check=False)
         output = result.stdout + result.stderr
         print(output, flush=True)
         if result.returncode != 0:
@@ -241,7 +346,7 @@ def is_first_party(root: Path, path: str, config: dict) -> bool:
 
 def relative(root: Path, path: str) -> str:
     try:
-        return Path(path).resolve().relative_to(root).as_posix()
+        return Path(path).resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return path
 
