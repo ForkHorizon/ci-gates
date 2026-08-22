@@ -202,7 +202,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
 
-    print("✅ Policy Signature Guard: All policy modifications are authorized by verified code owners (or only regular source files were modified).")
+    print(
+        "✅ Policy Signature Guard: All policy modifications are authorized by verified code owners (or only regular source files were modified)."
+    )
     return 0
 
 
