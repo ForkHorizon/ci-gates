@@ -141,6 +141,19 @@ jobs:
             echo "head=$head"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Verify Policy Signatures
+        if: ${{ steps.scan.outputs.mode == 'changed' }}
+        shell: bash
+        env:
+          BASE_SHA: ${{ steps.scan.outputs.base }}
+          HEAD_SHA: ${{ steps.scan.outputs.head }}
+        run: |
+          set -euo pipefail
+          python3 .ci-gates/scripts/policy_signature_guard.py \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --allowed-signers .ci-gates/configs/allowed_signers
+
       - name: Run Code Linter
         shell: bash
         env:
