@@ -7,11 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.policy_signature_guard import (
-    DEFAULT_PROTECTED_PATTERNS,
     audit_policy_signatures,
-    find_changed_protected_files,
     is_protected_file,
-    verify_commit_signature,
 )
 
 

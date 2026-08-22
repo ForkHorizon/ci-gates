@@ -45,10 +45,7 @@ def is_protected_file(path_str: str, patterns: Sequence[str] = DEFAULT_PROTECTED
     if normalized.startswith("./"):
         normalized = normalized[2:]
     basename = os.path.basename(normalized)
-    for pattern in patterns:
-        if fnmatch.fnmatch(normalized, pattern) or fnmatch.fnmatch(basename, pattern):
-            return True
-    return False
+    return any(fnmatch.fnmatch(normalized, pattern) or fnmatch.fnmatch(basename, pattern) for pattern in patterns)
 
 
 def git_cmd(root: Path, args: list[str]) -> tuple[int, str, str]:
@@ -59,8 +56,7 @@ def git_cmd(root: Path, args: list[str]) -> tuple[int, str, str]:
         env["GIT_CONFIG_NOSYSTEM"] = "1"
     proc = subprocess.run(
         ["git", "-C", str(root), *args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         env=env,
         check=False,
@@ -115,16 +111,16 @@ def verify_commit_signature(
     signer = parts[1].strip() if len(parts) > 1 else ""
     key_fingerprint = parts[2].strip() if len(parts) > 2 else ""
 
-    # Git status: G=Good, B=Bad, U=Untrusted, X/Y=Expired, R=Revoked, E=Error, N=None
+    identity = signer or key_fingerprint
+    status_messages = {
+        "N": "Commit is unsigned (no cryptographic signature present)",
+        "U": f"Signature exists but is from an untrusted / unauthorized key ({identity})",
+        "B": "Signature is corrupt or invalid (BAD signature)",
+    }
+
     if status == "G":
-        return True, signer or key_fingerprint, ""
-    if status == "N":
-        return False, "", "Commit is unsigned (no cryptographic signature present)"
-    if status == "U":
-        return False, signer, f"Signature exists but is from an untrusted / unauthorized key ({signer or key_fingerprint})"
-    if status == "B":
-        return False, signer, "Signature is corrupt or invalid (BAD signature)"
-    return False, signer, f"Signature verification failed with status code '{status}'"
+        return True, identity, ""
+    return False, identity, status_messages.get(status, f"Signature verification failed with status code '{status}'")
 
 
 def audit_policy_signatures(
@@ -140,25 +136,22 @@ def audit_policy_signatures(
         return []
 
     errors: list[str] = []
-    # Find all commits that touched these specific protected files
-    code, stdout, stderr = git_cmd(
+    code, stdout, _ = git_cmd(
         root,
         ["log", f"{base}..{head}", "--format=%H", "--", *protected_files],
     )
     if code != 0:
-        # Fallback if range fails
-        code, stdout, stderr = git_cmd(
+        code, stdout, _ = git_cmd(
             root,
             ["log", "-n", "20", "--format=%H", "--", *protected_files],
         )
 
     commits = [line.strip() for line in stdout.splitlines() if line.strip()]
     if not commits and protected_files:
-        # If git log range was empty but diff has files (e.g. uncommitted/head), check HEAD
         commits = [head]
 
     for commit in commits:
-        valid, signer, reason = verify_commit_signature(root, commit, allowed_signers)
+        valid, _, reason = verify_commit_signature(root, commit, allowed_signers)
         if not valid:
             for pf in protected_files:
                 err_msg = (
