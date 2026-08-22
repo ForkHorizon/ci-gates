@@ -115,15 +115,7 @@ def verify_commit_signature(
     signer = parts[1].strip() if len(parts) > 1 else ""
     key_fingerprint = parts[2].strip() if len(parts) > 2 else ""
 
-    # Status explanations in Git:
-    # G = Good (valid) signature
-    # B = Bad signature
-    # U = Good signature with unknown validity (untrusted key)
-    # X = Expired signature
-    # Y = Expired key
-    # R = Revoked key
-    # E = Signature cannot be checked
-    # N = No signature
+    # Git status: G=Good, B=Bad, U=Untrusted, X/Y=Expired, R=Revoked, E=Error, N=None
     if status == "G":
         return True, signer or key_fingerprint, ""
     if status == "N":
