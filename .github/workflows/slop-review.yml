@@ -6,7 +6,7 @@ on:
       runs-on:
         description: JSON array of runner labels to target.
         type: string
-        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope-ai"]'
       runner-group:
         description: Runner group for the routing contract.
         type: string
@@ -14,11 +14,11 @@ on:
       runner-labels:
         description: JSON array of runner labels to target.
         type: string
-        default: '["self-hosted", "macOS", "ARM64", "ci-scope"]'
+        default: '["self-hosted", "macOS", "ARM64", "ci-scope-ai"]'
       runner-label:
         description: Single runner label used by the GitHub group-and-label scheduler.
         type: string
-        default: ci-scope
+        default: ci-scope-ai
       routing-generation:
         description: Routing generation; v1 remains the production default.
         type: string
