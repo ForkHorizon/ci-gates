@@ -40,9 +40,9 @@ on:
         type: string
         default: main
       model:
-        description: Model used for review (e.g. deepseek-chat or Ollama model); empty string disables the job.
+        description: Model used for review (Ollama by default; DeepSeek is used when DEEPSEEK_API_KEY is set); empty string disables the job.
         type: string
-        default: deepseek-chat
+        default: qwen3-coder:30b-a3b-q4_K_M
 
 jobs:
   routing-validation:
