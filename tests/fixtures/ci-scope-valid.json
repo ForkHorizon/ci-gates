@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "code-linter",
+      "type": "code-linter",
+      "config": ".code-linter.json",
+      "params": {"mode": "changed"},
+      "events": ["pull_request", "merge_group"]
+    },
+    {
+      "id": "slop-review",
+      "type": "slop-review",
+      "depends_on": ["code-linter"],
+      "events": ["pull_request"],
+      "resources": ["ollama"]
+    }
+  ]
+}
