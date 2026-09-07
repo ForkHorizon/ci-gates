@@ -92,7 +92,13 @@ class CiScopeManifestTests(unittest.TestCase):
         path.write_text(json.dumps(valid_manifest()), encoding="utf-8")
         result = validate_only(path, root=self.root)
         self.assertEqual(canonical_manifest(result)["version"], 1)
-        command = [sys.executable, str(ROOT / "scripts/validate-ci-scope.py"), "--root", str(self.root), "--validate-only"]
+        command = [
+            sys.executable,
+            str(ROOT / "scripts/validate-ci-scope.py"),
+            "--root",
+            str(self.root),
+            "--validate-only",
+        ]
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(json.loads(completed.stdout)["version"], 1)

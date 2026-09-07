@@ -52,7 +52,7 @@ class BoundedLog:
         remaining = self.limit - self.size
         if len(data) > remaining:
             marker = b"\n[TRUNCATED]\n"
-            data = data[:max(0, remaining - len(marker))]
+            data = data[: max(0, remaining - len(marker))]
             self.truncated = True
         self.stream.write(data.decode("utf-8", errors="ignore"))
         self.size += len(data)

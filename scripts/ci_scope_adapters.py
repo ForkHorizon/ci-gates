@@ -29,9 +29,16 @@ def _code_linter(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str
     if check.params.get("coverage_mode"):
         command += ["--coverage-mode", str(check.params["coverage_mode"])]
     guard = [
-        sys.executable, str(gates / "scripts/policy_signature_guard.py"),
-        "--root", str(root), "--base", base, "--head", head,
-        "--allowed-signers", str(gates / "configs/allowed_signers"),
+        sys.executable,
+        str(gates / "scripts/policy_signature_guard.py"),
+        "--root",
+        str(root),
+        "--base",
+        base,
+        "--head",
+        head,
+        "--allowed-signers",
+        str(gates / "configs/allowed_signers"),
     ]
     return [guard, command] if mode == "changed" else [command]
 
@@ -45,7 +52,9 @@ def _python_quality(check: CheckSpec, root: Path, gates: Path) -> list[list[str]
     return [["ruff", "check", *config, "."], ["ruff", "format", "--check", *config, "."]]
 
 
-def _swift_quality(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str) -> list[list[str]]:
+def _swift_quality(
+    check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str
+) -> list[list[str]]:
     base, head = revisions
     prefix = [sys.executable, str(gates / "scripts/swift-quality-gate.py"), "--root", str(root)]
     if check.config:
@@ -75,15 +84,22 @@ def _slop_review(check: CheckSpec, gates: Path, revisions: tuple[str, str]) -> l
     return [command]
 
 
-def commands_for(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str = "pull_request") -> list[list[str]]:
+def commands_for(
+    check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str = "pull_request"
+) -> list[list[str]]:
     if check.type == "code-linter":
         return _code_linter(check, root, gates, revisions, event)
     if check.type == "python-quality":
         return _python_quality(check, root, gates)
     if check.type == "go-quality":
         return [
-            ["go", "mod", "download"], ["go", "vet", "./..."],
-            [sys.executable, "-c", "import subprocess,sys; files=subprocess.check_output(['gofmt','-l','.'], text=True); print(files, end=''); sys.exit(bool(files))"],
+            ["go", "mod", "download"],
+            ["go", "vet", "./..."],
+            [
+                sys.executable,
+                "-c",
+                "import subprocess,sys; files=subprocess.check_output(['gofmt','-l','.'], text=True); print(files, end=''); sys.exit(bool(files))",
+            ],
             ["golangci-lint", "run", "./..."],
         ]
     if check.type == "swift-quality":

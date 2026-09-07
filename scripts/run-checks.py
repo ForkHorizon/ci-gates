@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
 import hashlib
 import json
 import os
@@ -65,8 +66,12 @@ def _wait_process(process: subprocess.Popen[str], deadline: float, timeout: int,
 
 def _run_command(command: list[str], cwd: Path, deadline: float, timeout: int, log: BoundedLog) -> tuple[int, str]:
     process = subprocess.Popen(
-        command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        start_new_session=(os.name != "nt"), text=True,
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=(os.name != "nt"),
+        text=True,
     )
     return _wait_process(process, deadline, timeout, log)
 
@@ -95,16 +100,12 @@ def terminate_process(process: subprocess.Popen[object]) -> None:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         return
-    try:
+    with suppress(subprocess.TimeoutExpired):
         process.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        pass
     # The leader can exit while descendants remain in the session's process
     # group; always finish the group cleanup after the graceful wait.
-    try:
+    with suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
 
 
 def ready_checks(checks: list[CheckSpec], results: dict[str, dict]) -> list[CheckSpec]:
@@ -141,9 +142,25 @@ def run_check(check: CheckSpec, context: RunContext) -> dict:
             for lock in reversed(locks):
                 lock.release()
         status = "passed" if code == 0 else ("timed_out" if code == 124 else ("cancelled" if code == 130 else "failed"))
-        return {"id": check.id, "type": check.type, "status": status, "required": check.required, "exit_code": code, "duration_ms": round((time.monotonic() - started) * 1000), "detail": detail, "log": str(log_path.relative_to(context.output))}
+        return {
+            "id": check.id,
+            "type": check.type,
+            "status": status,
+            "required": check.required,
+            "exit_code": code,
+            "duration_ms": round((time.monotonic() - started) * 1000),
+            "detail": detail,
+            "log": str(log_path.relative_to(context.output)),
+        }
     except (OSError, ValueError) as error:
-        return {"id": check.id, "type": check.type, "status": "infra_error", "required": check.required, "duration_ms": round((time.monotonic() - started) * 1000), "detail": str(error)}
+        return {
+            "id": check.id,
+            "type": check.type,
+            "status": "infra_error",
+            "required": check.required,
+            "duration_ms": round((time.monotonic() - started) * 1000),
+            "detail": str(error),
+        }
 
 
 def run(args: argparse.Namespace) -> int:
@@ -165,7 +182,13 @@ def _run_ordinary(checks: list[CheckSpec], context: RunContext, results: dict[st
         if CANCELLED.is_set():
             for check in checks:
                 if check.id not in results:
-                    results[check.id] = {"id": check.id, "type": check.type, "status": "cancelled", "required": check.required, "reason": "run cancelled"}
+                    results[check.id] = {
+                        "id": check.id,
+                        "type": check.type,
+                        "status": "cancelled",
+                        "required": check.required,
+                        "reason": "run cancelled",
+                    }
             break
         ready = ready_checks(checks, results)
         if not ready:
@@ -179,7 +202,9 @@ def _run_ordinary(checks: list[CheckSpec], context: RunContext, results: dict[st
     return round((time.monotonic() - started) * 1000)
 
 
-def _run_explanations(checks: list[CheckSpec], context: RunContext, results: dict[str, dict], events: list[dict]) -> None:
+def _run_explanations(
+    checks: list[CheckSpec], context: RunContext, results: dict[str, dict], events: list[dict]
+) -> None:
     args = context.args
     for check in checks:
         if CANCELLED.is_set():
@@ -191,21 +216,45 @@ def _run_explanations(checks: list[CheckSpec], context: RunContext, results: dic
             continue
         log_path = context.output / "logs" / f"{check.id}.log"
         command = [
-            sys.executable, str(context.gates / "scripts/explain-failure.py"), "--log", str(log_path),
-            "--gate", GATE_NAMES[check.type], "--model", str(model), "--base", args.base,
+            sys.executable,
+            str(context.gates / "scripts/explain-failure.py"),
+            "--log",
+            str(log_path),
+            "--gate",
+            GATE_NAMES[check.type],
+            "--model",
+            str(model),
+            "--base",
+            args.base,
         ]
-        code, detail = run_process([command], context.manifest.root, args.timeout, context.output / "logs" / f"{check.id}-explain.log")
-        events.append({"step": f"{check.id}-explain", "status": "passed" if code == 0 else "infra_error", "detail": detail})
+        code, detail = run_process(
+            [command], context.manifest.root, args.timeout, context.output / "logs" / f"{check.id}-explain.log"
+        )
+        events.append(
+            {"step": f"{check.id}-explain", "status": "passed" if code == 0 else "infra_error", "detail": detail}
+        )
 
 
 def _run_ai(checks: list[CheckSpec], context: RunContext, results: dict[str, dict], events: list[dict]) -> int:
     started = time.monotonic()
     for check in checks:
         if CANCELLED.is_set():
-            results[check.id] = {"id": check.id, "type": check.type, "status": "cancelled", "required": check.required, "reason": "run cancelled"}
+            results[check.id] = {
+                "id": check.id,
+                "type": check.type,
+                "status": "cancelled",
+                "required": check.required,
+                "reason": "run cancelled",
+            }
             continue
         if any(results.get(dependency, {}).get("status") != "passed" for dependency in check.depends_on):
-            results[check.id] = {"id": check.id, "type": check.type, "status": "skipped", "required": check.required, "reason": "dependency failed"}
+            results[check.id] = {
+                "id": check.id,
+                "type": check.type,
+                "status": "skipped",
+                "required": check.required,
+                "reason": "dependency failed",
+            }
             continue
         result = run_check(check, context)
         results[check.id] = result
@@ -214,7 +263,10 @@ def _run_ai(checks: list[CheckSpec], context: RunContext, results: dict[str, dic
 
 
 def _report(args: argparse.Namespace, manifest: ResolvedManifest, digest: str, results: dict[str, dict]) -> dict:
-    ordered = [results.get(check.id, {"id": check.id, "status": "infra_error", "reason": "not scheduled"}) for check in manifest.active_checks]
+    ordered = [
+        results.get(check.id, {"id": check.id, "status": "infra_error", "reason": "not scheduled"})
+        for check in manifest.active_checks
+    ]
     return {
         "version": 1,
         "run": {
@@ -232,12 +284,14 @@ def _report(args: argparse.Namespace, manifest: ResolvedManifest, digest: str, r
         "base": args.base,
         "head": args.head,
         "checks": ordered,
-        "status": "passed" if all(
+        "status": "passed"
+        if all(
             result.get("status") == "passed"
             or (result.get("status") == "skipped" and result.get("reason") != "dependency failed")
             or not result.get("required", True)
             for result in ordered
-        ) else "failed",
+        )
+        else "failed",
     }
 
 
@@ -246,7 +300,16 @@ def _run(args: argparse.Namespace) -> int:
     manifest = resolve_manifest_file(manifest_path, root=args.root.resolve(), event=args.event)
     digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     if args.validate_only:
-        print(json.dumps({"version": manifest.version, "checks": [check.id for check in manifest.active_checks], "manifest_sha256": digest}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "version": manifest.version,
+                    "checks": [check.id for check in manifest.active_checks],
+                    "manifest_sha256": digest,
+                },
+                indent=2,
+            )
+        )
         return 0
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)

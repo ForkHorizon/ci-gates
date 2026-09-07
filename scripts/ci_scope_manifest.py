@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 try:
     from ci_scope_models import CheckSpec, ResolvedManifest
@@ -43,16 +44,30 @@ class CheckDefinition:
 # Commands and their argument handling live in the executor's adapters.  This
 # table is intentionally the only source of executable check types.
 CHECK_CATALOG: dict[str, CheckDefinition] = {
-    "code-linter": CheckDefinition("code-linter", True, ".code-linter.json", frozenset({"mode", "coverage_mode", "explain_model"})),
+    "code-linter": CheckDefinition(
+        "code-linter", True, ".code-linter.json", frozenset({"mode", "coverage_mode", "explain_model"})
+    ),
     "python-quality": CheckDefinition("python-quality", True, None, frozenset({"explain_model"})),
     "go-quality": CheckDefinition("go-quality", True, None, frozenset({"explain_model"})),
-    "swift-quality": CheckDefinition("swift-quality", True, ".swift-quality-gate.json", frozenset({"run_build", "explain_model"}), frozenset({"xcode"})),
-    "swift-compile": CheckDefinition("swift-compile", True, ".swift-compile-gate.json", frozenset({"explain_model"}), frozenset({"xcode"})),
-    "slop-review": CheckDefinition("slop-review", False, ".slop-review.json", frozenset({"model"}), frozenset({"ollama"}), True),
+    "swift-quality": CheckDefinition(
+        "swift-quality",
+        True,
+        ".swift-quality-gate.json",
+        frozenset({"run_build", "explain_model"}),
+        frozenset({"xcode"}),
+    ),
+    "swift-compile": CheckDefinition(
+        "swift-compile", True, ".swift-compile-gate.json", frozenset({"explain_model"}), frozenset({"xcode"})
+    ),
+    "slop-review": CheckDefinition(
+        "slop-review", False, ".slop-review.json", frozenset({"model"}), frozenset({"ollama"}), True
+    ),
 }
 
 _MANIFEST_FIELDS = frozenset({"version", "checks"})
-_CHECK_FIELDS = frozenset({"id", "type", "config", "workdir", "params", "depends_on", "events", "resources", "required"})
+_CHECK_FIELDS = frozenset(
+    {"id", "type", "config", "workdir", "params", "depends_on", "events", "resources", "required"}
+)
 
 
 def _error(path: str, message: str) -> ManifestError:
@@ -173,10 +188,14 @@ def _resolve_check(entry: Mapping[str, Any], index: int, root: Path, seen: set[s
     if invalid:
         raise _error(f"{prefix}.resources", f"not trusted for {check_type}: {', '.join(invalid)}")
     params = _validate_params(entry.get("params"), definition, f"{prefix}.params")
-    return CheckSpec(check_id, check_type, config, workdir, params, depends_on, events, resources, required, definition.ai)
+    return CheckSpec(
+        check_id, check_type, config, workdir, params, depends_on, events, resources, required, definition.ai
+    )
 
 
-def resolve_manifest(manifest: Mapping[str, Any], *, root: Path, event: str | None = None, source: Path | None = None) -> ResolvedManifest:
+def resolve_manifest(
+    manifest: Mapping[str, Any], *, root: Path, event: str | None = None, source: Path | None = None
+) -> ResolvedManifest:
     """Validate and resolve a decoded manifest against ``root``.
 
     ``event`` only selects active checks; all checks are validated so an

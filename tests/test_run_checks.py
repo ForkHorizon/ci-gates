@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from check_reporting import MAX_LOG_BYTES
+
 SPEC = importlib.util.spec_from_file_location("run_checks", ROOT / "scripts/run-checks.py")
 RUN = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = RUN
@@ -33,7 +34,9 @@ class RunChecksTests(unittest.TestCase):
         self.assertEqual(all_files[0][all_files[0].index("--mode") + 1], "all")
 
     def test_swift_quality_skips_build_without_changing_dead_code_scope(self):
-        check = type("Check", (), {"type": "swift-quality", "config": ".swift-quality-gate.json", "params": {"run_build": False}})()
+        check = type(
+            "Check", (), {"type": "swift-quality", "config": ".swift-quality-gate.json", "params": {"run_build": False}}
+        )()
         commands = RUN.commands_for(check, ROOT, ROOT, ("base", "head"), "pull_request")
         self.assertEqual([command[command.index("--stage") + 1] for command in commands], ["format", "dead-code"])
         self.assertEqual(commands[0][commands[0].index("--mode") + 1], "changed")
@@ -65,8 +68,11 @@ class RunChecksTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             secret = "ghp_" + "x" * 30
             code, _ = RUN.run_process(
-                [[RUN.sys.executable, "-c", f"print('token={secret}'); print('x' * 100000)" ]],
-                Path(directory), 2, Path(directory) / "check.log")
+                [[RUN.sys.executable, "-c", f"print('token={secret}'); print('x' * 100000)"]],
+                Path(directory),
+                2,
+                Path(directory) / "check.log",
+            )
             log = (Path(directory) / "check.log").read_text()
         self.assertEqual(code, 0)
         self.assertNotIn(secret, log)
@@ -78,9 +84,22 @@ class RunChecksTests(unittest.TestCase):
         args = type("Args", (), {"base": "base", "head": "head", "event": "pull_request", "timeout": 2})()
         output = Path(tempfile.mkdtemp())
         context = RUN.RunContext(args, manifest, ROOT, output, {"xcode": threading.Lock()})
-        checks = [type("Check", (), {"id": str(i), "type": "swift-compile", "config": None,
-                                     "params": {}, "workdir": ".", "resources": ("xcode",),
-                                     "required": True})() for i in range(2)]
+        checks = [
+            type(
+                "Check",
+                (),
+                {
+                    "id": str(i),
+                    "type": "swift-compile",
+                    "config": None,
+                    "params": {},
+                    "workdir": ".",
+                    "resources": ("xcode",),
+                    "required": True,
+                },
+            )()
+            for i in range(2)
+        ]
         active = 0
         peak = 0
         gate = threading.Lock()
@@ -98,10 +117,11 @@ class RunChecksTests(unittest.TestCase):
 
         RUN.run_process = fake_process
         try:
-            workers = [threading.Thread(target=RUN.run_check, args=(check, context))
-                       for check in checks]
-            for worker in workers: worker.start()
-            for worker in workers: worker.join()
+            workers = [threading.Thread(target=RUN.run_check, args=(check, context)) for check in checks]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
         finally:
             RUN.run_process = original
         self.assertEqual(peak, 1)
