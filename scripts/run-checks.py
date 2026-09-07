@@ -18,9 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ci_scope_adapters import DEFAULT_AI_MODEL, commands_for
+from ci_scope_ai import run_ai
 from ci_scope_manifest import ManifestError, resolve_manifest_file
 from ci_scope_models import CheckSpec, ResolvedManifest
 from check_reporting import BoundedLog, write_report
+from ci_scope_report import build_report
 
 
 ADAPTERS = {"code-linter", "python-quality", "go-quality", "swift-quality", "swift-compile", "slop-review"}
@@ -235,66 +237,6 @@ def _run_explanations(
         )
 
 
-def _run_ai(checks: list[CheckSpec], context: RunContext, results: dict[str, dict], events: list[dict]) -> int:
-    started = time.monotonic()
-    for check in checks:
-        if CANCELLED.is_set():
-            results[check.id] = {
-                "id": check.id,
-                "type": check.type,
-                "status": "cancelled",
-                "required": check.required,
-                "reason": "run cancelled",
-            }
-            continue
-        if any(results.get(dependency, {}).get("status") != "passed" for dependency in check.depends_on):
-            results[check.id] = {
-                "id": check.id,
-                "type": check.type,
-                "status": "skipped",
-                "required": check.required,
-                "reason": "dependency failed",
-            }
-            continue
-        result = run_check(check, context)
-        results[check.id] = result
-        events.append({"step": check.id, "status": result["status"]})
-    return round((time.monotonic() - started) * 1000)
-
-
-def _report(args: argparse.Namespace, manifest: ResolvedManifest, digest: str, results: dict[str, dict]) -> dict:
-    ordered = [
-        results.get(check.id, {"id": check.id, "status": "infra_error", "reason": "not scheduled"})
-        for check in manifest.active_checks
-    ]
-    return {
-        "version": 1,
-        "run": {
-            "repository": os.environ.get("GITHUB_REPOSITORY"),
-            "run_id": os.environ.get("GITHUB_RUN_ID"),
-            "attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
-            "base": args.base,
-            "head": args.head,
-            "checked_sha": os.environ.get("GITHUB_SHA", args.head),
-            "gates_sha": os.environ.get("CI_SCOPE_GATES_SHA"),
-            "manifest_sha256": digest,
-        },
-        "manifest_sha256": digest,
-        "event": args.event,
-        "base": args.base,
-        "head": args.head,
-        "checks": ordered,
-        "status": "passed"
-        if all(
-            result.get("status") == "passed"
-            or (result.get("status") == "skipped" and result.get("reason") != "dependency failed")
-            or not result.get("required", True)
-            for result in ordered
-        )
-        else "failed",
-    }
-
-
 def _run(args: argparse.Namespace) -> int:
     manifest_path = args.config.resolve()
     manifest = resolve_manifest_file(manifest_path, root=args.root.resolve(), event=args.event)
@@ -322,9 +264,9 @@ def _run(args: argparse.Namespace) -> int:
     ordinary_ms = _run_ordinary(ordinary, context, results, events)
     ai_started = time.monotonic()
     _run_explanations(ordinary, context, results, events)
-    _run_ai(ai, context, results, events)
+    run_ai(ai, context, results, events, CANCELLED, run_check)
     ai_ms = round((time.monotonic() - ai_started) * 1000)
-    report = _report(args, manifest, digest, results)
+    report = build_report(args, manifest, digest, results)
     write_report(output, events, report, ordinary_ms=ordinary_ms, ai_ms=ai_ms)
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "passed" else 1
