@@ -12,20 +12,21 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from check_reporting import MAX_LOG_BYTES
 SPEC = importlib.util.spec_from_file_location("run_checks", ROOT / "scripts/run-checks.py")
 RUN = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = RUN
 SPEC.loader.exec_module(RUN)
 
 
 class RunChecksTests(unittest.TestCase):
     def test_adapter_commands_do_not_use_shell(self):
         check = type("Check", (), {"type": "python-quality", "config": None, "params": {}, "workdir": "."})()
-        commands = RUN.commands_for(check, ROOT, ROOT, "base", "head")
+        commands = RUN.commands_for(check, ROOT, ROOT, ("base", "head"))
         self.assertEqual(commands[0][:2], ["ruff", "check"])
         self.assertTrue(all(command[0] != "sh" for command in commands))
 
     def test_code_linter_auto_mode_and_signature_guard_match_event(self):
         check = type("Check", (), {"type": "code-linter", "config": ".code-linter.json", "params": {"mode": "auto"}})()
-        changed = RUN.commands_for(check, ROOT, ROOT, "base", "head", "pull_request")
-        all_files = RUN.commands_for(check, ROOT, ROOT, "base", "head", "schedule")
+        changed = RUN.commands_for(check, ROOT, ROOT, ("base", "head"), "pull_request")
+        all_files = RUN.commands_for(check, ROOT, ROOT, ("base", "head"), "schedule")
         self.assertIn("policy_signature_guard.py", changed[0][1])
         self.assertEqual(changed[1][changed[1].index("--mode") + 1], "changed")
         self.assertEqual(len(all_files), 1)
@@ -33,20 +34,20 @@ class RunChecksTests(unittest.TestCase):
 
     def test_swift_quality_skips_build_without_changing_dead_code_scope(self):
         check = type("Check", (), {"type": "swift-quality", "config": ".swift-quality-gate.json", "params": {"run_build": False}})()
-        commands = RUN.commands_for(check, ROOT, ROOT, "base", "head", "pull_request")
+        commands = RUN.commands_for(check, ROOT, ROOT, ("base", "head"), "pull_request")
         self.assertEqual([command[command.index("--stage") + 1] for command in commands], ["format", "dead-code"])
         self.assertEqual(commands[0][commands[0].index("--mode") + 1], "changed")
         self.assertEqual(commands[1][commands[1].index("--mode") + 1], "all")
 
     def test_slop_review_preserves_workflow_default_model(self):
         check = type("Check", (), {"type": "slop-review", "config": ".slop-review.json", "params": {}})()
-        command = RUN.commands_for(check, ROOT, ROOT, "base", "head")[0]
+        command = RUN.commands_for(check, ROOT, ROOT, ("base", "head"))[0]
         self.assertEqual(command[command.index("--model") + 1], RUN.DEFAULT_AI_MODEL)
 
     def test_python_quality_uses_strict_fallback_without_project_config(self):
         with tempfile.TemporaryDirectory() as directory:
             check = type("Check", (), {"type": "python-quality", "config": None, "params": {}, "workdir": "."})()
-            commands = RUN.commands_for(check, Path(directory), ROOT, "base", "head")
+            commands = RUN.commands_for(check, Path(directory), ROOT, ("base", "head"))
         self.assertEqual(commands[0][2:4], ["--config", str(ROOT / "configs/ruff-strict.toml")])
 
     def test_process_timeout_terminates_process_tree(self):
@@ -74,9 +75,9 @@ class RunChecksTests(unittest.TestCase):
 
     def test_checks_sharing_resource_are_serialized(self):
         manifest = type("Manifest", (), {"root": ROOT})()
-        args = type("Args", (), {"base": "base", "head": "head", "timeout": 2})()
+        args = type("Args", (), {"base": "base", "head": "head", "event": "pull_request", "timeout": 2})()
         output = Path(tempfile.mkdtemp())
-        locks = {"xcode": threading.Lock()}
+        context = RUN.RunContext(args, manifest, ROOT, output, {"xcode": threading.Lock()})
         checks = [type("Check", (), {"id": str(i), "type": "swift-compile", "config": None,
                                      "params": {}, "workdir": ".", "resources": ("xcode",),
                                      "required": True})() for i in range(2)]
@@ -97,7 +98,7 @@ class RunChecksTests(unittest.TestCase):
 
         RUN.run_process = fake_process
         try:
-            workers = [threading.Thread(target=RUN.run_check, args=(check, args, manifest, ROOT, output, locks))
+            workers = [threading.Thread(target=RUN.run_check, args=(check, context))
                        for check in checks]
             for worker in workers: worker.start()
             for worker in workers: worker.join()

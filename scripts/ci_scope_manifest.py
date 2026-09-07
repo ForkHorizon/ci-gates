@@ -13,6 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+try:
+    from ci_scope_models import CheckSpec, ResolvedManifest
+except ModuleNotFoundError:  # Imported as scripts.ci_scope_manifest by tests and tools.
+    from .ci_scope_models import CheckSpec, ResolvedManifest
+
 
 MANIFEST_VERSION = 1
 EVENTS = frozenset({"pull_request", "push", "merge_group", "workflow_dispatch", "schedule"})
@@ -48,35 +53,6 @@ CHECK_CATALOG: dict[str, CheckDefinition] = {
 
 _MANIFEST_FIELDS = frozenset({"version", "checks"})
 _CHECK_FIELDS = frozenset({"id", "type", "config", "workdir", "params", "depends_on", "events", "resources", "required"})
-
-
-@dataclass(frozen=True)
-class CheckSpec:
-    id: str
-    type: str
-    config: str | None
-    workdir: str
-    params: Mapping[str, Any]
-    depends_on: tuple[str, ...]
-    events: tuple[str, ...]
-    resources: tuple[str, ...]
-    required: bool
-    ai: bool
-
-
-@dataclass(frozen=True)
-class ResolvedManifest:
-    version: int
-    checks: tuple[CheckSpec, ...]
-    root: Path
-    source: Path
-    event: str | None = None
-
-    @property
-    def active_checks(self) -> tuple[CheckSpec, ...]:
-        if self.event is None:
-            return self.checks
-        return tuple(check for check in self.checks if not check.events or self.event in check.events)
 
 
 def _error(path: str, message: str) -> ManifestError:
@@ -162,6 +138,44 @@ def _validate_manifest_shape(manifest: object) -> tuple[int, list[Mapping[str, A
     return version, result
 
 
+def _resolve_check(entry: Mapping[str, Any], index: int, root: Path, seen: set[str]) -> CheckSpec:
+    prefix = f"checks[{index}]"
+    check_id = _text(entry.get("id"), f"{prefix}.id")
+    if CHECK_ID.fullmatch(check_id) is None:
+        raise _error(f"{prefix}.id", "must match lowercase kebab-case identifier rules")
+    if check_id in seen:
+        raise _error(f"{prefix}.id", "duplicates an earlier check")
+    seen.add(check_id)
+    check_type = _text(entry.get("type"), f"{prefix}.type")
+    definition = CHECK_CATALOG.get(check_type)
+    if definition is None:
+        raise _error(f"{prefix}.type", f"unknown check type {check_type!r}")
+    required = entry.get("required", definition.required)
+    if not isinstance(required, bool):
+        raise _error(f"{prefix}.required", "must be a boolean")
+    if required != definition.required:
+        raise _error(f"{prefix}.required", f"is fixed by the trusted catalog to {definition.required}")
+    config_value = entry.get("config", definition.default_config)
+    config = None if config_value is None else _relative_path(config_value, f"{prefix}.config")
+    if config is not None:
+        _check_path(root, config, f"{prefix}.config", directory=False)
+        if "config" in entry and not (root / config).resolve().is_file():
+            raise _error(f"{prefix}.config", "must point to an existing file")
+    workdir = _relative_path(entry["workdir"], f"{prefix}.workdir") if "workdir" in entry else "."
+    _check_path(root, workdir, f"{prefix}.workdir", directory=True)
+    depends_on = _list_of_strings(entry.get("depends_on", []), f"{prefix}.depends_on")
+    events = _list_of_strings(entry.get("events", []), f"{prefix}.events")
+    unknown_events = sorted(set(events) - EVENTS)
+    if unknown_events:
+        raise _error(f"{prefix}.events", f"unknown event(s): {', '.join(unknown_events)}")
+    resources = _list_of_strings(entry.get("resources", sorted(definition.resources)), f"{prefix}.resources")
+    invalid = sorted(set(resources) - definition.resources)
+    if invalid:
+        raise _error(f"{prefix}.resources", f"not trusted for {check_type}: {', '.join(invalid)}")
+    params = _validate_params(entry.get("params"), definition, f"{prefix}.params")
+    return CheckSpec(check_id, check_type, config, workdir, params, depends_on, events, resources, required, definition.ai)
+
+
 def resolve_manifest(manifest: Mapping[str, Any], *, root: Path, event: str | None = None, source: Path | None = None) -> ResolvedManifest:
     """Validate and resolve a decoded manifest against ``root``.
 
@@ -177,47 +191,7 @@ def resolve_manifest(manifest: Mapping[str, Any], *, root: Path, event: str | No
         raise _error("event", f"must be one of: {', '.join(sorted(EVENTS))}")
 
     seen: set[str] = set()
-    specs: list[CheckSpec] = []
-    for index, entry in enumerate(entries):
-        prefix = f"checks[{index}]"
-        check_id = _text(entry.get("id"), f"{prefix}.id")
-        if CHECK_ID.fullmatch(check_id) is None:
-            raise _error(f"{prefix}.id", "must match lowercase kebab-case identifier rules")
-        if check_id in seen:
-            raise _error(f"{prefix}.id", "duplicates an earlier check")
-        seen.add(check_id)
-
-        check_type = _text(entry.get("type"), f"{prefix}.type")
-        definition = CHECK_CATALOG.get(check_type)
-        if definition is None:
-            raise _error(f"{prefix}.type", f"unknown check type {check_type!r}")
-
-        required = entry.get("required", definition.required)
-        if not isinstance(required, bool):
-            raise _error(f"{prefix}.required", "must be a boolean")
-        if required != definition.required:
-            raise _error(f"{prefix}.required", f"is fixed by the trusted catalog to {definition.required}")
-
-        config_value = entry.get("config", definition.default_config)
-        config = None if config_value is None else _relative_path(config_value, f"{prefix}.config")
-        if config is not None:
-            _check_path(root, config, f"{prefix}.config", directory=False)
-            if "config" in entry and not (root / config).resolve().is_file():
-                raise _error(f"{prefix}.config", "must point to an existing file")
-
-        workdir = _relative_path(entry.get("workdir", "."), f"{prefix}.workdir") if "workdir" in entry else "."
-        _check_path(root, workdir, f"{prefix}.workdir", directory=True)
-        depends_on = _list_of_strings(entry.get("depends_on", []), f"{prefix}.depends_on")
-        events = _list_of_strings(entry.get("events", []), f"{prefix}.events")
-        unknown_events = sorted(set(events) - EVENTS)
-        if unknown_events:
-            raise _error(f"{prefix}.events", f"unknown event(s): {', '.join(unknown_events)}")
-        resources = _list_of_strings(entry.get("resources", sorted(definition.resources)), f"{prefix}.resources")
-        if not set(resources).issubset(definition.resources):
-            invalid = sorted(set(resources) - definition.resources)
-            raise _error(f"{prefix}.resources", f"not trusted for {check_type}: {', '.join(invalid)}")
-        params = _validate_params(entry.get("params"), definition, f"{prefix}.params")
-        specs.append(CheckSpec(check_id, check_type, config, workdir, params, depends_on, events, resources, required, definition.ai))
+    specs = [_resolve_check(entry, index, root, seen) for index, entry in enumerate(entries)]
 
     ids = {spec.id for spec in specs}
     for spec in specs:

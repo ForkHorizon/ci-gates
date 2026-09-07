@@ -13,14 +13,16 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 
-from ci_scope_manifest import ManifestError, CheckSpec, ResolvedManifest, resolve_manifest_file
+from ci_scope_adapters import DEFAULT_AI_MODEL, commands_for
+from ci_scope_manifest import ManifestError, resolve_manifest_file
+from ci_scope_models import CheckSpec, ResolvedManifest
 from check_reporting import BoundedLog, write_report
 
 
 ADAPTERS = {"code-linter", "python-quality", "go-quality", "swift-quality", "swift-compile", "slop-review"}
-DEFAULT_AI_MODEL = "qwen3-coder:30b-a3b-q4_K_M"
 CANCELLED = threading.Event()
 GATE_NAMES = {
     "code-linter": "Code Linter",
@@ -31,115 +33,56 @@ GATE_NAMES = {
 }
 
 
-def commands_for(check: CheckSpec, root: Path, gates: Path, base: str, head: str, event: str = "pull_request") -> list[list[str]]:
-    python = sys.executable
-    config = check.config
-    if check.type == "code-linter":
-        mode = str(check.params.get("mode", "auto"))
-        if mode == "auto":
-            mode = "changed" if event in {"pull_request", "merge_group"} else "all"
-        command = [python, str(gates / "scripts/code-linter.py"), "--root", str(root)]
-        command += ["--mode", mode]
-        if mode == "changed":
-            command += ["--base", base, "--head", head]
-        if config:
-            command += ["--config", config]
-        coverage_mode = check.params.get("coverage_mode")
-        if coverage_mode:
-            command += ["--coverage-mode", str(coverage_mode)]
-        guard = [
-            python,
-            str(gates / "scripts/policy_signature_guard.py"),
-            "--root",
-            str(root),
-            "--base",
-            base,
-            "--head",
-            head,
-            "--allowed-signers",
-            str(gates / "configs/allowed_signers"),
-        ]
-        return [guard, command] if mode == "changed" else [command]
-    if check.type == "python-quality":
-        workdir = root / check.workdir
-        has_config = (workdir / "ruff.toml").is_file() or (workdir / ".ruff.toml").is_file()
-        pyproject = workdir / "pyproject.toml"
-        has_config = has_config or (pyproject.is_file() and "[tool.ruff" in pyproject.read_text(encoding="utf-8"))
-        config_args = [] if has_config else ["--config", str(gates / "configs/ruff-strict.toml")]
-        return [["ruff", "check", *config_args, "."], ["ruff", "format", "--check", *config_args, "."]]
-    if check.type == "go-quality":
-        return [
-            ["go", "mod", "download"],
-            ["go", "vet", "./..."],
-            [sys.executable, "-c", "import subprocess,sys; files=subprocess.check_output(['gofmt','-l','.'], text=True); print(files, end=''); sys.exit(bool(files))"],
-            ["golangci-lint", "run", "./..."],
-        ]
-    if check.type == "swift-quality":
-        prefix = [python, str(gates / "scripts/swift-quality-gate.py"), "--root", str(root)]
-        if config:
-            prefix += ["--config", config]
-        mode = "changed" if event in {"pull_request", "merge_group"} else "all"
-        commands = []
-        if check.params.get("run_build", True):
-            commands.append([*prefix, "--stage", "build", "--mode", "all"])
-        commands.append([*prefix, "--stage", "format", "--mode", mode, "--base", base, "--head", head])
-        commands.append([*prefix, "--stage", "dead-code", "--mode", "all"])
-        return commands
-    if check.type == "swift-compile":
-        command = [python, str(gates / "scripts/swift-compile-gate.py"), "--root", str(root)]
-        if config:
-            command += ["--config", config]
-        return [command]
-    if check.type == "slop-review":
-        command = [python, str(gates / "scripts/slop-review.py"), "--base", base, "--head", head]
-        if config:
-            command += ["--config", config]
-        command += ["--model", str(check.params.get("model", DEFAULT_AI_MODEL))]
-        return [command]
-    raise ManifestError(f"unsupported executor adapter: {check.type}")
+@dataclass(frozen=True)
+class RunContext:
+    args: argparse.Namespace
+    manifest: ResolvedManifest
+    gates: Path
+    output: Path
+    resource_locks: dict[str, threading.Lock]
+
+
+def _wait_process(process: subprocess.Popen[str], deadline: float, timeout: int, log: BoundedLog) -> tuple[int, str]:
+    while True:
+        if CANCELLED.is_set():
+            terminate_process(process)
+            output, _ = process.communicate()
+            log.write(output or "")
+            return 130, "cancelled"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            terminate_process(process)
+            output, _ = process.communicate()
+            log.write(output or "")
+            return 124, f"timed out after {timeout}s"
+        try:
+            output, _ = process.communicate(timeout=min(1, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+        log.write(output or "")
+        return process.returncode, "completed"
+
+
+def _run_command(command: list[str], cwd: Path, deadline: float, timeout: int, log: BoundedLog) -> tuple[int, str]:
+    process = subprocess.Popen(
+        command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        start_new_session=(os.name != "nt"), text=True,
+    )
+    return _wait_process(process, deadline, timeout, log)
 
 
 def run_process(commands: list[list[str]], cwd: Path, timeout: int, log_path: Path) -> tuple[int, str]:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
+    deadline = started + timeout
     with log_path.open("w", encoding="utf-8") as raw_log:
         log = BoundedLog(raw_log)
-        deadline = time.monotonic() + timeout
         for command in commands:
             if CANCELLED.is_set():
                 return 130, "cancelled"
-            process = subprocess.Popen(
-                command,
-                cwd=cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                start_new_session=(os.name != "nt"),
-                text=True,
-            )
-            try:
-                while True:
-                    if CANCELLED.is_set():
-                        terminate_process(process)
-                        output, _ = process.communicate()
-                        log.write(output or "")
-                        return 130, "cancelled"
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        terminate_process(process)
-                        output, _ = process.communicate()
-                        log.write(output or "")
-                        return 124, f"timed out after {timeout}s"
-                    try:
-                        output, _ = process.communicate(timeout=min(1, remaining))
-                        log.write(output or "")
-                        code = process.returncode
-                        break
-                    except subprocess.TimeoutExpired:
-                        continue
-            finally:
-                pass
+            code, detail = _run_command(command, cwd, deadline, timeout, log)
             if code != 0:
-                return code, f"command failed: {command[0]}"
+                return code, detail if code in {124, 130} else f"command failed: {command[0]}"
     return code, f"{time.monotonic() - started:.3f}s"
 
 
@@ -183,22 +126,22 @@ def ready_checks(checks: list[CheckSpec], results: dict[str, dict]) -> list[Chec
     return ready
 
 
-def run_check(check: CheckSpec, args: argparse.Namespace, manifest: ResolvedManifest, gates: Path, output: Path,
-              resource_locks: dict[str, threading.Lock] | None = None) -> dict:
+def run_check(check: CheckSpec, context: RunContext) -> dict:
     started = time.monotonic()
-    log_path = output / "logs" / f"{check.id}.log"
+    log_path = context.output / "logs" / f"{check.id}.log"
     try:
-        commands = commands_for(check, manifest.root, gates, args.base, args.head, getattr(args, "event", "pull_request"))
-        locks = [resource_locks[name] for name in sorted(check.resources)] if resource_locks else []
+        args = context.args
+        commands = commands_for(check, context.manifest.root, context.gates, (args.base, args.head), args.event)
+        locks = [context.resource_locks[name] for name in sorted(check.resources)]
         for lock in locks:
             lock.acquire()
         try:
-            code, detail = run_process(commands, manifest.root / check.workdir, args.timeout, log_path)
+            code, detail = run_process(commands, context.manifest.root / check.workdir, args.timeout, log_path)
         finally:
             for lock in reversed(locks):
                 lock.release()
         status = "passed" if code == 0 else ("timed_out" if code == 124 else ("cancelled" if code == 130 else "failed"))
-        return {"id": check.id, "type": check.type, "status": status, "required": check.required, "exit_code": code, "duration_ms": round((time.monotonic() - started) * 1000), "detail": detail, "log": str(log_path.relative_to(output))}
+        return {"id": check.id, "type": check.type, "status": status, "required": check.required, "exit_code": code, "duration_ms": round((time.monotonic() - started) * 1000), "detail": detail, "log": str(log_path.relative_to(context.output))}
     except (OSError, ValueError) as error:
         return {"id": check.id, "type": check.type, "status": "infra_error", "required": check.required, "duration_ms": round((time.monotonic() - started) * 1000), "detail": str(error)}
 
@@ -216,42 +159,29 @@ def run(args: argparse.Namespace) -> int:
             signal.signal(signum, handler)
 
 
-def _run(args: argparse.Namespace) -> int:
-    root = args.root.resolve()
-    manifest_path = args.config.resolve()
-    manifest = resolve_manifest_file(manifest_path, root=root, event=args.event)
-    output = args.output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    gates = Path(args.gates).resolve()
-    digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-    if args.validate_only:
-        print(json.dumps({"version": manifest.version, "checks": [check.id for check in manifest.active_checks], "manifest_sha256": digest}, indent=2))
-        return 0
-
-    results: dict[str, dict] = {}
-    events: list[dict] = []
-    resource_locks = {resource: threading.Lock() for check in manifest.active_checks for resource in check.resources}
-    ordinary = [check for check in manifest.active_checks if not check.ai]
-    ai = [check for check in manifest.active_checks if check.ai]
-    ordinary_started = time.monotonic()
-    while len(results) < len(ordinary):
+def _run_ordinary(checks: list[CheckSpec], context: RunContext, results: dict[str, dict], events: list[dict]) -> int:
+    started = time.monotonic()
+    while len(results) < len(checks):
         if CANCELLED.is_set():
-            for check in ordinary:
+            for check in checks:
                 if check.id not in results:
                     results[check.id] = {"id": check.id, "type": check.type, "status": "cancelled", "required": check.required, "reason": "run cancelled"}
             break
-        ready = ready_checks(ordinary, results)
+        ready = ready_checks(checks, results)
         if not ready:
             break
-        with ThreadPoolExecutor(max_workers=min(args.parallel, len(ready))) as pool:
-            futures = {pool.submit(run_check, check, args, manifest, gates, output, resource_locks): check for check in ready}
+        with ThreadPoolExecutor(max_workers=min(context.args.parallel, len(ready))) as pool:
+            futures = {pool.submit(run_check, check, context): check for check in ready}
             for future in as_completed(futures):
                 result = future.result()
                 results[result["id"]] = result
                 events.append({"step": result["id"], "status": result["status"]})
-    ordinary_ms = round((time.monotonic() - ordinary_started) * 1000)
-    ai_started = time.monotonic()
-    for check in ordinary:
+    return round((time.monotonic() - started) * 1000)
+
+
+def _run_explanations(checks: list[CheckSpec], context: RunContext, results: dict[str, dict], events: list[dict]) -> None:
+    args = context.args
+    for check in checks:
         if CANCELLED.is_set():
             break
         if check.type not in GATE_NAMES or results.get(check.id, {}).get("status") not in {"failed", "timed_out"}:
@@ -259,34 +189,33 @@ def _run(args: argparse.Namespace) -> int:
         model = check.params.get("explain_model", DEFAULT_AI_MODEL)
         if not model:
             continue
-        log_path = output / "logs" / f"{check.id}.log"
+        log_path = context.output / "logs" / f"{check.id}.log"
         command = [
-            sys.executable,
-            str(gates / "scripts/explain-failure.py"),
-            "--log",
-            str(log_path),
-            "--gate",
-            GATE_NAMES[check.type],
-            "--model",
-            str(model),
-            "--base",
-            args.base,
+            sys.executable, str(context.gates / "scripts/explain-failure.py"), "--log", str(log_path),
+            "--gate", GATE_NAMES[check.type], "--model", str(model), "--base", args.base,
         ]
-        code, detail = run_process([command], manifest.root, args.timeout, output / "logs" / f"{check.id}-explain.log")
+        code, detail = run_process([command], context.manifest.root, args.timeout, context.output / "logs" / f"{check.id}-explain.log")
         events.append({"step": f"{check.id}-explain", "status": "passed" if code == 0 else "infra_error", "detail": detail})
-    for check in ai:
+
+
+def _run_ai(checks: list[CheckSpec], context: RunContext, results: dict[str, dict], events: list[dict]) -> int:
+    started = time.monotonic()
+    for check in checks:
         if CANCELLED.is_set():
             results[check.id] = {"id": check.id, "type": check.type, "status": "cancelled", "required": check.required, "reason": "run cancelled"}
             continue
         if any(results.get(dependency, {}).get("status") != "passed" for dependency in check.depends_on):
             results[check.id] = {"id": check.id, "type": check.type, "status": "skipped", "required": check.required, "reason": "dependency failed"}
             continue
-        result = run_check(check, args, manifest, gates, output, resource_locks)
+        result = run_check(check, context)
         results[check.id] = result
         events.append({"step": check.id, "status": result["status"]})
-    ai_ms = round((time.monotonic() - ai_started) * 1000)
+    return round((time.monotonic() - started) * 1000)
+
+
+def _report(args: argparse.Namespace, manifest: ResolvedManifest, digest: str, results: dict[str, dict]) -> dict:
     ordered = [results.get(check.id, {"id": check.id, "status": "infra_error", "reason": "not scheduled"}) for check in manifest.active_checks]
-    report = {
+    return {
         "version": 1,
         "run": {
             "repository": os.environ.get("GITHUB_REPOSITORY"),
@@ -304,11 +233,35 @@ def _run(args: argparse.Namespace) -> int:
         "head": args.head,
         "checks": ordered,
         "status": "passed" if all(
-        result.get("status") == "passed"
-        or (result.get("status") == "skipped" and result.get("reason") != "dependency failed")
-        or not result.get("required", True)
-        for result in ordered
-    ) else "failed"}
+            result.get("status") == "passed"
+            or (result.get("status") == "skipped" and result.get("reason") != "dependency failed")
+            or not result.get("required", True)
+            for result in ordered
+        ) else "failed",
+    }
+
+
+def _run(args: argparse.Namespace) -> int:
+    manifest_path = args.config.resolve()
+    manifest = resolve_manifest_file(manifest_path, root=args.root.resolve(), event=args.event)
+    digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    if args.validate_only:
+        print(json.dumps({"version": manifest.version, "checks": [check.id for check in manifest.active_checks], "manifest_sha256": digest}, indent=2))
+        return 0
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    locks = {resource: threading.Lock() for check in manifest.active_checks for resource in check.resources}
+    context = RunContext(args, manifest, Path(args.gates).resolve(), output, locks)
+    results: dict[str, dict] = {}
+    events: list[dict] = []
+    ordinary = [check for check in manifest.active_checks if not check.ai]
+    ai = [check for check in manifest.active_checks if check.ai]
+    ordinary_ms = _run_ordinary(ordinary, context, results, events)
+    ai_started = time.monotonic()
+    _run_explanations(ordinary, context, results, events)
+    _run_ai(ai, context, results, events)
+    ai_ms = round((time.monotonic() - ai_started) * 1000)
+    report = _report(args, manifest, digest, results)
     write_report(output, events, report, ordinary_ms=ordinary_ms, ai_ms=ai_ms)
     print(json.dumps(report, indent=2))
     return 0 if report["status"] == "passed" else 1
