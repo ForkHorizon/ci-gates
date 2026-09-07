@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ci_scope_adapters import DEFAULT_AI_MODEL, commands_for
-from ci_scope_ai import run_ai
+from ci_scope_ai import AIContext, run_ai
 from ci_scope_manifest import ManifestError, resolve_manifest_file
 from ci_scope_models import CheckSpec, ResolvedManifest
 from check_reporting import BoundedLog, write_report
@@ -264,7 +264,7 @@ def _run(args: argparse.Namespace) -> int:
     ordinary_ms = _run_ordinary(ordinary, context, results, events)
     ai_started = time.monotonic()
     _run_explanations(ordinary, context, results, events)
-    run_ai(ai, context, results, events, CANCELLED, run_check)
+    run_ai(ai, context, results, events, AIContext(CANCELLED, run_check))
     ai_ms = round((time.monotonic() - ai_started) * 1000)
     report = build_report(args, manifest, digest, results)
     write_report(output, events, report, ordinary_ms=ordinary_ms, ai_ms=ai_ms)

@@ -5,8 +5,15 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from ci_scope_models import CheckSpec
+
+
+@dataclass(frozen=True)
+class AIContext:
+    cancelled: threading.Event
+    run_check: Callable
 
 
 def run_ai(
@@ -14,12 +21,11 @@ def run_ai(
     context: object,
     results: dict[str, dict],
     events: list[dict],
-    cancelled: threading.Event,
-    run_check_fn: Callable,
+    ai_context: AIContext,
 ) -> int:
     started = time.monotonic()
     for check in checks:
-        if cancelled.is_set():
+        if ai_context.cancelled.is_set():
             results[check.id] = {
                 "id": check.id,
                 "type": check.type,
@@ -37,7 +43,7 @@ def run_ai(
                 "reason": "dependency failed",
             }
             continue
-        result = run_check_fn(check, context)
+        result = ai_context.run_check(check, context)
         results[check.id] = result
         events.append({"step": check.id, "status": result["status"]})
     return round((time.monotonic() - started) * 1000)
