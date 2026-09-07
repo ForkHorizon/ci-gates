@@ -17,8 +17,10 @@ commit SHA for production callers so a gate rollout is reproducible.
 | `unity-quality.yml` | Unity C#: `dotnet build` with Microsoft.Unity.Analyzers (fails on first-party warnings), jscpd for C#. Uses a persistent per-repo workspace cache under `~/Library/Caches/ci-gates` — no project checkout, incremental fetch + Library reuse. |
 | `slop-review.yml` | **Advisory, non-blocking.** Sends each changed file's diff to a local Ollama model to flag semantic AI-slop that linters miss (swallowed errors, fake tests, misleading names, insecure string-built queries, dead-end code), with a 3-vote adversarial refutation pass. Posts `::warning` annotations + a job-summary table and a calibration journal; never affects the merge decision. |
 
-All jobs target self-hosted macOS ARM64 runners by default; the full label
-set is configurable via the `runs-on` input (a JSON array).
+All jobs target self-hosted macOS ARM64 runners by default. The active routing
+contract is `runner-group` plus `runner-labels`/`runner-label`; `runs-on` is
+retained as a legacy caller input for compatibility. Keep Slop Review on a
+dedicated `ci-scope-ai` runner label with exactly one registered runner.
 
 ## Usage
 
@@ -121,7 +123,8 @@ Release provenance and manifest enforcement are validated fail-closed via
 
 Common to all workflows:
 
-- `runs-on` — JSON array of runner labels, e.g. `'["self-hosted", "macOS", "ARM64", "ci-scope-heavy"]'` (defaults end in `ci-scope`).
+- `runs-on` — legacy JSON array of runner labels. New callers should use
+  `runner-group` plus `runner-labels`/`runner-label` below.
 - `runner-group` — optional GitHub-hosted runner-group name. v1 defaults keep
   the existing placement; v2 requires the dedicated trusted group.
 - `runner-labels` — JSON array used by the v2 routing contract. It must be

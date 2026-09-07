@@ -40,9 +40,9 @@ on:
         type: string
         default: main
       model:
-        description: Model used for review (e.g. deepseek-chat or Ollama model); empty string disables the job.
+        description: Model used for review (Ollama by default; DeepSeek is used when DEEPSEEK_API_KEY is set); empty string disables the job.
         type: string
-        default: deepseek-chat
+        default: qwen3-coder:30b-a3b-q4_K_M
 
 jobs:
   routing-validation:
@@ -59,6 +59,11 @@ jobs:
     name: Slop Review
     needs: routing-validation
     if: ${{ needs.routing-validation.result == 'success' }}
+    # One AI runner is the cross-workflow capacity guard; this also protects
+    # against accidental extra AI registrations within the same repository.
+    concurrency:
+      group: ci-scope-slop-review
+      cancel-in-progress: false
     runs-on:
       group: ${{ inputs['runner-group'] }}
       labels: ${{ inputs['runner-label'] }}
