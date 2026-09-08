@@ -221,7 +221,7 @@ def policy_payload(  # noqa: PLR0913
     if gates_sha is not None:
         payload["gates_sha"] = _validate_git_sha(gates_sha, field="gates_sha")
     if checks:
-        payload["checks"] = list(checks)
+        payload["checks"] = sorted(checks, key=lambda check: str(check.get("id", "")))
     return payload
 
 
@@ -317,6 +317,7 @@ def preflight(  # noqa: PLR0913
     repository: str | None = None,
     branch: str | None = None,
     base_sha: str | None = None,
+    gates_sha: str | None = None,
     require_signature: bool = True,
     allowed_signers: Path | None = None,
 ) -> PolicyResult:
@@ -330,6 +331,8 @@ def preflight(  # noqa: PLR0913
             raise PolicyError("policy_mismatch: branch does not match")
         if base_sha is not None and record.value["approved_sha"] != base_sha:
             raise PolicyError("policy_mismatch: approved base SHA does not match")
+        if gates_sha is not None and record.value.get("gates_sha") != gates_sha:
+            raise PolicyError("policy_mismatch: pinned ci-gates SHA does not match")
         if require_signature:
             _verify_signature(record, allowed_signers=allowed_signers)
         paths = set(record.files)

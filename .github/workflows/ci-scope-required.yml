@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: ForkHorizon/ci-gates
-          ref: ${{ inputs.gates_sha || github.sha }}
+          ref: ${{ inputs.gates_sha || '1e4b3d1ea572cc82c0b2d4091cfc47ee9159be2f' }}
           path: .ci-gates
           persist-credentials: false
           fetch-depth: 1
@@ -59,13 +59,16 @@ jobs:
           POLICY_URL: ${{ inputs.policy_url || vars.CI_SCOPE_POLICY_URL }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          POLICY_BRANCH: ${{ github.base_ref || github.event.merge_group.base_ref || github.ref_name }}
         run: |
           test -n "$POLICY_URL"
           python3 .ci-gates/scripts/policy_preflight_github.py \
             --repository "$GITHUB_REPOSITORY" \
-            --branch "${{ github.base_ref || github.ref_name }}" \
+            --branch "$POLICY_BRANCH" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA" \
+            --gates-sha "${{ inputs.gates_sha || '1e4b3d1ea572cc82c0b2d4091cfc47ee9159be2f' }}" \
+            --gates-sha "${{ inputs.gates_sha }}" \
             --policy-url "$POLICY_URL" \
             --allowed-signers "$RUNNER_TEMP/ci-scope-policy.pub" \
             --output "$RUNNER_TEMP/ci-scope-policy.json"
@@ -82,18 +85,18 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          POLICY_BRANCH: ${{ github.base_ref || github.event.merge_group.base_ref || github.ref_name }}
         run: |
           python3 .ci-gates/scripts/run-checks.py \
             --root "$GITHUB_WORKSPACE/workspace" \
             --config "$GITHUB_WORKSPACE/workspace/.ci-scope.json" \
             --gates "$GITHUB_WORKSPACE/.ci-gates" \
-            --event pull_request \
+            --event "${{ github.event_name }}" \
             --base "$BASE_SHA" \
             --head "$HEAD_SHA" \
             --policy "$RUNNER_TEMP/ci-scope-policy.json" \
             --policy-repository "$GITHUB_REPOSITORY" \
-            --policy-branch "${{ github.base_ref || github.ref_name }}" \
-            --policy-base-sha "$BASE_SHA" \
+            --policy-branch "$POLICY_BRANCH" \
             --allowed-signers "$RUNNER_TEMP/ci-scope-policy.pub" \
             --output "$RUNNER_TEMP/ci-scope-result"
 

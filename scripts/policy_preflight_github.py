@@ -61,12 +61,33 @@ def file_bytes(api_base: str, repository: str, revision: str, path: str, token: 
         raise PolicyError(f"policy_service_unavailable: invalid content encoding for {path}") from error
 
 
+def materialize_revision(
+    api_base: str,
+    repository: str,
+    revision: str,
+    token: str,
+    paths: set[str],
+    root: Path,
+) -> None:
+    all_paths = tree_paths(api_base, repository, revision, token)
+    for pattern in tuple(paths):
+        if any(character in pattern for character in "*?["):
+            paths.update(path for path in all_paths if fnmatch.fnmatchcase(path, pattern))
+    for path in sorted(paths):
+        content = file_bytes(api_base, repository, revision, path, token)
+        if content is not None:
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--branch", required=True)
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--head-sha", required=True)
+    parser.add_argument("--gates-sha", required=True)
     parser.add_argument("--policy-url", required=True)
     parser.add_argument("--github-api", default="https://api.github.com")
     parser.add_argument("--github-token", default=os.environ.get("GITHUB_TOKEN", ""))
@@ -79,23 +100,30 @@ def main() -> int:
 
     record = fetch_policy(args.policy_url, args.repository, args.branch, args.policy_token)
     with tempfile.TemporaryDirectory(prefix="ci-scope-policy-checkout-") as directory:
-        root = Path(directory)
-        policy_path = root / "policy.json"
-        policy_path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        base_root = Path(directory) / "base"
+        head_root = Path(directory) / "head"
+        base_root.mkdir()
+        head_root.mkdir()
+        serialized = json.dumps(record, ensure_ascii=False)
+        base_policy = base_root / "policy.json"
+        head_policy = head_root / "policy.json"
+        base_policy.write_text(serialized, encoding="utf-8")
+        head_policy.write_text(serialized, encoding="utf-8")
         paths = {entry["path"] for entry in record.get("files", []) if isinstance(entry, dict) and isinstance(entry.get("path"), str)}
-        all_paths = tree_paths(args.github_api, args.repository, args.head_sha, args.github_token)
-        for pattern in record.get("protected_patterns", []):
-            if isinstance(pattern, str):
-                paths.update(path for path in all_paths if fnmatch.fnmatchcase(path, pattern))
-        for path in sorted(paths):
-            content = file_bytes(args.github_api, args.repository, args.head_sha, path, args.github_token)
-            if content is not None:
-                target = root / path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(content)
-        result = preflight(root, policy_path, repository=args.repository, branch=args.branch, base_sha=args.base_sha, allowed_signers=args.allowed_signers)
-        print(json.dumps({"status": result.status, "reason": result.reason, "mismatches": list(result.mismatches)}, sort_keys=True))
-        if not result.passed:
+        paths.update(pattern for pattern in record.get("protected_patterns", []) if isinstance(pattern, str))
+        materialize_revision(args.github_api, args.repository, args.base_sha, args.github_token, set(paths), base_root)
+        materialize_revision(args.github_api, args.repository, args.head_sha, args.github_token, set(paths), head_root)
+        base_result = preflight(base_root, base_policy, repository=args.repository, branch=args.branch, gates_sha=args.gates_sha, allowed_signers=args.allowed_signers)
+        head_result = preflight(head_root, head_policy, repository=args.repository, branch=args.branch, gates_sha=args.gates_sha, allowed_signers=args.allowed_signers)
+        result = head_result if base_result.passed else base_result
+        print(json.dumps({
+            "status": result.status,
+            "reason": result.reason,
+            "mismatches": list(result.mismatches),
+            "base_sha": args.base_sha,
+            "head_sha": args.head_sha,
+        }, sort_keys=True))
+        if not base_result.passed or not head_result.passed:
             return 1
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
