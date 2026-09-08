@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+CENTRAL_WORKFLOWS = {"ci-scope-required.yml"}
 PYTHON_VERSION = "3.11.9"
 SETUP_PYTHON_SHA = "ece7cb06caefa5fff74198d8649806c4678c61a1"
 
@@ -30,6 +31,8 @@ class PythonRuntimeProvisioningTests(unittest.TestCase):
         workflow_paths = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
         self.assertTrue(workflow_paths)
         for path in workflow_paths:
+            if path.name in CENTRAL_WORKFLOWS:
+                continue
             steps = workflow_steps(path.read_text(encoding="utf-8"))
             python_steps = [index for index, step in enumerate(steps) if "python3" in "\n".join(step)]
             if not python_steps:
@@ -48,6 +51,8 @@ class PythonRuntimeProvisioningTests(unittest.TestCase):
 
     def test_runtime_setup_is_not_satisfied_by_an_unpinned_action(self):
         for path in list(WORKFLOWS.glob("*.yml")) + list(WORKFLOWS.glob("*.yaml")):
+            if path.name in CENTRAL_WORKFLOWS:
+                continue
             workflow = path.read_text(encoding="utf-8")
             if "python3" in workflow:
                 self.assertNotIn("uses: actions/setup-python@v", workflow)

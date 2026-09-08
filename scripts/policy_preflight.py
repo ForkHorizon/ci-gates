@@ -13,6 +13,8 @@ import argparse
 import hashlib
 import json
 import subprocess
+import base64
+import binascii
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -21,7 +23,6 @@ from typing import Any
 
 
 POLICY_VERSION = 1
-SIGNATURE_NAMESPACE = "ci-scope-policy-v1"
 SHA256 = 64
 SHA1 = 40
 
@@ -267,15 +268,15 @@ def _verify_signature(record: PolicyRecord, *, allowed_signers: Path | None) -> 
     signature = record.value.get("signature")
     if not isinstance(signature, dict):
         raise PolicyError("policy_signature_invalid: signature is required")
-    if signature.get("algorithm") != "ssh-ed25519":
+    if signature.get("algorithm") != "ed25519":
         raise PolicyError("policy_signature_invalid: unsupported signature algorithm")
     identity = signature.get("identity")
-    armored = signature.get("value")
+    encoded = signature.get("value")
     if (
         not isinstance(identity, str)
         or not identity
-        or not isinstance(armored, str)
-        or not armored
+        or not isinstance(encoded, str)
+        or not encoded
     ):
         raise PolicyError("policy_signature_invalid: malformed SSH signature")
     if allowed_signers is None or not Path(allowed_signers).is_file():
@@ -284,23 +285,19 @@ def _verify_signature(record: PolicyRecord, *, allowed_signers: Path | None) -> 
         )
     with tempfile.TemporaryDirectory(prefix="ci-scope-policy-") as directory:
         signature_path = Path(directory) / "signature"
-        signature_path.write_text(armored, encoding="utf-8")
+        payload_path = Path(directory) / "payload"
+        payload_path.write_bytes(record.payload)
+        try:
+            signature_path.write_bytes(base64.b64decode(encoded, validate=True))
+        except (ValueError, binascii.Error) as error:
+            raise PolicyError("policy_signature_invalid: malformed Ed25519 signature") from error
         command = [
-            "ssh-keygen",
-            "-Y",
-            "verify",
-            "-f",
-            str(Path(allowed_signers)),
-            "-I",
-            identity,
-            "-n",
-            SIGNATURE_NAMESPACE,
-            "-s",
-            str(signature_path),
+            "openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(Path(allowed_signers)),
+            "-rawin", "-in", str(payload_path), "-sigfile", str(signature_path)
         ]
         try:
             completed = subprocess.run(
-                command, input=record.payload, capture_output=True, check=False
+                command, capture_output=True, check=False
             )
         except OSError as error:
             raise PolicyError(
@@ -309,7 +306,7 @@ def _verify_signature(record: PolicyRecord, *, allowed_signers: Path | None) -> 
     if completed.returncode != 0:
         detail = completed.stderr.decode("utf-8", errors="replace").strip()[:200]
         raise PolicyError(
-            f"policy_signature_invalid: SSH signature verification failed{': ' + detail if detail else ''}"
+            f"policy_signature_invalid: Ed25519 signature verification failed{': ' + detail if detail else ''}"
         )
 
 
