@@ -23,6 +23,7 @@ from ci_scope_manifest import ManifestError, resolve_manifest_file
 from ci_scope_models import CheckSpec, ResolvedManifest
 from check_reporting import BoundedLog, write_report
 from ci_scope_report import build_report
+from policy_preflight import PolicyError, preflight
 
 
 ADAPTERS = {"code-linter", "python-quality", "go-quality", "swift-quality", "swift-compile", "slop-review"}
@@ -238,6 +239,19 @@ def _run_explanations(
 
 
 def _run(args: argparse.Namespace) -> int:
+    policy_path = getattr(args, "policy", None)
+    if policy_path is not None:
+        policy_result = preflight(
+            args.root,
+            policy_path,
+            repository=getattr(args, "policy_repository", None),
+            branch=getattr(args, "policy_branch", None),
+            base_sha=getattr(args, "policy_base_sha", None),
+            require_signature=not getattr(args, "allow_unsigned_policy", False),
+            allowed_signers=getattr(args, "allowed_signers", None),
+        )
+        if not policy_result.passed:
+            raise PolicyError(f"{policy_result.status}: {policy_result.reason}")
     manifest_path = args.config.resolve()
     manifest = resolve_manifest_file(manifest_path, root=args.root.resolve(), event=args.event)
     digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
@@ -281,6 +295,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="HEAD~1")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--policy",
+        type=Path,
+        help="Optional signed control-plane policy record; failure blocks execution before manifest loading",
+    )
+    parser.add_argument("--policy-repository", help="Repository identity expected by the policy record")
+    parser.add_argument("--policy-branch", help="Protected branch identity expected by the policy record")
+    parser.add_argument("--policy-base-sha", help="Approved base commit expected by the policy record")
+    parser.add_argument("--allowed-signers", type=Path, help="OpenSSH allowed signers file for policy verification")
+    parser.add_argument(
+        "--allow-unsigned-policy",
+        action="store_true",
+        help="Disable signature verification for local development only",
+    )
     parser.add_argument("--parallel", type=int, default=2)
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--validate-only", action="store_true")
