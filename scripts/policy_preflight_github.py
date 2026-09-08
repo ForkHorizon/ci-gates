@@ -123,83 +123,86 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> int:
-    args = _parse_args()
-    if not args.github_token or not args.policy_token:
-        raise SystemExit("policy_service_unavailable: GitHub and policy tokens are required")
+def _materialize(args: argparse.Namespace, record: dict, directory: str) -> tuple[Path, Path]:
+    base_root, head_root = Path(directory) / "base", Path(directory) / "head"
+    base_root.mkdir()
+    head_root.mkdir()
+    serialized = json.dumps(record, ensure_ascii=False)
+    for root in (base_root, head_root):
+        (root / "policy.json").write_text(serialized, encoding="utf-8")
+    paths = {
+        entry["path"]
+        for entry in record.get("files", [])
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    }
+    paths.update(pattern for pattern in record.get("protected_patterns", []) if isinstance(pattern, str))
+    materialize_revision(args.github_api, args.repository, args.base_sha, args.github_token, (set(paths), base_root))
+    materialize_revision(args.github_api, args.repository, args.head_sha, args.github_token, (set(paths), head_root))
+    return base_root, head_root
 
-    record = fetch_policy(args.policy_url, args.repository, args.branch, args.policy_token)
+
+def _evaluate(args: argparse.Namespace, roots: tuple[Path, Path]):
+    base_root, head_root = roots
+    common = {
+        "repository": args.repository,
+        "branch": args.branch,
+        "gates_sha": args.gates_sha,
+        "allowed_signers": args.allowed_signers,
+    }
+    return preflight(base_root, base_root / "policy.json", **common), preflight(
+        head_root, head_root / "policy.json", **common
+    )
+
+
+def _report(args: argparse.Namespace, result) -> None:
+    print(
+        json.dumps(
+            {
+                "status": result.status,
+                "reason": result.reason,
+                "mismatches": list(result.mismatches),
+                "base_sha": args.base_sha,
+                "head_sha": args.head_sha,
+            },
+            sort_keys=True,
+        )
+    )
+    report_event(
+        args.event_url,
+        args.policy_token,
+        {
+            "repository": args.repository,
+            "branch": args.branch,
+            "event_type": "policy_mismatch",
+            "actor": os.environ.get("GITHUB_ACTOR", ""),
+            "base_sha": args.base_sha,
+            "head_sha": args.head_sha,
+            "status": result.status,
+            "reason": result.reason,
+            "mismatches": list(result.mismatches),
+        },
+    )
+
+
+def _check_revisions(args: argparse.Namespace, record: dict) -> int:
     with tempfile.TemporaryDirectory(prefix="ci-scope-policy-checkout-") as directory:
-        base_root = Path(directory) / "base"
-        head_root = Path(directory) / "head"
-        base_root.mkdir()
-        head_root.mkdir()
-        serialized = json.dumps(record, ensure_ascii=False)
-        base_policy = base_root / "policy.json"
-        head_policy = head_root / "policy.json"
-        base_policy.write_text(serialized, encoding="utf-8")
-        head_policy.write_text(serialized, encoding="utf-8")
-        paths = {
-            entry["path"]
-            for entry in record.get("files", [])
-            if isinstance(entry, dict) and isinstance(entry.get("path"), str)
-        }
-        paths.update(pattern for pattern in record.get("protected_patterns", []) if isinstance(pattern, str))
-        materialize_revision(
-            args.github_api, args.repository, args.base_sha, args.github_token, (set(paths), base_root)
-        )
-        materialize_revision(
-            args.github_api, args.repository, args.head_sha, args.github_token, (set(paths), head_root)
-        )
-        base_result = preflight(
-            base_root,
-            base_policy,
-            repository=args.repository,
-            branch=args.branch,
-            gates_sha=args.gates_sha,
-            allowed_signers=args.allowed_signers,
-        )
-        head_result = preflight(
-            head_root,
-            head_policy,
-            repository=args.repository,
-            branch=args.branch,
-            gates_sha=args.gates_sha,
-            allowed_signers=args.allowed_signers,
-        )
+        roots = _materialize(args, record, directory)
+        base_result, head_result = _evaluate(args, roots)
         result = head_result if base_result.passed else base_result
-        print(
-            json.dumps(
-                {
-                    "status": result.status,
-                    "reason": result.reason,
-                    "mismatches": list(result.mismatches),
-                    "base_sha": args.base_sha,
-                    "head_sha": args.head_sha,
-                },
-                sort_keys=True,
-            )
-        )
         if not base_result.passed or not head_result.passed:
-            report_event(
-                args.event_url,
-                args.policy_token,
-                {
-                    "repository": args.repository,
-                    "branch": args.branch,
-                    "event_type": "policy_mismatch",
-                    "actor": os.environ.get("GITHUB_ACTOR", ""),
-                    "base_sha": args.base_sha,
-                    "head_sha": args.head_sha,
-                    "status": result.status,
-                    "reason": result.reason,
-                    "mismatches": list(result.mismatches),
-                },
-            )
+            _report(args, result)
             return 1
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
         return 0
+
+
+def main() -> int:
+    args = _parse_args()
+    if not args.github_token or not args.policy_token:
+        raise SystemExit("policy_service_unavailable: GitHub and policy tokens are required")
+    record = fetch_policy(args.policy_url, args.repository, args.branch, args.policy_token)
+    return _check_revisions(args, record)
 
 
 if __name__ == "__main__":
