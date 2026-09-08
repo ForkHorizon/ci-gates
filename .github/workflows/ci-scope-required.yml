@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   checks:
-    name: Checks
+    name: CI Scope / Checks
     runs-on: self-hosted
     timeout-minutes: 45
     steps:
@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: ForkHorizon/ci-gates
-          ref: ${{ inputs.gates_sha || '1e4b3d1ea572cc82c0b2d4091cfc47ee9159be2f' }}
+          ref: ${{ inputs.gates_sha || '554c42ad8d5b22d20e3e88a000af62a2d5b050cd' }}
           path: .ci-gates
           persist-credentials: false
           fetch-depth: 1
@@ -67,8 +67,7 @@ jobs:
             --branch "$POLICY_BRANCH" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA" \
-            --gates-sha "${{ inputs.gates_sha || '1e4b3d1ea572cc82c0b2d4091cfc47ee9159be2f' }}" \
-            --gates-sha "${{ inputs.gates_sha }}" \
+            --gates-sha "${{ inputs.gates_sha || '554c42ad8d5b22d20e3e88a000af62a2d5b050cd' }}" \
             --policy-url "$POLICY_URL" \
             --event-url "${POLICY_URL%/policy}/policy/events" \
             --allowed-signers "$RUNNER_TEMP/ci-scope-policy.pub" \

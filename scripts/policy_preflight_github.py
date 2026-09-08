@@ -16,8 +16,10 @@ from urllib.request import Request, urlopen
 from policy_preflight import PolicyError, preflight
 
 
-def api_get(url: str, token: str) -> object:
-    request = Request(url, headers={"accept": "application/vnd.github+json", "authorization": f"Bearer {token}"})
+def api_get(url: str, token: str, *, policy_token: bool = False) -> object:
+    headers = {"accept": "application/vnd.github+json"}
+    headers["x-ci-scope-policy-token" if policy_token else "authorization"] = token if policy_token else f"Bearer {token}"
+    request = Request(url, headers=headers)
     try:
         with urlopen(request, timeout=20) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -27,7 +29,7 @@ def api_get(url: str, token: str) -> object:
 
 def fetch_policy(url: str, repository: str, branch: str, token: str) -> dict:
     query = urlencode({"repository": repository, "branch": branch})
-    value = api_get(f"{url.rstrip('/')}?{query}", token)
+    value = api_get(f"{url.rstrip('/')}?{query}", token, policy_token=True)
     if not isinstance(value, dict) or not isinstance(value.get("record"), dict):
         raise PolicyError("policy_service_unavailable: malformed policy response")
     record = value["record"]
