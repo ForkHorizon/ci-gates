@@ -73,7 +73,12 @@ def load_policy_record(path: Path) -> PolicyRecord:
     for field in ("repository", "branch", "approved_sha", "policy_digest", "files"):
         if field not in value:
             raise PolicyError(f"policy record missing {field}")
-    if not isinstance(value["repository"], str) or not value["repository"].strip() or not isinstance(value["branch"], str) or not value["branch"].strip():
+    if (
+        not isinstance(value["repository"], str)
+        or not value["repository"].strip()
+        or not isinstance(value["branch"], str)
+        or not value["branch"].strip()
+    ):
         raise PolicyError("repository and branch must be non-empty strings")
     _validate_git_sha(value["approved_sha"], field="approved_sha")
     expected_digest = _validate_sha(value["policy_digest"], field="policy_digest")
@@ -104,7 +109,10 @@ def policy_payload(**kwargs: Any) -> dict[str, Any]:
         "repository": kwargs["repository"],
         "branch": kwargs["branch"],
         "approved_sha": _validate_git_sha(kwargs["approved_sha"], field="approved_sha"),
-        "files": [{"path": _safe_path(path, field="files.path"), "sha256": _validate_sha(digest, field="files.sha256")} for path, digest in sorted(files.items())],
+        "files": [
+            {"path": _safe_path(path, field="files.path"), "sha256": _validate_sha(digest, field="files.sha256")}
+            for path, digest in sorted(files.items())
+        ],
     }
     patterns = kwargs.get("protected_patterns", ())
     if patterns:
@@ -142,11 +150,20 @@ def preflight(root: Path, policy_path: Path, **options: Any) -> PolicyResult:
             + [f"unexpected:{path}" for path in actual if path not in record.files]
         )
         if mismatches:
-            return PolicyResult("policy_mismatch", "protected files differ from approved policy", record.policy_digest, actual_digest, tuple(mismatches))
+            return PolicyResult(
+                "policy_mismatch",
+                "protected files differ from approved policy",
+                record.policy_digest,
+                actual_digest,
+                tuple(mismatches),
+            )
         return PolicyResult("passed", policy_digest=record.policy_digest, actual_digest=actual_digest)
     except PolicyError as error:
         message = str(error)
-        status = next((name for name in ("policy_signature_invalid", "policy_missing", "policy_mismatch") if name in message), "policy_invalid")
+        status = next(
+            (name for name in ("policy_signature_invalid", "policy_missing", "policy_mismatch") if name in message),
+            "policy_invalid",
+        )
         return PolicyResult(status, message)
 
 
@@ -160,8 +177,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--allowed-signers", type=Path)
     parser.add_argument("--allow-unsigned", action="store_true")
     args = parser.parse_args(argv)
-    result = preflight(args.root, args.policy, repository=args.repository, branch=args.branch, base_sha=args.base_sha, require_signature=not args.allow_unsigned, allowed_signers=args.allowed_signers)
-    print(json.dumps({"status": result.status, "reason": result.reason, "policy_digest": result.policy_digest, "actual_digest": result.actual_digest, "mismatches": list(result.mismatches)}, sort_keys=True))
+    result = preflight(
+        args.root,
+        args.policy,
+        repository=args.repository,
+        branch=args.branch,
+        base_sha=args.base_sha,
+        require_signature=not args.allow_unsigned,
+        allowed_signers=args.allowed_signers,
+    )
+    print(
+        json.dumps(
+            {
+                "status": result.status,
+                "reason": result.reason,
+                "policy_digest": result.policy_digest,
+                "actual_digest": result.actual_digest,
+                "mismatches": list(result.mismatches),
+            },
+            sort_keys=True,
+        )
+    )
     return 0 if result.passed else 1
 
 

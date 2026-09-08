@@ -20,15 +20,11 @@ class PolicyPreflightTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / ".ci-scope.json").write_text('{"version":1}\n', encoding="utf-8")
         (self.root / ".github/workflows").mkdir(parents=True)
-        (self.root / ".github/workflows/ci-scope.yml").write_text(
-            "name: CI Scope\n", encoding="utf-8"
-        )
+        (self.root / ".github/workflows/ci-scope.yml").write_text("name: CI Scope\n", encoding="utf-8")
         self.policy_path = self.root.parent / "policy.json"
         files = {
             ".ci-scope.json": _sha(self.root / ".ci-scope.json"),
-            ".github/workflows/ci-scope.yml": _sha(
-                self.root / ".github/workflows/ci-scope.yml"
-            ),
+            ".github/workflows/ci-scope.yml": _sha(self.root / ".github/workflows/ci-scope.yml"),
         }
         self.policy_path.write_text(
             json.dumps(
@@ -81,9 +77,7 @@ class PolicyPreflightTests(unittest.TestCase):
         self.assertIn("missing:.ci-scope.json", result.mismatches)
 
     def test_added_file_matching_protected_pattern_fails_closed(self):
-        (self.root / ".github/workflows/extra.yml").write_text(
-            "name: bypass\n", encoding="utf-8"
-        )
+        (self.root / ".github/workflows/extra.yml").write_text("name: bypass\n", encoding="utf-8")
         result = preflight(self.root, self.policy_path, require_signature=False)
         self.assertEqual(result.status, "policy_mismatch")
         self.assertIn("unexpected:.github/workflows/extra.yml", result.mismatches)

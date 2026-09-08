@@ -244,7 +244,9 @@ def _run(args: argparse.Namespace) -> int:
     ai = [check for check in manifest.active_checks if check.ai]
     ordinary_ms = _run_ordinary(ordinary, context, results, events)
     ai_started = time.monotonic()
-    run_explanations(ordinary, context, results, events, ExplanationContext(CANCELLED, run_process, GATE_NAMES, DEFAULT_AI_MODEL))
+    run_explanations(
+        ordinary, context, results, events, ExplanationContext(CANCELLED, run_process, GATE_NAMES, DEFAULT_AI_MODEL)
+    )
     run_ai(ai, context, results, events, AIContext(CANCELLED, run_check))
     ai_ms = round((time.monotonic() - ai_started) * 1000)
     report = build_report(args, manifest, digest, results)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import subprocess
 import tempfile
 from collections.abc import Sequence
@@ -17,8 +18,6 @@ except ImportError:
 
 
 def _canonical(value: object) -> bytes:
-    import json
-
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
@@ -93,7 +92,19 @@ def verify_signature(record: PolicyRecord, *, allowed_signers: Path | None) -> N
             signature_path.write_bytes(base64.b64decode(encoded, validate=True))
         except (ValueError, binascii.Error) as error:
             raise PolicyError("policy_signature_invalid: malformed Ed25519 signature") from error
-        command = ["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(Path(allowed_signers)), "-rawin", "-in", str(payload_path), "-sigfile", str(signature_path)]
+        command = [
+            "openssl",
+            "pkeyutl",
+            "-verify",
+            "-pubin",
+            "-inkey",
+            str(Path(allowed_signers)),
+            "-rawin",
+            "-in",
+            str(payload_path),
+            "-sigfile",
+            str(signature_path),
+        ]
         try:
             completed = subprocess.run(command, capture_output=True, check=False)
         except OSError as error:

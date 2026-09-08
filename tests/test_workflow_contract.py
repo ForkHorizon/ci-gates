@@ -35,7 +35,8 @@ def _gate_workflows():
     return sorted(
         path
         for path in WORKFLOWS.glob("*.yml")
-        if path.name not in {"routing-validation.yml", *CENTRAL_WORKFLOWS} and "  workflow_call:" in path.read_text(encoding="utf-8")
+        if path.name not in {"routing-validation.yml", *CENTRAL_WORKFLOWS}
+        and "  workflow_call:" in path.read_text(encoding="utf-8")
     )
 
 

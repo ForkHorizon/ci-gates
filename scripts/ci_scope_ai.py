@@ -26,13 +26,20 @@ class ExplanationContext:
 
 
 def run_explanations(
-    checks: list[CheckSpec], context: object, results: dict[str, dict], events: list[dict], explanation: ExplanationContext
+    checks: list[CheckSpec],
+    context: object,
+    results: dict[str, dict],
+    events: list[dict],
+    explanation: ExplanationContext,
 ) -> None:
     args = context.args
     for check in checks:
         if explanation.cancelled.is_set():
             break
-        if check.type not in explanation.gate_names or results.get(check.id, {}).get("status") not in {"failed", "timed_out"}:
+        if check.type not in explanation.gate_names or results.get(check.id, {}).get("status") not in {
+            "failed",
+            "timed_out",
+        }:
             continue
         model = check.params.get("explain_model", explanation.default_model)
         if not model:
@@ -41,13 +48,21 @@ def run_explanations(
         command = [
             sys.executable,
             str(context.gates / "scripts/explain-failure.py"),
-            "--log", str(log_path), "--gate", explanation.gate_names[check.type],
-            "--model", str(model), "--base", args.base,
+            "--log",
+            str(log_path),
+            "--gate",
+            explanation.gate_names[check.type],
+            "--model",
+            str(model),
+            "--base",
+            args.base,
         ]
         code, detail = explanation.run_process(
             [command], context.manifest.root, args.timeout, context.output / "logs" / f"{check.id}-explain.log"
         )
-        events.append({"step": f"{check.id}-explain", "status": "passed" if code == 0 else "infra_error", "detail": detail})
+        events.append(
+            {"step": f"{check.id}-explain", "status": "passed" if code == 0 else "infra_error", "detail": detail}
+        )
 
 
 def run_ai(

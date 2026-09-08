@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fetch and validate a trusted CI Scope policy before candidate execution."""
+
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,9 @@ from policy_preflight import PolicyError, preflight
 
 def api_get(url: str, token: str, *, policy_token: bool = False) -> object:
     headers = {"accept": "application/vnd.github+json"}
-    headers["x-ci-scope-policy-token" if policy_token else "authorization"] = token if policy_token else f"Bearer {token}"
+    headers["x-ci-scope-policy-token" if policy_token else "authorization"] = (
+        token if policy_token else f"Bearer {token}"
+    )
     request = Request(url, headers=headers)
     try:
         with urlopen(request, timeout=20) as response:
@@ -44,7 +47,11 @@ def tree_paths(api_base: str, repository: str, revision: str, token: str) -> lis
     value = api_get(f"{api_base}/repos/{repository}/git/trees/{quote(revision, safe='')}?recursive=1", token)
     if not isinstance(value, dict) or value.get("truncated") is True or not isinstance(value.get("tree"), list):
         raise PolicyError("policy_service_unavailable: repository tree unavailable or truncated")
-    return [item["path"] for item in value["tree"] if isinstance(item, dict) and item.get("type") == "blob" and isinstance(item.get("path"), str)]
+    return [
+        item["path"]
+        for item in value["tree"]
+        if isinstance(item, dict) and item.get("type") == "blob" and isinstance(item.get("path"), str)
+    ]
 
 
 def file_bytes(api_base: str, repository: str, revision: str, path: str, token: str) -> bytes | None:
@@ -132,32 +139,63 @@ def main() -> int:
         head_policy = head_root / "policy.json"
         base_policy.write_text(serialized, encoding="utf-8")
         head_policy.write_text(serialized, encoding="utf-8")
-        paths = {entry["path"] for entry in record.get("files", []) if isinstance(entry, dict) and isinstance(entry.get("path"), str)}
+        paths = {
+            entry["path"]
+            for entry in record.get("files", [])
+            if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+        }
         paths.update(pattern for pattern in record.get("protected_patterns", []) if isinstance(pattern, str))
-        materialize_revision(args.github_api, args.repository, args.base_sha, args.github_token, (set(paths), base_root))
-        materialize_revision(args.github_api, args.repository, args.head_sha, args.github_token, (set(paths), head_root))
-        base_result = preflight(base_root, base_policy, repository=args.repository, branch=args.branch, gates_sha=args.gates_sha, allowed_signers=args.allowed_signers)
-        head_result = preflight(head_root, head_policy, repository=args.repository, branch=args.branch, gates_sha=args.gates_sha, allowed_signers=args.allowed_signers)
+        materialize_revision(
+            args.github_api, args.repository, args.base_sha, args.github_token, (set(paths), base_root)
+        )
+        materialize_revision(
+            args.github_api, args.repository, args.head_sha, args.github_token, (set(paths), head_root)
+        )
+        base_result = preflight(
+            base_root,
+            base_policy,
+            repository=args.repository,
+            branch=args.branch,
+            gates_sha=args.gates_sha,
+            allowed_signers=args.allowed_signers,
+        )
+        head_result = preflight(
+            head_root,
+            head_policy,
+            repository=args.repository,
+            branch=args.branch,
+            gates_sha=args.gates_sha,
+            allowed_signers=args.allowed_signers,
+        )
         result = head_result if base_result.passed else base_result
-        print(json.dumps({
-            "status": result.status,
-            "reason": result.reason,
-            "mismatches": list(result.mismatches),
-            "base_sha": args.base_sha,
-            "head_sha": args.head_sha,
-        }, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "status": result.status,
+                    "reason": result.reason,
+                    "mismatches": list(result.mismatches),
+                    "base_sha": args.base_sha,
+                    "head_sha": args.head_sha,
+                },
+                sort_keys=True,
+            )
+        )
         if not base_result.passed or not head_result.passed:
-            report_event(args.event_url, args.policy_token, {
-                "repository": args.repository,
-                "branch": args.branch,
-                "event_type": "policy_mismatch",
-                "actor": os.environ.get("GITHUB_ACTOR", ""),
-                "base_sha": args.base_sha,
-                "head_sha": args.head_sha,
-                "status": result.status,
-                "reason": result.reason,
-                "mismatches": list(result.mismatches),
-            })
+            report_event(
+                args.event_url,
+                args.policy_token,
+                {
+                    "repository": args.repository,
+                    "branch": args.branch,
+                    "event_type": "policy_mismatch",
+                    "actor": os.environ.get("GITHUB_ACTOR", ""),
+                    "base_sha": args.base_sha,
+                    "head_sha": args.head_sha,
+                    "status": result.status,
+                    "reason": result.reason,
+                    "mismatches": list(result.mismatches),
+                },
+            )
             return 1
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
