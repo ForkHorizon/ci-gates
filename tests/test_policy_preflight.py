@@ -64,6 +64,10 @@ class PolicyPreflightTests(unittest.TestCase):
         result = preflight(self.root, self.policy_path, require_signature=True)
         self.assertEqual(result.status, "policy_signature_invalid")
 
+    def test_gates_pin_is_bound_to_policy(self):
+        result = preflight(self.root, self.policy_path, gates_sha="c" * 40, require_signature=False)
+        self.assertEqual(result.status, "policy_mismatch")
+
     def test_changed_protected_file_fails_closed(self):
         (self.root / ".ci-scope.json").write_text('{"version":2}\n', encoding="utf-8")
         result = preflight(self.root, self.policy_path, require_signature=False)
