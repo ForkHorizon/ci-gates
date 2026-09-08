@@ -70,6 +70,7 @@ jobs:
             --gates-sha "${{ inputs.gates_sha || '1e4b3d1ea572cc82c0b2d4091cfc47ee9159be2f' }}" \
             --gates-sha "${{ inputs.gates_sha }}" \
             --policy-url "$POLICY_URL" \
+            --event-url "${POLICY_URL%/policy}/policy/events" \
             --allowed-signers "$RUNNER_TEMP/ci-scope-policy.pub" \
             --output "$RUNNER_TEMP/ci-scope-policy.json"
 

@@ -81,6 +81,22 @@ def materialize_revision(
             target.write_bytes(content)
 
 
+def report_event(url: str | None, token: str, payload: dict[str, object]) -> None:
+    if not url or not token:
+        return
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"accept": "application/json", "content-type": "application/json", "x-ci-scope-policy-token": token},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=10):
+            return
+    except (HTTPError, URLError, TimeoutError) as error:
+        print(json.dumps({"status": "policy_event_unavailable", "reason": str(error)}, sort_keys=True))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
@@ -94,6 +110,7 @@ def main() -> int:
     parser.add_argument("--policy-token", default=os.environ.get("CI_SCOPE_POLICY_READ_TOKEN", ""))
     parser.add_argument("--allowed-signers", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--event-url")
     args = parser.parse_args()
     if not args.github_token or not args.policy_token:
         raise SystemExit("policy_service_unavailable: GitHub and policy tokens are required")
@@ -124,6 +141,17 @@ def main() -> int:
             "head_sha": args.head_sha,
         }, sort_keys=True))
         if not base_result.passed or not head_result.passed:
+            report_event(args.event_url, args.policy_token, {
+                "repository": args.repository,
+                "branch": args.branch,
+                "event_type": "policy_mismatch",
+                "actor": os.environ.get("GITHUB_ACTOR", ""),
+                "base_sha": args.base_sha,
+                "head_sha": args.head_sha,
+                "status": result.status,
+                "reason": result.reason,
+                "mismatches": list(result.mismatches),
+            })
             return 1
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
