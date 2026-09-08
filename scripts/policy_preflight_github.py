@@ -68,9 +68,9 @@ def materialize_revision(
     repository: str,
     revision: str,
     token: str,
-    paths: set[str],
-    root: Path,
+    destination: tuple[set[str], Path],
 ) -> None:
+    paths, root = destination
     all_paths = tree_paths(api_base, repository, revision, token)
     for pattern in tuple(paths):
         if any(character in pattern for character in "*?["):
@@ -99,7 +99,7 @@ def report_event(url: str | None, token: str, payload: dict[str, object]) -> Non
         print(json.dumps({"status": "policy_event_unavailable", "reason": str(error)}, sort_keys=True))
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--branch", required=True)
@@ -113,7 +113,11 @@ def main() -> int:
     parser.add_argument("--allowed-signers", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--event-url")
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = _parse_args()
     if not args.github_token or not args.policy_token:
         raise SystemExit("policy_service_unavailable: GitHub and policy tokens are required")
 
@@ -130,8 +134,8 @@ def main() -> int:
         head_policy.write_text(serialized, encoding="utf-8")
         paths = {entry["path"] for entry in record.get("files", []) if isinstance(entry, dict) and isinstance(entry.get("path"), str)}
         paths.update(pattern for pattern in record.get("protected_patterns", []) if isinstance(pattern, str))
-        materialize_revision(args.github_api, args.repository, args.base_sha, args.github_token, set(paths), base_root)
-        materialize_revision(args.github_api, args.repository, args.head_sha, args.github_token, set(paths), head_root)
+        materialize_revision(args.github_api, args.repository, args.base_sha, args.github_token, (set(paths), base_root))
+        materialize_revision(args.github_api, args.repository, args.head_sha, args.github_token, (set(paths), head_root))
         base_result = preflight(base_root, base_policy, repository=args.repository, branch=args.branch, gates_sha=args.gates_sha, allowed_signers=args.allowed_signers)
         head_result = preflight(head_root, head_policy, repository=args.repository, branch=args.branch, gates_sha=args.gates_sha, allowed_signers=args.allowed_signers)
         result = head_result if base_result.passed else base_result
