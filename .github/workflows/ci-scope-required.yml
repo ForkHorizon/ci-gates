@@ -62,6 +62,7 @@ jobs:
           POLICY_BRANCH: ${{ github.base_ref || github.event.merge_group.base_ref || github.ref_name }}
         run: |
           test -n "$POLICY_URL"
+          POLICY_BRANCH="${POLICY_BRANCH#refs/heads/}"
           python3 .ci-gates/scripts/policy_preflight_github.py \
             --repository "$GITHUB_REPOSITORY" \
             --branch "$POLICY_BRANCH" \
@@ -87,6 +88,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           POLICY_BRANCH: ${{ github.base_ref || github.event.merge_group.base_ref || github.ref_name }}
         run: |
+          set -euo pipefail
+          POLICY_BRANCH="${POLICY_BRANCH#refs/heads/}"
           python3 .ci-gates/scripts/run-checks.py \
             --root "$GITHUB_WORKSPACE/workspace" \
             --config "$GITHUB_WORKSPACE/workspace/.ci-scope.json" \
