@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .policy_preflight_models import PolicyError, PolicyRecord, PolicyResult
+    from .policy_preflight_errors import PolicyError
+    from .policy_preflight_models import PolicyRecord, PolicyResult
     from .policy_preflight_workspace import _canonical, compute_workspace_digest, discovered_paths, verify_signature
 except ImportError:
-    from policy_preflight_models import PolicyError, PolicyRecord, PolicyResult
+    from policy_preflight_errors import PolicyError
+    from policy_preflight_models import PolicyRecord, PolicyResult
     from policy_preflight_workspace import _canonical, compute_workspace_digest, discovered_paths, verify_signature
 
 POLICY_VERSION = 1

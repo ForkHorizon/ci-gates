@@ -9,9 +9,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 try:
-    from .policy_preflight_models import PolicyError, PolicyRecord
+    from .policy_preflight_errors import PolicyError
+    from .policy_preflight_models import PolicyRecord
 except ImportError:
-    from policy_preflight_models import PolicyError, PolicyRecord
+    from policy_preflight_errors import PolicyError
+    from policy_preflight_models import PolicyRecord
 
 
 def _canonical(value: object) -> bytes:
