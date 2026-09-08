@@ -236,7 +236,8 @@ def _discovered_paths(root: Path, patterns: Sequence[str]) -> set[str]:
     discovered: set[str] = set()
     for pattern in patterns:
         # glob() does not follow symlinked directories when recursive=True.
-        for candidate in root.glob(pattern):
+        glob_pattern = f"{pattern}*" if pattern.endswith("/**") else pattern
+        for candidate in root.glob(glob_pattern):
             relative = candidate.relative_to(root).as_posix()
             if candidate.is_file() or candidate.is_symlink():
                 _safe_root_path(root, relative)
