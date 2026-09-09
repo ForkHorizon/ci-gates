@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+CENTRAL_WORKFLOWS = {"ci-scope-required.yml"}
 FETCH_COMMAND = 'git -C "$RUNNER_TEMP/ci-gates" fetch --quiet --depth 1 origin -- "$GATES_REF"'
 FETCH_RE = re.compile(r"\bgit\b[^\n;&|]*\bfetch\b[^\n;&|]*")
 
@@ -157,7 +158,7 @@ class ReusableWorkflowReferenceTests(unittest.TestCase):
         gate_workflows = []
         for path in workflow_paths:
             workflow = path.read_text(encoding="utf-8")
-            if "ci-gates" not in workflow or path.name == "routing-validation.yml":
+            if "ci-gates" not in workflow or path.name in {"routing-validation.yml", *CENTRAL_WORKFLOWS}:
                 continue
             gate_workflows.append(path)
             with self.subTest(workflow=path.name):

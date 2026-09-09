@@ -1,0 +1,107 @@
+name: CI Scope / Checks
+
+on:
+  workflow_call:
+    inputs:
+      gates_sha:
+        required: true
+        type: string
+      policy_url:
+        required: true
+        type: string
+    secrets:
+      CI_SCOPE_POLICY_READ_TOKEN:
+        required: true
+      CI_SCOPE_POLICY_PUBLIC_KEY:
+        required: true
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  checks:
+    name: CI Scope / Checks
+    runs-on: self-hosted
+    timeout-minutes: 45
+    steps:
+      - name: Set up trusted Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.11.9"
+
+      - name: Checkout trusted ci-gates
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: ForkHorizon/ci-gates
+          ref: ${{ inputs.gates_sha || 'f8b26a4d3bb82875e7bb25ce77af4637e934f6a2' }}
+          path: .ci-gates
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install trusted policy key
+        env:
+          POLICY_PUBLIC_KEY: ${{ secrets.CI_SCOPE_POLICY_PUBLIC_KEY }}
+        run: |
+          test -n "$POLICY_PUBLIC_KEY"
+          printf '%s\n' "$POLICY_PUBLIC_KEY" > "$RUNNER_TEMP/ci-scope-policy.pub"
+          chmod 600 "$RUNNER_TEMP/ci-scope-policy.pub"
+
+      - name: Policy preflight
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_SCOPE_POLICY_READ_TOKEN: ${{ secrets.CI_SCOPE_POLICY_READ_TOKEN }}
+          POLICY_URL: ${{ inputs.policy_url || vars.CI_SCOPE_POLICY_URL }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          POLICY_BRANCH: ${{ github.base_ref || github.event.merge_group.base_ref || github.ref_name }}
+        run: |
+          test -n "$POLICY_URL"
+          POLICY_BRANCH="${POLICY_BRANCH#refs/heads/}"
+          python3 .ci-gates/scripts/policy_preflight_github.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch "$POLICY_BRANCH" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --gates-sha "${{ inputs.gates_sha || 'f8b26a4d3bb82875e7bb25ce77af4637e934f6a2' }}" \
+            --policy-url "$POLICY_URL" \
+            --event-url "${POLICY_URL%/policy}/policy/events" \
+            --allowed-signers "$RUNNER_TEMP/ci-scope-policy.pub" \
+            --output "$RUNNER_TEMP/ci-scope-policy.json"
+
+      - name: Checkout candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: workspace
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Run unified checks
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          POLICY_BRANCH: ${{ github.base_ref || github.event.merge_group.base_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          POLICY_BRANCH="${POLICY_BRANCH#refs/heads/}"
+          python3 .ci-gates/scripts/run-checks.py \
+            --root "$GITHUB_WORKSPACE/workspace" \
+            --config "$GITHUB_WORKSPACE/workspace/.ci-scope.json" \
+            --gates "$GITHUB_WORKSPACE/.ci-gates" \
+            --event "${{ github.event_name }}" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --policy "$RUNNER_TEMP/ci-scope-policy.json" \
+            --policy-repository "$GITHUB_REPOSITORY" \
+            --policy-branch "$POLICY_BRANCH" \
+            --allowed-signers "$RUNNER_TEMP/ci-scope-policy.pub" \
+            --output "$RUNNER_TEMP/ci-scope-result"
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-scope-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-scope-result
+          if-no-files-found: warn

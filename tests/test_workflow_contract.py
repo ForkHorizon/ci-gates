@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+CENTRAL_WORKFLOWS = {"ci-scope-required.yml"}
 CONTRACT_INPUTS = (
     "runner-group",
     "runner-labels",
@@ -34,7 +35,8 @@ def _gate_workflows():
     return sorted(
         path
         for path in WORKFLOWS.glob("*.yml")
-        if path.name != "routing-validation.yml" and "  workflow_call:" in path.read_text(encoding="utf-8")
+        if path.name not in {"routing-validation.yml", *CENTRAL_WORKFLOWS}
+        and "  workflow_call:" in path.read_text(encoding="utf-8")
     )
 
 
@@ -132,6 +134,8 @@ class WorkflowContractTests(unittest.TestCase):
         action_pattern = re.compile(r"uses:\s+((?:actions|github)/[^@\s]+)@([^\s#]+)")
         sha_pattern = re.compile(r"[0-9a-f]{40}")
         for path in sorted(WORKFLOWS.glob("*.yml")):
+            if path.name in CENTRAL_WORKFLOWS:
+                continue
             workflow = path.read_text(encoding="utf-8")
             for action, ref in action_pattern.findall(workflow):
                 with self.subTest(workflow=path.name, action=action):

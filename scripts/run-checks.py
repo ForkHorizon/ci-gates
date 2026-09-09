@@ -18,11 +18,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ci_scope_adapters import DEFAULT_AI_MODEL, commands_for
-from ci_scope_ai import AIContext, run_ai
+from ci_scope_ai import AIContext, ExplanationContext, run_ai, run_explanations
 from ci_scope_manifest import ManifestError, resolve_manifest_file
 from ci_scope_models import CheckSpec, ResolvedManifest
 from check_reporting import BoundedLog, write_report
 from ci_scope_report import build_report
+from policy_preflight import PolicyError, preflight
 
 
 ADAPTERS = {"code-linter", "python-quality", "go-quality", "swift-quality", "swift-compile", "slop-review"}
@@ -204,40 +205,20 @@ def _run_ordinary(checks: list[CheckSpec], context: RunContext, results: dict[st
     return round((time.monotonic() - started) * 1000)
 
 
-def _run_explanations(
-    checks: list[CheckSpec], context: RunContext, results: dict[str, dict], events: list[dict]
-) -> None:
-    args = context.args
-    for check in checks:
-        if CANCELLED.is_set():
-            break
-        if check.type not in GATE_NAMES or results.get(check.id, {}).get("status") not in {"failed", "timed_out"}:
-            continue
-        model = check.params.get("explain_model", DEFAULT_AI_MODEL)
-        if not model:
-            continue
-        log_path = context.output / "logs" / f"{check.id}.log"
-        command = [
-            sys.executable,
-            str(context.gates / "scripts/explain-failure.py"),
-            "--log",
-            str(log_path),
-            "--gate",
-            GATE_NAMES[check.type],
-            "--model",
-            str(model),
-            "--base",
-            args.base,
-        ]
-        code, detail = run_process(
-            [command], context.manifest.root, args.timeout, context.output / "logs" / f"{check.id}-explain.log"
-        )
-        events.append(
-            {"step": f"{check.id}-explain", "status": "passed" if code == 0 else "infra_error", "detail": detail}
-        )
-
-
 def _run(args: argparse.Namespace) -> int:
+    policy_path = getattr(args, "policy", None)
+    if policy_path is not None:
+        policy_result = preflight(
+            args.root,
+            policy_path,
+            repository=getattr(args, "policy_repository", None),
+            branch=getattr(args, "policy_branch", None),
+            base_sha=getattr(args, "policy_base_sha", None),
+            require_signature=not getattr(args, "allow_unsigned_policy", False),
+            allowed_signers=getattr(args, "allowed_signers", None),
+        )
+        if not policy_result.passed:
+            raise PolicyError(f"{policy_result.status}: {policy_result.reason}")
     manifest_path = args.config.resolve()
     manifest = resolve_manifest_file(manifest_path, root=args.root.resolve(), event=args.event)
     digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
@@ -263,7 +244,9 @@ def _run(args: argparse.Namespace) -> int:
     ai = [check for check in manifest.active_checks if check.ai]
     ordinary_ms = _run_ordinary(ordinary, context, results, events)
     ai_started = time.monotonic()
-    _run_explanations(ordinary, context, results, events)
+    run_explanations(
+        ordinary, context, results, events, ExplanationContext(CANCELLED, run_process, GATE_NAMES, DEFAULT_AI_MODEL)
+    )
     run_ai(ai, context, results, events, AIContext(CANCELLED, run_check))
     ai_ms = round((time.monotonic() - ai_started) * 1000)
     report = build_report(args, manifest, digest, results)
@@ -281,6 +264,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="HEAD~1")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--policy",
+        type=Path,
+        help="Optional signed control-plane policy record; failure blocks execution before manifest loading",
+    )
+    parser.add_argument("--policy-repository", help="Repository identity expected by the policy record")
+    parser.add_argument("--policy-branch", help="Protected branch identity expected by the policy record")
+    parser.add_argument("--policy-base-sha", help="Approved base commit expected by the policy record")
+    parser.add_argument("--allowed-signers", type=Path, help="OpenSSH allowed signers file for policy verification")
+    parser.add_argument(
+        "--allow-unsigned-policy",
+        action="store_true",
+        help="Disable signature verification for local development only",
+    )
     parser.add_argument("--parallel", type=int, default=2)
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--validate-only", action="store_true")
