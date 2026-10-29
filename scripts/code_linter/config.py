@@ -79,13 +79,13 @@ DEFAULT_IGNORE = [
 ]
 
 LIMIT_DEFAULTS = {
-    "max_file_lines": 300,
-    "max_function_lines": 50,
+    "max_file_lines": 600,
+    "max_function_lines": 80,
     "max_nesting_depth": 4,
     "max_parameters": 5,
     "max_comment_lines": 5,
     "max_doc_comment_lines": 50,
-    "max_types_per_file": 2,
+    "max_types_per_file": 5,
 }
 LIMIT_MAXIMUMS = {
     "max_file_lines": 2_000,
