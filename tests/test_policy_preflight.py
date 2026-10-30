@@ -101,7 +101,9 @@ class PolicyPreflightTests(unittest.TestCase):
         canonical.pop("policy_digest")
         canonical["files"].sort(key=lambda entry: entry["path"])
         canonical["checks"].sort(key=lambda entry: entry["id"])
-        value["policy_digest"] = hashlib.sha256((json.dumps(canonical, sort_keys=True, separators=(",", ":")) + "\n").encode()).hexdigest()
+        value["policy_digest"] = hashlib.sha256(
+            (json.dumps(canonical, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        ).hexdigest()
         self.policy_path.write_text(json.dumps(value), encoding="utf-8")
         self.assertTrue(preflight(self.root, self.policy_path, require_signature=False).passed)
 
