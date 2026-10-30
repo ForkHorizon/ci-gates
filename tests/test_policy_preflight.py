@@ -90,6 +90,21 @@ class PolicyPreflightTests(unittest.TestCase):
         self.assertEqual(result.status, "policy_invalid")
         self.assertIn("policy_digest", result.reason)
 
+    def test_policy_arrays_use_web_canonical_order(self):
+        value = json.loads(self.policy_path.read_text(encoding="utf-8"))
+        value["files"].reverse()
+        value["checks"] = [
+            {"id": "python-quality", "required": True},
+            {"id": "code-linter", "required": True},
+        ]
+        canonical = dict(value)
+        canonical.pop("policy_digest")
+        canonical["files"].sort(key=lambda entry: entry["path"])
+        canonical["checks"].sort(key=lambda entry: entry["id"])
+        value["policy_digest"] = hashlib.sha256((json.dumps(canonical, sort_keys=True, separators=(",", ":")) + "\n").encode()).hexdigest()
+        self.policy_path.write_text(json.dumps(value), encoding="utf-8")
+        self.assertTrue(preflight(self.root, self.policy_path, require_signature=False).passed)
+
     def test_repository_and_branch_are_bound_to_record(self):
         result = preflight(
             self.root,

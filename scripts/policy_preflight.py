@@ -96,6 +96,12 @@ def load_policy_record(path: Path) -> PolicyRecord:
     payload = dict(value)
     payload.pop("signature", None)
     payload.pop("policy_digest", None)
+    payload["files"] = sorted(entries, key=lambda entry: entry["path"])
+    if "protected_patterns" in payload:
+        payload["protected_patterns"] = sorted(_validate_patterns(payload["protected_patterns"]))
+    checks = payload.get("checks")
+    if isinstance(checks, list) and all(isinstance(check, dict) for check in checks):
+        payload["checks"] = sorted(checks, key=lambda check: str(check.get("id", "")))
     canonical = _canonical(payload)
     if _sha256(canonical) != expected_digest:
         raise PolicyError("policy_digest does not match the canonical policy payload")
