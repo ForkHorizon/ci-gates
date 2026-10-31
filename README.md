@@ -65,6 +65,16 @@ workflow forces an all-files structure scan. The gate does not replace a
 compiler, type checker, security scanner, or tests; use the language-specific
 quality workflows alongside it.
 
+The local `.ci-scope.json` runner also accepts `forbidden-constructs` and
+`duplicate-blocks`. Both default to `mode: "new"`, scanning added lines in a
+worktree or commit range. The first checks TypeScript, Swift, Go, and Python
+for selected unsafe constructs; an exception needs a nearby
+`allow-<rule-id>: reason` comment. The second hashes normalized windows of 10
+significant lines and reports copies found elsewhere. Optional project
+overrides live in `.forbidden-constructs.json` and `.duplicate-blocks.json`.
+These checks are available to local manifests and are not enabled in reusable
+workflows by this change.
+
 Coverage gaps are accounted for separately. The default `coverage_mode` is
 `report`: tracked files in ignored source directories, excluded supported
 extensions, and recognized unsupported code/config surfaces are listed as

@@ -99,6 +99,14 @@ class CoverageGap:
     ignored_by: tuple[str, ...] = ()
 
 
+def coverage_issue_message(gap: CoverageGap) -> str:
+    if gap.category in {"ignored_source", "excluded_extension"}:
+        return f"{gap.message} Strict mode does not accept exclusions for structurally supported source."
+    if gap.category == "coverage_read_error":
+        return f"{gap.message} Code Linter cannot determine whether this tracked input is covered."
+    return f"{gap.message} Add support or an explicit coverage_exceptions entry with a reason."
+
+
 @dataclass(frozen=True)
 class PathInventory:
     selected: tuple[Path, ...]

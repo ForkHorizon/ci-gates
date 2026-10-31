@@ -46,6 +46,8 @@ def collect_path_inventory(root: Path, config: dict, args: argparse.Namespace) -
 
 
 def candidate_paths(root: Path, args: argparse.Namespace) -> list[Path]:
+    if args.mode == "worktree":
+        return worktree_paths(root)
     candidates = changed_paths(root, args.base, args.head) if args.mode == "changed" else all_repo_paths(root)
     if args.mode != "changed":
         return candidates
@@ -53,6 +55,22 @@ def candidate_paths(root: Path, args: argparse.Namespace) -> list[Path]:
     changed = {to_relative(root, path) for path in candidates}
     policy_changed = config_relative in changed or any(path.startswith(".github/workflows/") for path in changed)
     return all_repo_paths(root) if policy_changed else candidates
+
+
+def worktree_paths(root: Path) -> list[Path]:
+    commands = (
+        ["git", "diff", "-z", "--name-only", "--diff-filter=ACMRT", "HEAD"],
+        ["git", "ls-files", "-z", "--others", "--exclude-standard"],
+    )
+    paths = set()
+    for command in commands:
+        result = subprocess.run(command, cwd=root, text=False, capture_output=True, check=False)
+        if result.returncode != 0:
+            message = git_output_text(result.stderr).strip() or git_output_text(result.stdout).strip()
+            print(format_github_command("error", data=f"Unable to collect worktree files: {message}"), file=sys.stderr)
+            sys.exit(2)
+        paths.update(split_git_paths(result.stdout))
+    return [root / path for path in sorted(paths)]
 
 
 def coverage_gap_for(root: Path, path: Path, config: dict, include_extensions: set[str]) -> CoverageGap | None:

@@ -21,7 +21,14 @@ def _code_linter(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str
     mode = str(check.params.get("mode", "auto"))
     if mode == "auto":
         mode = "changed" if event in {"pull_request", "merge_group"} else "all"
-    command = [sys.executable, str(gates / "scripts/code-linter.py"), "--root", str(root), "--mode", mode]
+    command = [
+        sys.executable,
+        str(gates / "scripts/code-linter.py"),
+        "--root",
+        str(root),
+        "--mode",
+        mode,
+    ]
     if mode == "changed":
         command += ["--base", base, "--head", head]
     if check.config:
@@ -49,17 +56,67 @@ def _python_quality(check: CheckSpec, root: Path, gates: Path) -> list[list[str]
     pyproject = workdir / "pyproject.toml"
     has_config = has_config or (pyproject.is_file() and "[tool.ruff" in pyproject.read_text(encoding="utf-8"))
     config = [] if has_config else ["--config", str(gates / "configs/ruff-strict.toml")]
-    return [["ruff", "check", *config, "."], ["ruff", "format", "--check", *config, "."]]
+    return [
+        ["ruff", "check", *config, "."],
+        ["ruff", "format", "--check", *config, "."],
+    ]
+
+
+def _python_pytest() -> list[list[str]]:
+    return [["python3", "-m", "pytest", "tests", "-q"]]
+
+
+def _shape_checks(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str) -> list[list[str]]:
+    script = "forbidden_constructs.py" if check.type == "forbidden-constructs" else "duplicate_blocks.py"
+    command = [
+        sys.executable,
+        str(gates / f"scripts/{script}"),
+        "--root",
+        str(root),
+        "--mode",
+        str(check.params.get("mode", "new")),
+        "--git-mode",
+        "worktree" if event == "local" else "committed",
+        "--base",
+        revisions[0],
+        "--head",
+        revisions[1],
+    ]
+    if check.type == "duplicate-blocks":
+        command += ["--min-lines", str(check.params.get("min_lines", 10))]
+    if check.config:
+        command += ["--config", str(root / check.config)]
+    return [command]
+
+
+def _web_quality(check: CheckSpec, root: Path) -> list[list[str]]:
+    workdir = root / check.workdir
+    compiler = workdir / "node_modules/typescript/bin/tsc"
+    commands = [["node", str(compiler), "--noEmit"]]
+    binaries = workdir / "node_modules/.bin"
+    for tool, arguments in (("eslint", ["."]), ("knip", []), ("jscpd", ["."])):
+        if (binaries / tool).is_file():
+            commands.append([str(binaries / tool), *arguments])
+    return commands
+
+
+def _web_test() -> list[list[str]]:
+    return [["node", "scripts/test.mjs"]]
 
 
 def _swift_quality(
     check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str
 ) -> list[list[str]]:
     base, head = revisions
-    prefix = [sys.executable, str(gates / "scripts/swift-quality-gate.py"), "--root", str(root)]
+    prefix = [
+        sys.executable,
+        str(gates / "scripts/swift-quality-gate.py"),
+        "--root",
+        str(root),
+    ]
     if check.config:
         prefix += ["--config", check.config]
-    mode = "changed" if event in {"pull_request", "merge_group"} else "all"
+    mode = "worktree" if event == "local" else ("changed" if event in {"pull_request", "merge_group"} else "all")
     commands = []
     if check.params.get("run_build", True):
         commands.append([*prefix, "--stage", "build", "--mode", "all"])
@@ -77,7 +134,14 @@ def _configured(script: str, check: CheckSpec, root: Path, gates: Path) -> list[
 
 def _slop_review(check: CheckSpec, gates: Path, revisions: tuple[str, str]) -> list[list[str]]:
     base, head = revisions
-    command = [sys.executable, str(gates / "scripts/slop-review.py"), "--base", base, "--head", head]
+    command = [
+        sys.executable,
+        str(gates / "scripts/slop-review.py"),
+        "--base",
+        base,
+        "--head",
+        head,
+    ]
     if check.config:
         command += ["--config", check.config]
     command += ["--model", str(check.params.get("model", DEFAULT_AI_MODEL))]
@@ -85,14 +149,26 @@ def _slop_review(check: CheckSpec, gates: Path, revisions: tuple[str, str]) -> l
 
 
 def commands_for(
-    check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str = "pull_request"
+    check: CheckSpec,
+    root: Path,
+    gates: Path,
+    revisions: tuple[str, str],
+    event: str = "pull_request",
 ) -> list[list[str]]:
     if check.type == "code-linter":
-        return _code_linter(check, root, gates, revisions, event)
-    if check.type == "python-quality":
-        return _python_quality(check, root, gates)
-    if check.type == "go-quality":
-        return [
+        commands = _code_linter(check, root, gates, revisions, event)
+    elif check.type == "python-quality":
+        commands = _python_quality(check, root, gates)
+    elif check.type == "python-pytest":
+        commands = _python_pytest()
+    elif check.type in {"forbidden-constructs", "duplicate-blocks"}:
+        commands = _shape_checks(check, root, gates, revisions, event)
+    elif check.type == "web-quality":
+        commands = _web_quality(check, root)
+    elif check.type == "web-test":
+        commands = _web_test()
+    elif check.type == "go-quality":
+        commands = [
             ["go", "mod", "download"],
             ["go", "vet", "./..."],
             [
@@ -102,10 +178,12 @@ def commands_for(
             ],
             ["golangci-lint", "run", "./..."],
         ]
-    if check.type == "swift-quality":
-        return _swift_quality(check, root, gates, revisions, event)
-    if check.type == "swift-compile":
-        return _configured("swift-compile-gate.py", check, root, gates)
-    if check.type == "slop-review":
-        return _slop_review(check, gates, revisions)
-    raise ManifestError(f"unsupported executor adapter: {check.type}")
+    elif check.type == "swift-quality":
+        commands = _swift_quality(check, root, gates, revisions, event)
+    elif check.type == "swift-compile":
+        commands = _configured("swift-compile-gate.py", check, root, gates)
+    elif check.type == "slop-review":
+        commands = _slop_review(check, gates, revisions)
+    else:
+        raise ManifestError(f"unsupported executor adapter: {check.type}")
+    return commands

@@ -93,7 +93,7 @@ def main(argv: Sequence[str]) -> int:
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Swift build, format, and dead-code gates.")
     parser.add_argument("--stage", choices=("all", "build", "format", "dead-code"), default="all")
-    parser.add_argument("--mode", choices=("all", "changed"), default="all")
+    parser.add_argument("--mode", choices=("all", "changed", "worktree"), default="all")
     parser.add_argument("--base", default="origin/main", help="Base ref for changed mode.")
     parser.add_argument("--head", default="HEAD", help="Head ref for changed mode.")
     parser.add_argument("--config", default=".swift-quality-gate.json")
