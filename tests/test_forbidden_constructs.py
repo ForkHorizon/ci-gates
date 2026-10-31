@@ -74,6 +74,18 @@ class ForbiddenConstructTests(unittest.TestCase):
             ["no-empty-catch"],
         )
 
+    def test_new_only_mode_ignores_comments_between_empty_block_lines(self):
+        python = "except Exception:\n    # explanation\n    pass\n"
+        typescript = "try {\n    work()\n} catch {\n    // explanation\n}\n"
+        self.assertEqual(
+            [v.rule_id for v in scan_text(python, ".py", {3}, mode="new")],
+            ["no-broad-except-pass"],
+        )
+        self.assertEqual(
+            [v.rule_id for v in scan_text(typescript, ".ts", {5}, mode="new")],
+            ["no-empty-catch"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

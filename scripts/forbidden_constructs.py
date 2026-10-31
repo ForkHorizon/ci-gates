@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 from dataclasses import dataclass
 import json
 import os
@@ -148,23 +149,28 @@ def _empty_block(lines: list[str], number: int, rule_id: str) -> bool:
     line = lines[number - 1].strip()
     if rule_id == "no-empty-catch":
         if re.search(r"\bcatch(?:\s*\([^)]*\))?\s*\{\s*$", line):
-            following = next((item.strip() for item in lines[number:] if item.strip()), "")
-            return following == "}"
+            return _neighbor_code_line(lines[number:]).strip() == "}"
         if line == "}":
-            previous = next((item.strip() for item in reversed(lines[: number - 1]) if item.strip()), "")
+            previous = _neighbor_code_line(reversed(lines[: number - 1])).strip()
             return bool(re.search(r"\bcatch(?:\s*\([^)]*\))?\s*\{\s*$", previous))
     if rule_id == "no-broad-except-pass":
         header = r"except\s+(?:Exception|BaseException|[^:]+)\s*:\s*$"
         if re.match(header, line):
-            following = next((item.strip() for item in lines[number:] if item.strip()), "")
-            return following == "pass"
+            return _neighbor_code_line(lines[number:]).strip() == "pass"
         if re.match(r"pass(?:\s+#.*)?$", line):
-            previous = next((item for item in reversed(lines[: number - 1]) if item.strip()), "")
+            previous = _neighbor_code_line(reversed(lines[: number - 1]))
             return bool(
                 re.match(header, previous.strip())
                 and len(lines[number - 1]) - len(lines[number - 1].lstrip()) > len(previous) - len(previous.lstrip())
             )
     return False
+
+
+def _neighbor_code_line(lines: Iterable[str]) -> str:
+    return next(
+        (line for line in lines if line.strip() and not line.lstrip().startswith(("#", "//"))),
+        "",
+    )
 
 
 def _allow_marker(lines: list[str], number: int, rule_id: str, findings: list[Violation]) -> bool:
