@@ -45,6 +45,18 @@ class DuplicateBlocksTests(unittest.TestCase):
             matches = check(root, CheckOptions("new", "worktree", "HEAD~1", "HEAD", 10, None))
             self.assertTrue(matches)
 
+    def test_undecodable_source_file_does_not_crash_the_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)
+            (root / "base.py").write_text("x = 1\n")
+            subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(root), "commit", "-qm", "base"], check=True)
+            (root / "blob.py").write_bytes(b"\xdb\xff\x00 not utf-8\n")
+            self.assertEqual(check(root, CheckOptions("new", "worktree", "HEAD~1", "HEAD", 10, None)), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,7 +49,7 @@ def added_lines(root: Path, mode: str, base: str = "HEAD~1", head: str = "HEAD")
         for name in filter(None, untracked):
             path = root / name
             if path.is_file() and not path.is_symlink():
-                result[name] = set(range(1, len(path.read_text(encoding="utf-8").splitlines()) + 1))
+                result[name] = set(range(1, len(path.read_text(encoding="utf-8", errors="replace").splitlines()) + 1))
     return result
 
 

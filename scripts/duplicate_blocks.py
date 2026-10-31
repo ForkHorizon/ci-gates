@@ -150,7 +150,10 @@ def check(root: Path, request: CheckOptions):
         or not 2 <= min_lines <= 100
     ):
         raise ValueError("exclude must be strings and min_lines must be between 2 and 100")
-    files = {name: path.read_text(encoding="utf-8").splitlines() for name, path in _source_files(root, excludes)}
+    files = {
+        name: path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for name, path in _source_files(root, excludes)
+    }
     additions = (
         added_lines(root, request.git_mode, request.base, request.head)
         if request.mode == "new"

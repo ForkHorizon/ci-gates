@@ -263,7 +263,7 @@ def check(root: Path, options: ScanOptions) -> list[Violation]:
             results.extend(
                 Violation(relative, item.line, item.rule_id, item.message)
                 for item in scan_text(
-                    path.read_text(encoding="utf-8"),
+                    path.read_text(encoding="utf-8", errors="replace"),
                     path.suffix,
                     selected,
                     mode=options.mode,
