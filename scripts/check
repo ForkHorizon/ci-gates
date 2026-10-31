@@ -56,7 +56,7 @@ def main(argv: list[str]) -> int:
         return 2
     result_path = Path.home() / ".ci-scope/checks" / f"{repository_name(root)}.json"
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    output = Path(tempfile.mkdtemp(prefix=f"{repository_name(root)}-", dir=result_path.parent))
+    output = Path(tempfile.mkdtemp(prefix=f"{repository_name(root)}-", dir=result_path.parent)).resolve()
     command = [
         sys.executable,
         str(runner),

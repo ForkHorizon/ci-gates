@@ -78,7 +78,10 @@ class CheckWrapperTests(unittest.TestCase):
             subprocess.run(
                 ["git", "-C", str(repo), "remote", "add", "origin", "git@github.com:owner/sample.git"], check=True
             )
+            home_target = base / "real-home"
+            home_target.mkdir()
             home = base / "home"
+            home.symlink_to(home_target, target_is_directory=True)
             env = dict(os.environ, HOME=str(home), CI_SCOPE_GATES=str(gates))
             result = subprocess.run(
                 [sys.executable, str(ROOT / "scripts/check")],

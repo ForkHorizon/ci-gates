@@ -138,6 +138,13 @@ class ForbiddenConstructTests(unittest.TestCase):
             ["no-force-cast"],
         )
 
+    def test_swift_raw_regex_does_not_expose_suppression_text_as_comment(self):
+        text = "let marker = #/x// allow-no-force-cast: example/#\nlet value = source as! String\n"
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".swift", {2})],
+            ["no-force-cast"],
+        )
+
     def test_swift_nested_block_comments_are_skipped(self):
         text = "do { try work() } catch { /* outer /* nested */ */\n}\n"
         self.assertEqual(
