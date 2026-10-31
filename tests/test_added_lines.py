@@ -11,6 +11,10 @@ class AddedLinesTests(unittest.TestCase):
         diff = "@@ -2,2 +2,3 @@\n-old\n+one\n+two\n same\n@@ -9 +11,0 @@\n-removed\n"
         self.assertEqual(parse_hunks(diff), {2, 3})
 
+    def test_added_source_starting_with_double_plus_is_counted(self):
+        diff = "diff --git a/source.js b/source.js\n--- a/source.js\n+++ b/source.js\n@@ -1 +1 @@\n-old\n+++counter;\n"
+        self.assertEqual(parse_hunks(diff), {1})
+
     def test_worktree_includes_uncommitted_and_untracked_lines(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

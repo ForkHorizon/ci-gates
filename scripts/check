@@ -99,7 +99,8 @@ def main(argv: list[str]) -> int:
                 print(f"SLOW {', '.join(slow)} > {threshold}ms")
         except (OSError, ValueError):
             pass
-    if result.returncode == 0:
+    visible_log = any(line.startswith(f"full log: {output}/") for line in result.stdout.splitlines())
+    if result.returncode == 0 or not visible_log:
         shutil.rmtree(output, ignore_errors=True)
     return result.returncode
 

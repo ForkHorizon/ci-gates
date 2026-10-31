@@ -3,7 +3,6 @@ from pathlib import Path
 
 from scripts.forbidden_constructs import scan_text
 
-
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
@@ -47,7 +46,15 @@ class ForbiddenConstructTests(unittest.TestCase):
         )
 
     def test_go_custom_error_calls_are_project_overrides(self):
-        rules = {".go": [("no-ignored-error", r"_\s*=\s*client\.Close\s*\(", "do not drop Close error")]}
+        rules = {
+            ".go": [
+                (
+                    "no-ignored-error",
+                    r"_\s*=\s*client\.Close\s*\(",
+                    "do not drop Close error",
+                )
+            ]
+        }
         self.assertEqual(
             [v.rule_id for v in scan_text("_ = client.Close()\n", ".go", {1}, rules=rules)],
             ["no-ignored-error"],
@@ -84,6 +91,37 @@ class ForbiddenConstructTests(unittest.TestCase):
         self.assertEqual(
             [v.rule_id for v in scan_text(typescript, ".ts", {5}, mode="new")],
             ["no-empty-catch"],
+        )
+
+    def test_new_only_mode_skips_block_comments_between_empty_catch_lines(self):
+        text = "try { work(); } catch { /* explanation */\n}\n"
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".ts", {2}, mode="new")],
+            ["no-empty-catch"],
+        )
+
+    def test_new_only_mode_flags_pass_added_to_existing_bare_except(self):
+        self.assertEqual(
+            [v.rule_id for v in scan_text("except:\n    pass\n", ".py", {2})],
+            ["no-broad-except-pass"],
+        )
+
+    def test_suppression_text_inside_strings_is_not_a_marker(self):
+        text = 'const hint = "// allow-no-any: sample";\nconst item: any = value;\n'
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".ts", {2})],
+            ["no-any"],
+        )
+        self.assertEqual(
+            [v.rule_id for v in scan_text('const hint = "// allow-no-any:";\n', ".ts", {1})],
+            [],
+        )
+
+    def test_escaped_quotes_do_not_expose_suppression_text_as_comment(self):
+        text = 'const hint = "\\" // allow-no-any: sample";\nconst item: any = value;\n'
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".ts", {2})],
+            ["no-any"],
         )
 
 

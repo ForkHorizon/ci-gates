@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable
-from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
 import re
 import sys
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
 
 try:
     from added_lines import added_lines
+    from source_comments import split_comments
 except ModuleNotFoundError:
     from .added_lines import added_lines
+    from .source_comments import split_comments
 
 
 @dataclass(frozen=True)
@@ -114,13 +116,14 @@ EXCLUDED_PARTS = {
 
 def scan_text(text: str, extension: str, added: set[int], *, mode: str = "new", rules=None) -> list[Violation]:
     lines = text.splitlines()
+    code_lines, comments = split_comments(lines, extension.lower())
     selected = set(range(1, len(lines) + 1)) if mode == "all" else added
     findings = []
     for number in sorted(selected):
         if number < 1 or number > len(lines):
             continue
         line = lines[number - 1]
-        marker = ALLOW.search(line)
+        marker = ALLOW.search(comments[number - 1])
         if marker and not marker.group(2).strip():
             findings.append(
                 Violation(
@@ -131,9 +134,9 @@ def scan_text(text: str, extension: str, added: set[int], *, mode: str = "new", 
                 )
             )
         for rule_id, pattern, message in _rules_for(extension.lower(), rules or {}):
-            if not re.search(pattern, line) and not _empty_block(lines, number, rule_id):
+            if not re.search(pattern, line) and not _empty_block(code_lines, number, rule_id, selected):
                 continue
-            marker = _allow_marker(lines, number, rule_id, findings)
+            marker = _allow_marker(comments, number, rule_id, findings)
             if not marker:
                 findings.append(Violation("", number, rule_id, message))
     return list(dict.fromkeys(findings))
@@ -145,25 +148,27 @@ def _rules_for(extension: str, overrides: dict) -> list[tuple[str, str, str]]:
     return defaults + list(replaced.values())
 
 
-def _empty_block(lines: list[str], number: int, rule_id: str) -> bool:
+def _empty_block(lines: list[str], number: int, rule_id: str, selected: set[int]) -> bool:
     line = lines[number - 1].strip()
+    result = False
     if rule_id == "no-empty-catch":
         if re.search(r"\bcatch(?:\s*\([^)]*\))?\s*\{\s*$", line):
-            return _neighbor_code_line(lines[number:]).strip() == "}"
-        if line == "}":
+            result = _neighbor_code_line(lines[number:]).strip() == "}"
+        elif line == "}":
             previous = _neighbor_code_line(reversed(lines[: number - 1])).strip()
-            return bool(re.search(r"\bcatch(?:\s*\([^)]*\))?\s*\{\s*$", previous))
-    if rule_id == "no-broad-except-pass":
-        header = r"except\s+(?:Exception|BaseException|[^:]+)\s*:\s*$"
+            result = bool(re.search(r"\bcatch(?:\s*\([^)]*\))?\s*\{\s*$", previous))
+    elif rule_id == "no-broad-except-pass":
+        header = r"except(?:\s+(?:Exception|BaseException|[^:]+))?\s*:\s*$"
         if re.match(header, line):
-            return _neighbor_code_line(lines[number:]).strip() == "pass"
-        if re.match(r"pass(?:\s+#.*)?$", line):
+            result = line != "except:" and _neighbor_code_line(lines[number:]).strip() == "pass"
+        elif re.match(r"pass(?:\s+#.*)?$", line):
             previous = _neighbor_code_line(reversed(lines[: number - 1]))
-            return bool(
+            result = previous.strip() != "except:" or number - 1 not in selected
+            result = result and bool(
                 re.match(header, previous.strip())
                 and len(lines[number - 1]) - len(lines[number - 1].lstrip()) > len(previous) - len(previous.lstrip())
             )
-    return False
+    return result
 
 
 def _neighbor_code_line(lines: Iterable[str]) -> str:
@@ -173,11 +178,11 @@ def _neighbor_code_line(lines: Iterable[str]) -> str:
     )
 
 
-def _allow_marker(lines: list[str], number: int, rule_id: str, findings: list[Violation]) -> bool:
+def _allow_marker(comments: list[str], number: int, rule_id: str, findings: list[Violation]) -> bool:
     for index in (number - 1, number - 2):
         if index < 0:
             continue
-        match = ALLOW.search(lines[index])
+        match = ALLOW.search(comments[index])
         if match and match.group(1) == rule_id:
             if not match.group(2).strip():
                 findings.append(

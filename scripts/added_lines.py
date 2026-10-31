@@ -7,19 +7,30 @@ from pathlib import Path
 def parse_hunks(diff_text: str) -> set[int]:
     added = set()
     line_number = None
+    old_remaining = new_remaining = 0
     for line in diff_text.splitlines():
         if line.startswith("@@"):
             header = line.split("@@", 2)[1].split(" ")
+            old_range = next(part[1:] for part in header if part.startswith("-"))
             new_range = next(part[1:] for part in header if part.startswith("+"))
             line_number = int(new_range.partition(",")[0])
+            old_remaining = int(old_range.split(",", 1)[1]) if "," in old_range else 1
+            new_remaining = int(new_range.split(",", 1)[1]) if "," in new_range else 1
             continue
-        if line_number is None or line.startswith(("+++", "---", "\\")):
+        if line_number is None or line.startswith("\\"):
             continue
         if line.startswith("+"):
             added.add(line_number)
             line_number += 1
+            new_remaining -= 1
         elif line.startswith(" "):
             line_number += 1
+            old_remaining -= 1
+            new_remaining -= 1
+        elif line.startswith("-"):
+            old_remaining -= 1
+        if old_remaining <= 0 and new_remaining <= 0:
+            line_number = None
     return added
 
 

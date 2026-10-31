@@ -95,6 +95,38 @@ class CheckWrapperTests(unittest.TestCase):
             self.assertTrue(Path(log_path).is_file())
             self.assertEqual(Path(log_path).read_text(), "lint failed\n")
 
+    def test_setup_failure_without_a_reported_log_cleans_output_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo = base / "repo"
+            gates = base / "gates"
+            (repo / "scripts").mkdir(parents=True)
+            (gates / "scripts").mkdir(parents=True)
+            (repo / ".ci-scope.json").write_text('{"version":1,"checks":[]}')
+            (gates / "scripts/run-checks.py").write_text("print('setup failed')\nraise SystemExit(2)\n")
+            subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+            (repo / "README.md").write_text("repo\n")
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "remote", "add", "origin", "git@github.com:owner/sample.git"], check=True
+            )
+            home = base / "home"
+            env = dict(os.environ, HOME=str(home), CI_SCOPE_GATES=str(gates))
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/check")],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("setup failed", result.stdout)
+            self.assertEqual(list((home / ".ci-scope/checks").iterdir()), [])
+
 
 if __name__ == "__main__":
     unittest.main()
