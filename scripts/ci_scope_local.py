@@ -44,6 +44,8 @@ def print_quiet(report, output: Path, elapsed: float, tail: int):
         return
     for check in failures:
         reason = safe_text(check.get("detail") or check.get("reason") or check["status"], preserve_paths=True)
+        if reason.startswith("command failed:"):
+            reason = "failed"
         print(f"FAIL {check['id']}  {reason[:200]}")
         log_path = (output / check.get("log", f"logs/{check['id']}.log")).resolve()
         if log_path.is_file():

@@ -131,5 +131,22 @@ class CheckWrapperTests(unittest.TestCase):
             self.assertEqual(list((home / ".ci-scope/checks").iterdir()), [])
 
 
+class CheckWrapperArgumentTests(unittest.TestCase):
+    def test_quiet_flag_is_accepted_but_unknown_flags_are_rejected(self):
+        for args, expected in ((["--quiet"], 2), (["--bogus"], 2)):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/check"), *args],
+                cwd=ROOT.parent,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if args == ["--quiet"]:
+                self.assertNotIn("usage:", result.stderr)
+            else:
+                self.assertIn("usage:", result.stderr)
+            self.assertEqual(result.returncode, expected)
+
+
 if __name__ == "__main__":
     unittest.main()
