@@ -131,6 +131,20 @@ class ForbiddenConstructTests(unittest.TestCase):
             ["no-force-cast"],
         )
 
+    def test_swift_raw_string_escape_does_not_end_string_early(self):
+        text = 'let marker = #"escaped \\"# // allow-no-force-cast: example"#\nlet value = source as! String\n'
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".swift", {2})],
+            ["no-force-cast"],
+        )
+
+    def test_swift_nested_block_comments_are_skipped(self):
+        text = "do { try work() } catch { /* outer /* nested */ */\n}\n"
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".swift", {2})],
+            ["no-empty-catch"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
