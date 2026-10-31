@@ -124,6 +124,13 @@ class ForbiddenConstructTests(unittest.TestCase):
             ["no-any"],
         )
 
+    def test_swift_raw_string_does_not_expose_suppression_text_as_comment(self):
+        text = 'let marker = #"text " // allow-no-force-cast: example"#\nlet value = source as! String\n'
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".swift", {2})],
+            ["no-force-cast"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
