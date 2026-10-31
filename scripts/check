@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -55,13 +56,35 @@ def main(argv: list[str]) -> int:
         return 2
     result_path = Path.home() / ".ci-scope/checks" / f"{repository_name(root)}.json"
     result_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="ci-scope-check-") as output:
-        command = [
-            sys.executable, str(runner), "--root", str(root), "--config", str(config), "--gates", str(gates),
-            "--event", "local", "--mode", "worktree", "--tier", tier, "--quiet", "--local",
-            "--allow-unsigned-policy", "--output", output, "--result-file", str(result_path),
-        ]
+    output = Path(tempfile.mkdtemp(prefix=f"{repository_name(root)}-", dir=result_path.parent))
+    command = [
+        sys.executable,
+        str(runner),
+        "--root",
+        str(root),
+        "--config",
+        str(config),
+        "--gates",
+        str(gates),
+        "--event",
+        "local",
+        "--mode",
+        "worktree",
+        "--tier",
+        tier,
+        "--quiet",
+        "--local",
+        "--allow-unsigned-policy",
+        "--output",
+        str(output),
+        "--result-file",
+        str(result_path),
+    ]
+    try:
         result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError:
+        shutil.rmtree(output, ignore_errors=True)
+        raise
     if result.stdout:
         print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
     if result.stderr:
@@ -76,6 +99,8 @@ def main(argv: list[str]) -> int:
                 print(f"SLOW {', '.join(slow)} > {threshold}ms")
         except (OSError, ValueError):
             pass
+    if result.returncode == 0:
+        shutil.rmtree(output, ignore_errors=True)
     return result.returncode
 
 

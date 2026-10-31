@@ -60,6 +60,20 @@ class ForbiddenConstructTests(unittest.TestCase):
             {"no-type-ignore", "no-broad-except-pass"},
         )
 
+    def test_new_only_mode_flags_added_python_body_after_existing_except(self):
+        text = "except Exception:\n    pass\n"
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".py", {2}, mode="new")],
+            ["no-broad-except-pass"],
+        )
+
+    def test_new_only_mode_flags_added_closing_brace_after_existing_empty_catch(self):
+        text = "try {\n    work()\n} catch {\n}\n"
+        self.assertEqual(
+            [v.rule_id for v in scan_text(text, ".ts", {4}, mode="new")],
+            ["no-empty-catch"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

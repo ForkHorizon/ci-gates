@@ -146,11 +146,24 @@ def _rules_for(extension: str, overrides: dict) -> list[tuple[str, str, str]]:
 
 def _empty_block(lines: list[str], number: int, rule_id: str) -> bool:
     line = lines[number - 1].strip()
-    if rule_id == "no-empty-catch" and re.search(r"\bcatch(?:\s*\([^)]*\))?\s*\{\s*$", line):
-        return number < len(lines) and lines[number].strip() == "}"
-    if rule_id == "no-broad-except-pass" and re.match(r"except\s+(?:Exception|BaseException|[^:]+)\s*:\s*$", line):
-        following = next((item.strip() for item in lines[number:] if item.strip()), "")
-        return following == "pass"
+    if rule_id == "no-empty-catch":
+        if re.search(r"\bcatch(?:\s*\([^)]*\))?\s*\{\s*$", line):
+            following = next((item.strip() for item in lines[number:] if item.strip()), "")
+            return following == "}"
+        if line == "}":
+            previous = next((item.strip() for item in reversed(lines[: number - 1]) if item.strip()), "")
+            return bool(re.search(r"\bcatch(?:\s*\([^)]*\))?\s*\{\s*$", previous))
+    if rule_id == "no-broad-except-pass":
+        header = r"except\s+(?:Exception|BaseException|[^:]+)\s*:\s*$"
+        if re.match(header, line):
+            following = next((item.strip() for item in lines[number:] if item.strip()), "")
+            return following == "pass"
+        if re.match(r"pass(?:\s+#.*)?$", line):
+            previous = next((item for item in reversed(lines[: number - 1]) if item.strip()), "")
+            return bool(
+                re.match(header, previous.strip())
+                and len(lines[number - 1]) - len(lines[number - 1].lstrip()) > len(previous) - len(previous.lstrip())
+            )
     return False
 
 
