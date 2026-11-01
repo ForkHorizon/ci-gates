@@ -109,12 +109,14 @@ class CiScopeManifestTests(unittest.TestCase):
                     "type": "duplicate-blocks",
                     "params": {"min_lines": 10},
                 },
+                {"id": "roles", "type": "file-roles", "params": {"mode": "new"}},
+                {"id": "docs", "type": "agent-docs-stable", "params": {"mode": "new"}},
             ],
         }
         result = resolve_manifest(value, root=self.root)
         self.assertEqual(
             [check.type for check in result.checks],
-            ["forbidden-constructs", "duplicate-blocks"],
+            ["forbidden-constructs", "duplicate-blocks", "file-roles", "agent-docs-stable"],
         )
         value = valid_manifest()
         value["checks"][0]["params"] = {1: "unsafe"}

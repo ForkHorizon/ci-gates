@@ -37,15 +37,17 @@ def gates_root() -> Path:
 
 def main(argv: list[str]) -> int:
     argv = [arg for arg in argv if arg != "--quiet"]  # output is always quiet
-    if argv not in ([], ["full"]):
-        print("usage: check [full]", file=sys.stderr)
+    if argv not in ([], ["full"], ["roles"]):
+        print("usage: check [full|roles]", file=sys.stderr)
         return 2
-    tier = "full" if argv else "fast"
+    tier = "full" if argv == ["full"] else "fast"
     root_text = git(Path.cwd(), "rev-parse", "--show-toplevel")
     if not root_text:
         print("check: run inside a Git repository", file=sys.stderr)
         return 2
     root = Path(root_text).resolve()
+    if argv == ["roles"]:
+        return subprocess.run([sys.executable, str(gates_root() / "scripts/file_roles.py"), "--root", str(root), "--tree"]).returncode
     config = root / ".ci-scope.json"
     if not config.is_file():
         print(f"check: missing {config}", file=sys.stderr)
