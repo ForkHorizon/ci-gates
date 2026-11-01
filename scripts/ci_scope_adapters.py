@@ -62,7 +62,13 @@ def _python_quality(check: CheckSpec, root: Path, gates: Path) -> list[list[str]
     ]
 
 
-def _python_pytest() -> list[list[str]]:
+def _python_pytest(check: CheckSpec, root: Path) -> list[list[str]]:
+    # pytest exits non-zero ("file or directory not found: tests") when the project has no tests/
+    # directory, which would make a toolkit manifest block every edit in repositories whose tests
+    # live elsewhere. Skip with a visible message instead.
+    if not (root / check.workdir / "tests").is_dir():
+        message = "python-pytest skipped: no tests directory in the project"
+        return [[sys.executable, "-c", f"print({message!r})"]]
     return [["python3", "-m", "pytest", "tests", "-q"]]
 
 
@@ -166,7 +172,7 @@ def commands_for(
     elif check.type == "python-quality":
         commands = _python_quality(check, root, gates)
     elif check.type == "python-pytest":
-        commands = _python_pytest()
+        commands = _python_pytest(check, root)
     elif check.type in {
         "forbidden-constructs",
         "duplicate-blocks",
