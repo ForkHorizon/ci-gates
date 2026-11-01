@@ -72,6 +72,7 @@ def _shape_checks(check: CheckSpec, root: Path, gates: Path, revisions: tuple[st
         "duplicate-blocks": "duplicate_blocks.py",
         "file-roles": "file_roles.py",
         "agent-docs-stable": "agent_docs_stable.py",
+        "test-protection": "test_protection.py",
     }[check.type]
     command = [
         sys.executable,
@@ -166,7 +167,13 @@ def commands_for(
         commands = _python_quality(check, root, gates)
     elif check.type == "python-pytest":
         commands = _python_pytest()
-    elif check.type in {"forbidden-constructs", "duplicate-blocks", "file-roles", "agent-docs-stable"}:
+    elif check.type in {
+        "forbidden-constructs",
+        "duplicate-blocks",
+        "file-roles",
+        "agent-docs-stable",
+        "test-protection",
+    }:
         commands = _shape_checks(check, root, gates, revisions, event)
     elif check.type == "web-quality":
         commands = _web_quality(check, root)
