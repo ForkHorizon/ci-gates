@@ -67,7 +67,11 @@ def _python_pytest() -> list[list[str]]:
 
 
 def _shape_checks(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str) -> list[list[str]]:
-    script = "forbidden_constructs.py" if check.type == "forbidden-constructs" else "duplicate_blocks.py"
+    script = {
+        "forbidden-constructs": "forbidden_constructs.py",
+        "duplicate-blocks": "duplicate_blocks.py",
+        "file-roles": "file_roles.py",
+    }[check.type]
     command = [
         sys.executable,
         str(gates / f"scripts/{script}"),
@@ -161,7 +165,7 @@ def commands_for(
         commands = _python_quality(check, root, gates)
     elif check.type == "python-pytest":
         commands = _python_pytest()
-    elif check.type in {"forbidden-constructs", "duplicate-blocks"}:
+    elif check.type in {"forbidden-constructs", "duplicate-blocks", "file-roles"}:
         commands = _shape_checks(check, root, gates, revisions, event)
     elif check.type == "web-quality":
         commands = _web_quality(check, root)

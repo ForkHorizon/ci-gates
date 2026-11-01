@@ -29,6 +29,7 @@ CHECK_CATALOG: dict[str, CheckDefinition] = {
         ".duplicate-blocks.json",
         frozenset({"mode", "min_lines"}),
     ),
+    "file-roles": CheckDefinition("file-roles", True, None, frozenset({"mode"})),
     "go-quality": CheckDefinition("go-quality", True, None, frozenset({"explain_model"})),
     "web-quality": CheckDefinition("web-quality", True),
     "web-test": CheckDefinition("web-test", True),
