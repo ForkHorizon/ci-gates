@@ -50,7 +50,7 @@ def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
     try:
         explanation = explain(args)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - explainer is advisory, never fails the job
         print(f"::notice title=Failure explainer::Skipped: {exc}")
         return 0
     publish(args.gate, args.model, explanation)

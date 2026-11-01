@@ -187,7 +187,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             head=args.head,
             allowed_signers=args.allowed_signers,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any failure must surface as exit code 2
         print(f"::error title=Policy Signature Guard Failure::{exc}", file=sys.stderr)
         return 2
 

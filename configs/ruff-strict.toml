@@ -17,6 +17,9 @@ select = [
     "RUF", # ruff-native checks
     "UP",  # outdated syntax for the target Python version
     "N",   # pep8 naming
+    "BLE", # blind except
+    "S110", # try/except/pass swallows errors
+    "PGH003", # blanket type: ignore
 ]
 ignore = [
     "PLR2004", # magic values in comparisons are fine in small scripts

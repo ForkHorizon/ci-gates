@@ -13,12 +13,11 @@ def ensure_developer_dir() -> None:
     if "DEVELOPER_DIR" in os.environ:
         return
     try:
-        proc = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, check=False)
-        selected = proc.stdout.strip()
-        if selected and not selected.endswith("CommandLineTools"):
-            return
-    except Exception:
-        pass
+        selected = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, check=False).stdout.strip()
+    except OSError:
+        selected = ""
+    if selected and not selected.endswith("CommandLineTools"):
+        return
     for candidate in sorted(Path("/Applications").glob("Xcode*.app")):
         dev_dir = candidate / "Contents" / "Developer"
         if dev_dir.exists():
