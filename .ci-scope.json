@@ -28,6 +28,23 @@
       "type": "duplicate-blocks",
       "params": {"mode": "new", "min_lines": 10},
       "speed": "fast"
+    },
+    {
+      "id": "file-roles",
+      "type": "file-roles",
+      "params": {"mode": "new"},
+      "speed": "fast"
+    },
+    {
+      "id": "agent-docs-stable",
+      "type": "agent-docs-stable",
+      "params": {"mode": "new"},
+      "speed": "fast"
+    },
+    {
+      "id": "test-protection",
+      "type": "test-protection",
+      "speed": "fast"
     }
   ]
 }
