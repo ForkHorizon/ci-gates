@@ -9,19 +9,20 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 try:
+    from ci_scope_check_catalog import CheckDefinition
     from ci_scope_models import CheckSpec, ResolvedManifest
 except ModuleNotFoundError:  # Imported as scripts.ci_scope_manifest by tests and tools.
+    from .ci_scope_check_catalog import CheckDefinition
     from .ci_scope_models import CheckSpec, ResolvedManifest
 
 
 MANIFEST_VERSION = 1
-EVENTS = frozenset({"pull_request", "push", "merge_group", "workflow_dispatch", "schedule"})
+EVENTS = frozenset({"pull_request", "push", "merge_group", "workflow_dispatch", "schedule", "local"})
 CHECK_ID = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 
 
@@ -29,44 +30,20 @@ class ManifestError(ValueError):
     """Raised when a project manifest cannot be trusted or resolved."""
 
 
-@dataclass(frozen=True)
-class CheckDefinition:
-    """Trusted metadata for one executable adapter."""
-
-    type: str
-    required: bool
-    default_config: str | None = None
-    allowed_params: frozenset[str] = frozenset()
-    resources: frozenset[str] = frozenset()
-    ai: bool = False
-
-
-# Commands and their argument handling live in the executor's adapters.  This
-# table is intentionally the only source of executable check types.
-CHECK_CATALOG: dict[str, CheckDefinition] = {
-    "code-linter": CheckDefinition(
-        "code-linter", True, ".code-linter.json", frozenset({"mode", "coverage_mode", "explain_model"})
-    ),
-    "python-quality": CheckDefinition("python-quality", True, None, frozenset({"explain_model"})),
-    "go-quality": CheckDefinition("go-quality", True, None, frozenset({"explain_model"})),
-    "swift-quality": CheckDefinition(
-        "swift-quality",
-        True,
-        ".swift-quality-gate.json",
-        frozenset({"run_build", "explain_model"}),
-        frozenset({"xcode"}),
-    ),
-    "swift-compile": CheckDefinition(
-        "swift-compile", True, ".swift-compile-gate.json", frozenset({"explain_model"}), frozenset({"xcode"})
-    ),
-    "slop-review": CheckDefinition(
-        "slop-review", False, ".slop-review.json", frozenset({"model"}), frozenset({"ollama"}), True
-    ),
-}
-
-_MANIFEST_FIELDS = frozenset({"version", "checks"})
+_MANIFEST_FIELDS = frozenset({"version", "checks", "slow_ms"})
 _CHECK_FIELDS = frozenset(
-    {"id", "type", "config", "workdir", "params", "depends_on", "events", "resources", "required"}
+    {
+        "id",
+        "type",
+        "config",
+        "workdir",
+        "params",
+        "depends_on",
+        "events",
+        "resources",
+        "required",
+        "speed",
+    }
 )
 
 
@@ -154,47 +131,15 @@ def _validate_manifest_shape(manifest: object) -> tuple[int, list[Mapping[str, A
 
 
 def _resolve_check(entry: Mapping[str, Any], index: int, root: Path, seen: set[str]) -> CheckSpec:
-    prefix = f"checks[{index}]"
-    check_id = _text(entry.get("id"), f"{prefix}.id")
-    if CHECK_ID.fullmatch(check_id) is None:
-        raise _error(f"{prefix}.id", "must match lowercase kebab-case identifier rules")
-    if check_id in seen:
-        raise _error(f"{prefix}.id", "duplicates an earlier check")
-    seen.add(check_id)
-    check_type = _text(entry.get("type"), f"{prefix}.type")
-    definition = CHECK_CATALOG.get(check_type)
-    if definition is None:
-        raise _error(f"{prefix}.type", f"unknown check type {check_type!r}")
-    required = entry.get("required", definition.required)
-    if not isinstance(required, bool):
-        raise _error(f"{prefix}.required", "must be a boolean")
-    if required != definition.required:
-        raise _error(f"{prefix}.required", f"is fixed by the trusted catalog to {definition.required}")
-    config_value = entry.get("config", definition.default_config)
-    config = None if config_value is None else _relative_path(config_value, f"{prefix}.config")
-    if config is not None:
-        _check_path(root, config, f"{prefix}.config", directory=False)
-        if "config" in entry and not (root / config).resolve().is_file():
-            raise _error(f"{prefix}.config", "must point to an existing file")
-    workdir = _relative_path(entry["workdir"], f"{prefix}.workdir") if "workdir" in entry else "."
-    _check_path(root, workdir, f"{prefix}.workdir", directory=True)
-    depends_on = _list_of_strings(entry.get("depends_on", []), f"{prefix}.depends_on")
-    events = _list_of_strings(entry.get("events", []), f"{prefix}.events")
-    unknown_events = sorted(set(events) - EVENTS)
-    if unknown_events:
-        raise _error(f"{prefix}.events", f"unknown event(s): {', '.join(unknown_events)}")
-    resources = _list_of_strings(entry.get("resources", sorted(definition.resources)), f"{prefix}.resources")
-    invalid = sorted(set(resources) - definition.resources)
-    if invalid:
-        raise _error(f"{prefix}.resources", f"not trusted for {check_type}: {', '.join(invalid)}")
-    params = _validate_params(entry.get("params"), definition, f"{prefix}.params")
-    return CheckSpec(
-        check_id, check_type, config, workdir, params, depends_on, events, resources, required, definition.ai
-    )
+    return _resolve_check_impl(entry, index, root, seen)
 
 
 def resolve_manifest(
-    manifest: Mapping[str, Any], *, root: Path, event: str | None = None, source: Path | None = None
+    manifest: Mapping[str, Any],
+    *,
+    root: Path,
+    event: str | None = None,
+    source: Path | None = None,
 ) -> ResolvedManifest:
     """Validate and resolve a decoded manifest against ``root``.
 
@@ -203,6 +148,9 @@ def resolve_manifest(
     """
 
     version, entries = _validate_manifest_shape(manifest)
+    slow_ms = manifest.get("slow_ms")
+    if slow_ms is not None and (isinstance(slow_ms, bool) or not isinstance(slow_ms, int) or slow_ms < 1):
+        raise _error("slow_ms", "must be a positive integer")
     root = Path(root).resolve()
     if not root.is_dir():
         raise _error("root", "must be an existing directory")
@@ -216,9 +164,12 @@ def resolve_manifest(
     for spec in specs:
         unknown = sorted(set(spec.depends_on) - ids)
         if unknown:
-            raise _error(f"checks[{spec.id}].depends_on", f"unknown check(s): {', '.join(unknown)}")
+            raise _error(
+                f"checks[{spec.id}].depends_on",
+                f"unknown check(s): {', '.join(unknown)}",
+            )
     _ensure_acyclic(specs)
-    return ResolvedManifest(version, tuple(specs), root, source or Path("<memory>"), event)
+    return ResolvedManifest(version, tuple(specs), root, source or Path("<memory>"), event, slow_ms)
 
 
 def _ensure_acyclic(specs: list[CheckSpec]) -> None:
@@ -284,7 +235,14 @@ def canonical_manifest(manifest: ResolvedManifest) -> dict[str, Any]:
                 "resources": list(check.resources),
                 "required": check.required,
                 "ai": check.ai,
+                "speed": check.speed,
             }
             for check in manifest.checks
         ],
     }
+
+
+if __package__:
+    from .ci_scope_manifest_checks import resolve_check as _resolve_check_impl
+else:
+    from ci_scope_manifest_checks import resolve_check as _resolve_check_impl

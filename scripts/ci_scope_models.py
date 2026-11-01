@@ -20,6 +20,7 @@ class CheckSpec:
     resources: tuple[str, ...]
     required: bool
     ai: bool
+    speed: str = "fast"
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class ResolvedManifest:
     root: Path
     source: Path
     event: str | None = None
+    slow_ms: int | None = None
 
     @property
     def active_checks(self) -> tuple[CheckSpec, ...]:

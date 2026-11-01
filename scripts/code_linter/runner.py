@@ -8,14 +8,14 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from .config import (
-    LIMIT_DEFAULTS,
     MAX_FILE_BYTES,
     SYNTAX_ONLY_LANGUAGES,
     config_error,
     language_for_path,
     load_config,
 )
-from .coverage import CoverageGap, PathInventory
+from .limits import limits_for_language
+from .coverage import CoverageGap, PathInventory, coverage_issue_message
 from .functions import function_lengths
 from .github import escape_github_data, format_github_command
 from .model import Issue
@@ -62,7 +62,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Check code structure: file and function length, nesting, parameters, comments, types."
     )
-    parser.add_argument("--mode", choices=("all", "changed"), default="all")
+    parser.add_argument("--mode", choices=("all", "changed", "worktree"), default="all")
     parser.add_argument("--base", default="origin/main", help="Base ref for changed mode.")
     parser.add_argument("--head", default="HEAD", help="Head ref for changed mode.")
     parser.add_argument("--config", default=".code-linter.json")
@@ -86,7 +86,12 @@ def read_source(path: Path, relative: Path, language: str | None = None) -> tupl
     except OSError as exc:
         return None, Issue(relative, 1, "file_read", f"Unable to read file: {exc}.")
     if len(raw) > MAX_FILE_BYTES:
-        return None, Issue(relative, 1, "file_size", f"File exceeds safety limit of {MAX_FILE_BYTES} bytes.")
+        return None, Issue(
+            relative,
+            1,
+            "file_size",
+            f"File exceeds safety limit of {MAX_FILE_BYTES} bytes.",
+        )
     selected_language = language if language is not None else language_for_path(path)
     return _decode_source(raw, relative, selected_language)
 
@@ -154,6 +159,9 @@ def check_path(root: Path, path: Path, config: dict) -> list[Issue]:
     if error:
         return [error]
     limits = limits_for_language(config, language or "")
+    for exception in config.get("file_line_exceptions", []):
+        if exception["path"] == relative:
+            limits["max_file_lines"] = exception["max_lines"]
     return source_issues(relative, text or "", language, limits)
 
 
@@ -165,16 +173,6 @@ def check_paths(root: Path, paths: Iterable[Path], config: dict) -> list[Issue]:
         progress("lint", current=index, total=len(listed_paths), detail=str(relative))
         issues.extend(check_path(root, path, config))
     return issues
-
-
-def limits_for_language(config: dict, language: str) -> dict[str, int]:
-    limits = {key: int(config.get(key, fallback)) for key, fallback in LIMIT_DEFAULTS.items()}
-    override = config.get("language_overrides", {}).get(language, {})
-    if isinstance(override, dict):
-        for key in limits:
-            if key in override:
-                limits[key] = int(override[key])
-    return limits
 
 
 def strict_coverage_issues(inventory: PathInventory, config: dict) -> list[Issue]:
@@ -201,14 +199,6 @@ def unapproved_gaps(gaps: Sequence[CoverageGap], config: dict) -> list[CoverageG
     ]
 
 
-def coverage_issue_message(gap: CoverageGap) -> str:
-    if gap.category in {"ignored_source", "excluded_extension"}:
-        return f"{gap.message} Strict mode does not accept exclusions for structurally supported source."
-    if gap.category == "coverage_read_error":
-        return f"{gap.message} Code Linter cannot determine whether this tracked input is covered."
-    return f"{gap.message} Add support or an explicit coverage_exceptions entry with a reason."
-
-
 def print_coverage_report(inventory: PathInventory, config: dict, coverage_mode: str) -> None:
     if not inventory.gaps:
         print(f"Code Linter coverage: all {len(inventory.selected)} selected source file(s) are covered.")
@@ -231,7 +221,11 @@ def print_coverage_report(inventory: PathInventory, config: dict, coverage_mode:
         print(
             format_github_command(
                 "warning",
-                properties=(("file", gap.path), ("line", "1"), ("title", "coverage_gap")),
+                properties=(
+                    ("file", gap.path),
+                    ("line", "1"),
+                    ("title", "coverage_gap"),
+                ),
                 data=gap.message,
             )
         )

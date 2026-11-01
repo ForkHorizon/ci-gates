@@ -162,7 +162,11 @@ def ensure_periphery(config: dict) -> str:
 
 
 def collect_swift_paths(root: Path, config: dict, args: argparse.Namespace) -> list[Path]:
-    candidates = changed_paths(root, args.base, args.head) if args.mode == "changed" else all_repo_paths(root)
+    candidates = (
+        worktree_paths(root)
+        if args.mode == "worktree"
+        else (changed_paths(root, args.base, args.head) if args.mode == "changed" else all_repo_paths(root))
+    )
 
     paths = []
     for path in candidates:
@@ -189,6 +193,23 @@ def changed_paths(root: Path, base: str, head: str) -> list[Path]:
             git_output_text(result.stdout) + git_output_text(result.stderr), "Unable to collect changed files."
         )
     )
+
+
+def worktree_paths(root: Path) -> list[Path]:
+    paths = set()
+    for command in (
+        ["git", "diff", "-z", "--name-only", "--diff-filter=ACMRT", "HEAD"],
+        ["git", "ls-files", "-z", "--others", "--exclude-standard"],
+    ):
+        result = subprocess.run(command, cwd=root, text=False, capture_output=True, check=False)
+        if result.returncode != 0:
+            fail(
+                trimmed_error(
+                    git_output_text(result.stdout) + git_output_text(result.stderr), "Unable to collect worktree files."
+                )
+            )
+        paths.update(split_git_paths(result.stdout))
+    return [root / path for path in sorted(paths)]
 
 
 def all_repo_paths(root: Path) -> list[Path]:

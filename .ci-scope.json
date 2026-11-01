@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "code-linter",
+      "type": "code-linter",
+      "params": {"mode": "auto"},
+      "speed": "fast"
+    },
+    {
+      "id": "python-quality",
+      "type": "python-quality",
+      "speed": "fast"
+    },
+    {
+      "id": "python-tests",
+      "type": "python-pytest",
+      "speed": "fast"
+    },
+    {
+      "id": "forbidden-constructs",
+      "type": "forbidden-constructs",
+      "params": {"mode": "new"},
+      "speed": "fast"
+    },
+    {
+      "id": "duplicate-blocks",
+      "type": "duplicate-blocks",
+      "params": {"mode": "new", "min_lines": 10},
+      "speed": "fast"
+    }
+  ]
+}

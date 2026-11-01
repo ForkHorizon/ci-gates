@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from pathlib import Path
 
 from . import config_io as _config_io
 from .config_io import config_error, read_config_text
 from .coverage import COVERAGE_MODES, DEFAULT_COVERAGE_EXCEPTIONS
+from .config_validation import reject_blanket_ignores
+from .file_line_exceptions import validate_file_line_exceptions
 from .json_safety import exceeds_json_depth
 
 config_read_error = _config_io.config_read_error
@@ -122,6 +124,7 @@ DEFAULT_CONFIG = {
     "language_overrides": {},
     "coverage_mode": "report",
     "coverage_exceptions": DEFAULT_COVERAGE_EXCEPTIONS,
+    "file_line_exceptions": [],
 }
 
 
@@ -131,6 +134,7 @@ def initial_config() -> dict:
     config["include_extensions"] = list(DEFAULT_CONFIG["include_extensions"])
     config["language_overrides"] = {}
     config["coverage_exceptions"] = [dict(item) for item in DEFAULT_COVERAGE_EXCEPTIONS]
+    config["file_line_exceptions"] = []
     return config
 
 
@@ -198,13 +202,14 @@ def load_config(path: Path) -> dict:
     config.update(loaded)
     if "ignore" in loaded:
         config["ignore"] = merge_ignore(loaded["ignore"], path)
-        reject_blanket_ignores(config["ignore"], path)
+        reject_blanket_ignores(config["ignore"], path, tuple(LANGUAGE_BY_EXTENSION))
     for key, fallback in LIMIT_DEFAULTS.items():
         config[key] = config_int(config, key, fallback, path)
     config["include_extensions"] = validate_extensions(config, path)
     config["language_overrides"] = validate_overrides(config, path)
     config["coverage_mode"] = validate_coverage_mode(config, path)
     config["coverage_exceptions"] = validate_coverage_exceptions(config, path)
+    config["file_line_exceptions"] = validate_file_line_exceptions(config, path)
     return config
 
 
@@ -216,22 +221,6 @@ def merge_ignore(loaded_ignore: object, path: Path) -> list[str]:
         if item not in merged:
             merged.append(item)
     return merged
-
-
-def reject_blanket_ignores(patterns: Sequence[str], path: Path) -> None:
-    forbidden = {"*", "**", "**/*"}
-    for extension in LANGUAGE_BY_EXTENSION:
-        forbidden.update({f"*{extension}", f"**{extension}", f"**/*{extension}"})
-    invalid = []
-    for pattern in patterns:
-        normalized = pattern.strip().replace("\\", "/").removeprefix("./").removeprefix("/")
-        if normalized in forbidden:
-            invalid.append(pattern)
-    if invalid:
-        config_error(
-            path,
-            f"Blanket source ignore pattern(s) are not allowed: {', '.join(invalid)}.",
-        )
 
 
 def validate_coverage_mode(config: dict, path: Path) -> str:
@@ -267,7 +256,7 @@ def validate_coverage_exceptions(config: dict, path: Path) -> list[dict[str, str
             config_error(path, f"Coverage exception {index} needs a non-empty 'pattern'.")
         if not isinstance(reason, str) or not reason.strip():
             config_error(path, f"Coverage exception {index} needs a non-empty 'reason'.")
-        reject_blanket_ignores([pattern], path)
+        reject_blanket_ignores([pattern], path, tuple(LANGUAGE_BY_EXTENSION))
         key = (pattern, reason)
         if key not in seen:
             validated.append({"pattern": pattern, "reason": reason})

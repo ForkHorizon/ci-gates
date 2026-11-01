@@ -8,7 +8,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.ci_scope_manifest import ManifestError, canonical_manifest, load_manifest, resolve_manifest, validate_only
+from scripts.ci_scope_manifest import (
+    ManifestError,
+    canonical_manifest,
+    load_manifest,
+    resolve_manifest,
+    validate_only,
+)
 
 
 def valid_manifest():
@@ -36,6 +42,48 @@ class CiScopeManifestTests(unittest.TestCase):
         self.assertTrue(result.checks[0].required)
         self.assertFalse(result.checks[1].required)
         self.assertEqual(result.checks[1].resources, ("ollama",))
+        self.assertEqual([check.speed for check in result.checks], ["fast", "fast"])
+
+    def test_speed_and_slow_threshold_are_validated(self):
+        value = valid_manifest()
+        value["slow_ms"] = 1234
+        value["checks"][0]["speed"] = "full"
+        result = resolve_manifest(value, root=self.root)
+        self.assertEqual(result.slow_ms, 1234)
+        self.assertEqual(result.checks[0].speed, "full")
+        value["checks"][0]["speed"] = "medium"
+        with self.assertRaisesRegex(ManifestError, "fast.*full"):
+            resolve_manifest(value, root=self.root)
+        value["checks"][0]["speed"] = []
+        with self.assertRaisesRegex(ManifestError, "fast.*full"):
+            resolve_manifest(value, root=self.root)
+        value = valid_manifest()
+        value["slow_ms"] = 0
+        with self.assertRaisesRegex(ManifestError, "positive integer"):
+            resolve_manifest(value, root=self.root)
+
+    def test_web_quality_and_python_pytest_are_trusted_catalog_types(self):
+        value = {
+            "version": 1,
+            "checks": [
+                {"id": "web", "type": "web-quality"},
+                {"id": "web-tests", "type": "web-test"},
+                {"id": "tests", "type": "python-pytest"},
+            ],
+        }
+        result = resolve_manifest(value, root=self.root)
+        self.assertEqual(
+            [check.type for check in result.checks],
+            ["web-quality", "web-test", "python-pytest"],
+        )
+
+    def test_local_event_runs_unrestricted_checks_and_skips_event_restricted_checks(
+        self,
+    ):
+        value = valid_manifest()
+        value["checks"][1]["events"] = ["pull_request"]
+        result = resolve_manifest(value, root=self.root, event="local")
+        self.assertEqual([check.id for check in result.active_checks], ["code-linter"])
 
     def test_unknown_type_and_parameter_fail_closed(self):
         value = valid_manifest()
@@ -46,6 +94,28 @@ class CiScopeManifestTests(unittest.TestCase):
         value["checks"][0]["params"] = {"command": "echo unsafe"}
         with self.assertRaisesRegex(ManifestError, "unknown parameter"):
             resolve_manifest(value, root=self.root)
+
+    def test_code_shape_check_types_are_trusted(self):
+        value = {
+            "version": 1,
+            "checks": [
+                {
+                    "id": "forbidden",
+                    "type": "forbidden-constructs",
+                    "params": {"mode": "new"},
+                },
+                {
+                    "id": "duplicates",
+                    "type": "duplicate-blocks",
+                    "params": {"min_lines": 10},
+                },
+            ],
+        }
+        result = resolve_manifest(value, root=self.root)
+        self.assertEqual(
+            [check.type for check in result.checks],
+            ["forbidden-constructs", "duplicate-blocks"],
+        )
         value = valid_manifest()
         value["checks"][0]["params"] = {1: "unsafe"}
         with self.assertRaisesRegex(ManifestError, "parameter names must be strings"):

@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Sequence
 
-from ci_scope_models import ResolvedManifest
+from ci_scope_models import CheckSpec, ResolvedManifest
 
 
-def build_report(args: argparse.Namespace, manifest: ResolvedManifest, digest: str, results: dict[str, dict]) -> dict:
+def build_report(
+    args: argparse.Namespace,
+    manifest: ResolvedManifest,
+    digest: str,
+    results: dict[str, dict],
+    checks: Sequence[CheckSpec] | None = None,
+) -> dict:
+    selected = manifest.active_checks if checks is None else checks
     ordered = [
-        results.get(check.id, {"id": check.id, "status": "infra_error", "reason": "not scheduled"})
-        for check in manifest.active_checks
+        results.get(check.id, {"id": check.id, "status": "infra_error", "duration_ms": 0, "reason": "not scheduled"})
+        for check in selected
     ]
     passed = all(
         result.get("status") == "passed"

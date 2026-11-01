@@ -20,8 +20,7 @@ class CheckReportingTests(unittest.TestCase):
                 root,
                 ({"message": f"token={secret}", "path": "/Users/a/private"} for _ in range(1100)),
                 {"status": "ok"},
-                ordinary_ms=12,
-                ai_ms=34,
+                timings=(12, 34),
             )
             events = (root / "events.jsonl").read_text().splitlines()
             result = json.loads((root / "result.json").read_text())
@@ -29,6 +28,19 @@ class CheckReportingTests(unittest.TestCase):
             self.assertNotIn(secret, "\n".join(events))
             self.assertNotIn("/Users/a/private", events[0])
             self.assertEqual(result["timings"], {"ordinary_ms": 12, "ai_ms": 34})
+
+    def test_local_report_keeps_paths_but_still_redacts_secrets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            secret = "ghp_" + "x" * 30
+            REPORTING.write_report(
+                directory,
+                [],
+                {"detail": f"/Users/test/project/file.py token={secret}"},
+                preserve_paths=True,
+            )
+            result = (Path(directory) / "result.json").read_text()
+            self.assertIn("/Users/test/project/file.py", result)
+            self.assertNotIn(secret, result)
 
     def test_redacts_secrets_in_object_keys(self):
         with tempfile.TemporaryDirectory() as directory:

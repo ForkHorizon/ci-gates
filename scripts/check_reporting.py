@@ -20,35 +20,42 @@ _SECRET = re.compile(
 _PATH = re.compile(r"(?i)file:///[^\s,;]+|(?<![\w:/])/(?:[^\s,;]+)|[A-Za-z]:[\\/][^\s,;]+")
 
 
-def _safe(value, depth=0):
+def _safe(value, depth=0, *, preserve_paths=False):
     if depth > 4:
         return "[TRUNCATED]"
     if isinstance(value, str):
-        return safe_text(value)[:MAX_TEXT]
+        return safe_text(value, preserve_paths=preserve_paths)[:MAX_TEXT]
     if isinstance(value, dict):
-        return {str(_safe(k, depth + 1))[:MAX_TEXT]: _safe(v, depth + 1) for k, v in list(value.items())[:50]}
+        return {
+            str(_safe(k, depth + 1, preserve_paths=preserve_paths))[:MAX_TEXT]: _safe(
+                v, depth + 1, preserve_paths=preserve_paths
+            )
+            for k, v in list(value.items())[:50]
+        }
     if isinstance(value, (list, tuple)):
-        return [_safe(v, depth + 1) for v in value[:50]]
+        return [_safe(v, depth + 1, preserve_paths=preserve_paths) for v in value[:50]]
     if value is None or isinstance(value, (bool, int, float)):
         return value
-    return _safe(str(value), depth + 1)
+    return _safe(str(value), depth + 1, preserve_paths=preserve_paths)
 
 
-def safe_text(value: str) -> str:
+def safe_text(value: str, *, preserve_paths=False) -> str:
     """Redact paths and credentials before text is persisted."""
-    return _PATH.sub("[REDACTED_PATH]", _SECRET.sub("[REDACTED]", str(value)))
+    value = _SECRET.sub("[REDACTED]", str(value))
+    return value if preserve_paths else _PATH.sub("[REDACTED_PATH]", value)
 
 
 class BoundedLog:
     """File-like sink that redacts and caps subprocess output."""
 
-    def __init__(self, stream, limit=MAX_LOG_BYTES):
+    def __init__(self, stream, limit=MAX_LOG_BYTES, *, preserve_paths=False):
         self.stream, self.limit, self.size, self.truncated = stream, limit, 0, False
+        self.preserve_paths = preserve_paths
 
     def write(self, value):
         if self.truncated:
             return len(value)
-        data = safe_text(value).encode("utf-8")
+        data = safe_text(value, preserve_paths=self.preserve_paths).encode("utf-8")
         remaining = self.limit - self.size
         if len(data) > remaining:
             marker = b"\n[TRUNCATED]\n"
@@ -83,8 +90,11 @@ def _atomic_text(path: Path, payload: str):
             os.unlink(temporary)
 
 
-def _write_json(path: Path, value):
-    _atomic_text(path, json.dumps(_safe(value), sort_keys=True, separators=(",", ":")) + "\n")
+def _write_json(path: Path, value, *, preserve_paths=False):
+    _atomic_text(
+        path,
+        json.dumps(_safe(value, preserve_paths=preserve_paths), sort_keys=True, separators=(",", ":")) + "\n",
+    )
 
 
 def write_events(path, events):
@@ -94,14 +104,15 @@ def write_events(path, events):
     _atomic_text(Path(path), payload + ("\n" if payload else ""))
 
 
-def write_result(path, result, *, ordinary_ms=None, ai_ms=None):
+def write_result(path, result, *, ordinary_ms=None, ai_ms=None, preserve_paths=False):
     result = dict(result)
     if ordinary_ms is not None or ai_ms is not None:
         result["timings"] = {"ordinary_ms": ordinary_ms or 0, "ai_ms": ai_ms or 0}
-    _write_json(Path(path), result)
+    _write_json(Path(path), result, preserve_paths=preserve_paths)
 
 
-def write_report(directory, events, result, *, ordinary_ms=None, ai_ms=None):
+def write_report(directory, events, result, *, timings=None, preserve_paths=False):
     directory = Path(directory)
     write_events(directory / "events.jsonl", events)
-    write_result(directory / "result.json", result, ordinary_ms=ordinary_ms, ai_ms=ai_ms)
+    ordinary_ms, ai_ms = timings or (None, None)
+    write_result(directory / "result.json", result, ordinary_ms=ordinary_ms, ai_ms=ai_ms, preserve_paths=preserve_paths)

@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Run a project's local CI Scope checks through the installed gates checkout."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+def git(root: Path, *args: str) -> str:
+    result = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def repository_name(root: Path) -> str:
+    remote = git(root, "remote", "get-url", "origin")
+    match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", remote)
+    name = f"{match.group(1)}-{match.group(2)}" if match else root.name
+    return re.sub(r"[^A-Za-z0-9_.-]", "-", name)
+
+
+def gates_root() -> Path:
+    override = os.environ.get("CI_SCOPE_GATES")
+    if override:
+        return Path(override).expanduser().resolve()
+    adjacent = Path(__file__).resolve().parents[1]
+    if (adjacent / "scripts/run-checks.py").is_file():
+        return adjacent
+    return Path.home() / ".ci-scope/gates"
+
+
+def main(argv: list[str]) -> int:
+    argv = [arg for arg in argv if arg != "--quiet"]  # output is always quiet
+    if argv not in ([], ["full"]):
+        print("usage: check [full]", file=sys.stderr)
+        return 2
+    tier = "full" if argv else "fast"
+    root_text = git(Path.cwd(), "rev-parse", "--show-toplevel")
+    if not root_text:
+        print("check: run inside a Git repository", file=sys.stderr)
+        return 2
+    root = Path(root_text).resolve()
+    config = root / ".ci-scope.json"
+    if not config.is_file():
+        print(f"check: missing {config}", file=sys.stderr)
+        return 2
+    gates = gates_root()
+    runner = gates / "scripts/run-checks.py"
+    if not runner.is_file():
+        print(f"check: ci-gates runner not found: {runner}", file=sys.stderr)
+        return 2
+    result_path = Path.home() / ".ci-scope/checks" / f"{repository_name(root)}.json"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    output = Path(tempfile.mkdtemp(prefix=f"{repository_name(root)}-", dir=result_path.parent)).resolve()
+    command = [
+        sys.executable,
+        str(runner),
+        "--root",
+        str(root),
+        "--config",
+        str(config),
+        "--gates",
+        str(gates),
+        "--event",
+        "local",
+        "--mode",
+        "worktree",
+        "--tier",
+        tier,
+        "--quiet",
+        "--local",
+        "--allow-unsigned-policy",
+        "--output",
+        str(output),
+        "--result-file",
+        str(result_path),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError:
+        shutil.rmtree(output, ignore_errors=True)
+        raise
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.stderr:
+        print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
+    if result.returncode == 0 and result_path.is_file():
+        try:
+            record = json.loads(result_path.read_text(encoding="utf-8"))
+            slow = record.get("slow", [])
+            if slow:
+                manifest = json.loads(config.read_text(encoding="utf-8"))
+                threshold = manifest.get("slow_ms", 20_000)
+                print(f"SLOW {', '.join(slow)} > {threshold}ms")
+        except (OSError, ValueError):
+            pass
+    visible_log = any(line.startswith(f"full log: {output}/") for line in result.stdout.splitlines())
+    if result.returncode == 0 or not visible_log:
+        shutil.rmtree(output, ignore_errors=True)
+    return result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
