@@ -1,3 +1,5 @@
+"""Tests that the python-pytest adapter skips when the project has no tests directory."""
+
 import subprocess
 import sys
 import tempfile
