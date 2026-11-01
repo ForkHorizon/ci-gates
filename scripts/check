@@ -37,8 +37,8 @@ def gates_root() -> Path:
 
 def main(argv: list[str]) -> int:
     argv = [arg for arg in argv if arg != "--quiet"]  # output is always quiet
-    if argv not in ([], ["full"], ["roles"]):
-        print("usage: check [full|roles]", file=sys.stderr)
+    if argv not in ([], ["full"], ["roles"], ["guard-tests"]):
+        print("usage: check [full|roles|guard-tests]", file=sys.stderr)
         return 2
     tier = "full" if argv == ["full"] else "fast"
     root_text = git(Path.cwd(), "rev-parse", "--show-toplevel")
@@ -46,6 +46,11 @@ def main(argv: list[str]) -> int:
         print("check: run inside a Git repository", file=sys.stderr)
         return 2
     root = Path(root_text).resolve()
+    if argv == ["guard-tests"]:
+        guard = gates_root() / "scripts/test_guard.py"
+        if not guard.is_file():
+            return 0  # an older pinned ci-gates has no guard; never block edits on a missing tool
+        return subprocess.run([sys.executable, str(guard)], check=False).returncode
     if argv == ["roles"]:
         return subprocess.run([sys.executable, str(gates_root() / "scripts/file_roles.py"), "--root", str(root), "--tree"]).returncode
     config = root / ".ci-scope.json"

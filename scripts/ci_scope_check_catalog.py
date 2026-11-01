@@ -31,6 +31,7 @@ CHECK_CATALOG: dict[str, CheckDefinition] = {
     ),
     "file-roles": CheckDefinition("file-roles", True, None, frozenset({"mode"})),
     "agent-docs-stable": CheckDefinition("agent-docs-stable", True, None, frozenset({"mode"})),
+    "test-protection": CheckDefinition("test-protection", True, ".test-protection.json"),
     "go-quality": CheckDefinition("go-quality", True, None, frozenset({"explain_model"})),
     "web-quality": CheckDefinition("web-quality", True),
     "web-test": CheckDefinition("web-test", True),
