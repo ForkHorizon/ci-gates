@@ -38,7 +38,7 @@ def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
     try:
         run_review(args)
-    except Exception as exc:  # advisory step must never fail the job
+    except Exception as exc:  # noqa: BLE001 - advisory step must never fail the job
         print(f"::notice title=Slop review::Skipped: {exc}")
     return 0
 

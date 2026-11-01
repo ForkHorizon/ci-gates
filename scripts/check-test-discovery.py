@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         suite = unittest.TestLoader().discover(str(start_directory), pattern=args.pattern)
-    except Exception as exc:  # pragma: no cover - defensive public-entrypoint guard
+    except Exception as exc:  # noqa: BLE001 - public-entrypoint guard  # pragma: no cover
         print(f"Test discovery failed while importing modules: {exc}", file=sys.stderr)
         return 1
 
