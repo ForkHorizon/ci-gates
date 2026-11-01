@@ -90,6 +90,29 @@ class PolicyPreflightTests(unittest.TestCase):
         self.assertEqual(result.status, "policy_invalid")
         self.assertIn("policy_digest", result.reason)
 
+    def test_digest_is_order_independent_for_checks_files_and_patterns(self):
+        value = json.loads(self.policy_path.read_text(encoding="utf-8"))
+        value["checks"] = [{"id": "z", "required": True}, {"id": "a", "required": False}]
+        value["protected_patterns"] = ["z/**", "a/**"]
+        value["files"] = list(reversed(value["files"]))
+        unsigned = {key: item for key, item in value.items() if key != "policy_digest"}
+        sorted_value = {
+            **unsigned,
+            "checks": sorted(value["checks"], key=lambda item: item["id"]),
+            "protected_patterns": sorted(value["protected_patterns"]),
+            "files": sorted(value["files"], key=lambda item: item["path"]),
+        }
+        value["policy_digest"] = make_policy_record(
+            **{**sorted_value, "files": {item["path"]: item["sha256"] for item in sorted_value["files"]}}
+        )["policy_digest"]
+        self.policy_path.write_text(json.dumps(value), encoding="utf-8")
+        result = preflight(self.root, self.policy_path, require_signature=False)
+        self.assertNotEqual(result.status, "policy_invalid", result.reason)
+        value["checks"][0]["required"] = False
+        self.policy_path.write_text(json.dumps(value), encoding="utf-8")
+        tampered = preflight(self.root, self.policy_path, require_signature=False)
+        self.assertEqual(tampered.status, "policy_invalid")
+
     def test_repository_and_branch_are_bound_to_record(self):
         result = preflight(
             self.root,

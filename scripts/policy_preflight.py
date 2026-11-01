@@ -60,6 +60,19 @@ def _validate_patterns(values: object) -> tuple[str, ...]:
     return result
 
 
+def _sorted_for_digest(payload: dict[str, Any]) -> dict[str, Any]:
+    """The signer (server) hashes sorted lists; the stored record keeps insertion order."""
+    result = dict(payload)
+    for field, key in (("checks", "id"), ("files", "path")):
+        if isinstance(result.get(field), list):
+            result[field] = sorted(
+                result[field], key=lambda item: str(item.get(key, "")) if isinstance(item, dict) else ""
+            )
+    if isinstance(result.get("protected_patterns"), list):
+        result["protected_patterns"] = sorted(result["protected_patterns"], key=str)
+    return result
+
+
 def load_policy_record(path: Path) -> PolicyRecord:
     try:
         value = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -96,6 +109,7 @@ def load_policy_record(path: Path) -> PolicyRecord:
     payload = dict(value)
     payload.pop("signature", None)
     payload.pop("policy_digest", None)
+    payload = _sorted_for_digest(payload)
     canonical = _canonical(payload)
     if _sha256(canonical) != expected_digest:
         raise PolicyError("policy_digest does not match the canonical policy payload")
