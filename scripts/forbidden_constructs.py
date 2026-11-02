@@ -11,10 +11,12 @@ from pathlib import Path
 
 try:
     from added_lines import added_lines
+    from forbidden_rust_attributes import join_attributes
     from forbidden_rust_rules import RUST_RULES
     from source_comments import split_comments
 except ModuleNotFoundError:
     from .added_lines import added_lines
+    from .forbidden_rust_attributes import join_attributes
     from .forbidden_rust_rules import RUST_RULES
     from .source_comments import split_comments
 
@@ -104,6 +106,7 @@ RULES = {
 for extension in (".tsx", ".js", ".jsx", ".mjs"):
     RULES[extension] = RULES[".ts"]
 
+MAX_SCAN_BYTES = 1_000_000
 ALLOW = re.compile(r"allow-([a-z][a-z0-9-]*):\s*(.*)")
 SUPPORTED = set(RULES)
 EXCLUDED_PARTS = {"tests", "test", "fixtures", "node_modules", "vendor", "Pods", ".build"}
@@ -113,6 +116,8 @@ def scan_text(text: str, extension: str, added: set[int], *, mode: str = "new", 
     lines = text.splitlines()
     code_lines, comments = split_comments(lines, extension.lower())
     selected = set(range(1, len(lines) + 1)) if mode == "all" else added
+    if extension.lower() == ".rs":
+        lines, comments, selected = join_attributes(lines, code_lines, comments, selected)
     findings = []
     for number in sorted(selected):
         if number < 1 or number > len(lines):
@@ -254,17 +259,12 @@ def check(root: Path, options: ScanOptions) -> list[Violation]:
         if any(Path(relative).match(pattern) for pattern in excludes):
             continue
         selected = additions.get(relative, set())
-        if options.mode == "all" or selected:
-            results.extend(
-                Violation(relative, item.line, item.rule_id, item.message)
-                for item in scan_text(
-                    path.read_text(encoding="utf-8", errors="replace"),
-                    path.suffix,
-                    selected,
-                    mode=options.mode,
-                    rules=rules,
-                )
-            )
+        if (options.mode == "all" or selected) and path.stat().st_size > MAX_SCAN_BYTES:
+            results.append(Violation(relative, 1, "file-too-large", "file is too large to scan"))
+        elif options.mode == "all" or selected:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            found = scan_text(text, path.suffix, selected, mode=options.mode, rules=rules)
+            results.extend(Violation(relative, item.line, item.rule_id, item.message) for item in found)
     return results
 
 
