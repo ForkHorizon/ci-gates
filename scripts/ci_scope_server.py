@@ -66,9 +66,13 @@ def http_fetch(url: str, token: str) -> dict:
         raise ServerUnavailableError(f"cannot reach the CI Scope server: {error}") from error
 
 
-def fetch_project(server: Server, repository: str) -> tuple[dict, dict[str, str]]:
+def fetch_project(server: Server, repository: str, version: int | None = None) -> tuple[dict, dict[str, str]]:
+    """The config (a pinned past version when `version` is given) and the protected-file baseline."""
     quoted = urllib.parse.quote(repository, safe="/")
-    config_reply = server.fetch(f"{server.base_url}/api/ci/v2/projects/config?repository={quoted}", server.token)
+    pinned = f"&version={version}" if version else ""
+    config_reply = server.fetch(
+        f"{server.base_url}/api/ci/v2/projects/config?repository={quoted}{pinned}", server.token
+    )
     config = config_reply["config"]
     if hashlib.sha256(canonical_config(config).encode("utf-8")).hexdigest() != config_reply.get("digest"):
         raise CliError("the config digest does not match; refusing to use it")

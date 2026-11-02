@@ -13,11 +13,11 @@ from pathlib import Path
 
 try:
     from ci_scope_errors import CliError, NotRegisteredError
-    from ci_scope_run import RunRequest, TIERS, git, run_checks, run_command, verdict_line
+    from ci_scope_run import RunRequest, TIERS, git, run_checks_versioned, run_command, verdict_line
     from ci_scope_server import Fetch, Server, ServerUnavailableError, canonical_config, device_settings, http_fetch
 except ModuleNotFoundError:
     from .ci_scope_errors import CliError, NotRegisteredError
-    from .ci_scope_run import RunRequest, TIERS, git, run_checks, run_command, verdict_line
+    from .ci_scope_run import RunRequest, TIERS, git, run_checks_versioned, run_command, verdict_line
     from .ci_scope_server import Fetch, Server, ServerUnavailableError, canonical_config, device_settings, http_fetch
 
 __all__ = [
@@ -40,6 +40,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--head", help="Head commit; required with --event pull_request.")
     parser.add_argument("--repository", help="owner/name; defaults to the origin remote.")
     parser.add_argument(
+        "--config-version", type=int, help="Use this past version of the server config (to repeat an earlier run)."
+    )
+    parser.add_argument(
         "--hook",
         action="store_true",
         help="Git hook mode: stay quiet for unregistered repositories and do not block when the server is down.",
@@ -55,14 +58,22 @@ def build_request(args: argparse.Namespace) -> RunRequest:
         if not (args.base and args.head):
             raise CliError("--event pull_request needs --base and --head")
         revisions = (args.base, args.head)
-    return RunRequest(root, Path(__file__).resolve().parents[1], args.tier, args.event, revisions, args.repository)
+    return RunRequest(
+        root,
+        Path(__file__).resolve().parents[1],
+        args.tier,
+        args.event,
+        revisions,
+        args.repository,
+        args.config_version,
+    )
 
 
 def main(argv: list[str], fetch: Fetch = http_fetch, runner=run_command) -> int:
     args = parse_args(argv)
     try:
         url, token = device_settings()
-        results = run_checks(build_request(args), Server(url, token, fetch), runner)
+        results, config_version = run_checks_versioned(build_request(args), Server(url, token, fetch), runner)
     except (NotRegisteredError, ServerUnavailableError) as error:
         if args.hook:
             if isinstance(error, ServerUnavailableError):
@@ -75,7 +86,7 @@ def main(argv: list[str], fetch: Fetch = http_fetch, runner=run_command) -> int:
         return 2
     print(verdict_line(results))
     if args.json:
-        print(json.dumps({"results": results}, ensure_ascii=False))
+        print(json.dumps({"results": results, "configVersion": config_version}, ensure_ascii=False))
     return 1 if any(item["status"] == "failed" for item in results) or not results else 0
 
 
