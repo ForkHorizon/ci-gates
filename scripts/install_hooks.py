@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -25,12 +26,22 @@ def global_hooks_path() -> str:
     return result.stdout.strip()
 
 
+def _written_by_ci_scope(path: Path) -> bool:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    # The marker is in every file we write; the other two phrases cover files from the first release.
+    return "ci-scope-managed-hook" in text or "install_hooks.py" in text or "ci_scope_cli.py" in text
+
+
 def install(hooks_dir: Path, gates: Path = GATES, *, set_config: bool = True) -> list[Path]:
     """Write the hooks and the CLI wrapper into `hooks_dir`; point git at it unless another path is configured."""
     current = global_hooks_path()
     if set_config and current and Path(current).expanduser().resolve() != hooks_dir.resolve():
         raise InstallError(f"core.hooksPath is already set to {current}; not overwriting it")
     hooks_dir.mkdir(parents=True, exist_ok=True)
+    for name in (*HOOKS, "ci-scope-check"):
+        existing = hooks_dir / name
+        if existing.exists() and not _written_by_ci_scope(existing):
+            raise InstallError(f"{existing} already exists and was not written by CI Scope; not overwriting it")
     written: list[Path] = []
     for name in HOOKS:
         target = hooks_dir / name
@@ -38,7 +49,9 @@ def install(hooks_dir: Path, gates: Path = GATES, *, set_config: bool = True) ->
         target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         written.append(target)
     wrapper = hooks_dir / "ci-scope-check"
-    wrapper.write_text(f'#!/bin/sh\nexec python3 "{gates / "scripts/ci_scope_cli.py"}" "$@"\n', encoding="utf-8")
+    wrapper.write_text(
+        f'#!/bin/sh\nexec python3 {shlex.quote(str(gates / "scripts/ci_scope_cli.py"))} "$@"\n', encoding="utf-8"
+    )
     wrapper.chmod(0o755)
     written.append(wrapper)
     if set_config:

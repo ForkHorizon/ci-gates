@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import resource
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -63,12 +64,32 @@ def observed_files(root: Path, patterns: list[str], baseline: dict[str, str]) ->
     return result
 
 
+MAX_CAPTURE_BYTES = 64 * 1024 * 1024
+
+
+def _limit_file_size() -> None:
+    """Runs in the child before exec: a command cannot write more than the capture limit to its output file."""
+    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_CAPTURE_BYTES, MAX_CAPTURE_BYTES))
+
+
 def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
-    try:
-        done = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False, timeout=1_800)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return 127, str(error)
-    return done.returncode, (done.stdout + done.stderr)[-MAX_OUTPUT:]
+    # Output goes to a size-limited temporary file, so a noisy or hostile command cannot fill this process's memory.
+    with tempfile.TemporaryFile() as sink:
+        try:
+            done = subprocess.run(
+                command,
+                cwd=cwd,
+                stdout=sink,
+                stderr=subprocess.STDOUT,
+                check=False,
+                timeout=1_800,
+                preexec_fn=_limit_file_size,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return 127, str(error)
+        size = sink.seek(0, 2)
+        sink.seek(max(0, size - MAX_OUTPUT * 4))
+        return done.returncode, sink.read().decode("utf-8", errors="replace")[-MAX_OUTPUT:]
 
 
 def clip(text: str, limit: int = MAX_DETAIL) -> str:

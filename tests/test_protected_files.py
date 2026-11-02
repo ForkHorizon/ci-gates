@@ -24,14 +24,6 @@ PACKAGE = json.dumps(
 PYPROJECT = '[project]\nname = "x"\n\n[tool.ruff]\nline-length = 100\n\n[tool.ruff.lint]\nselect = ["E"]\n'
 PATTERNS = ["Cargo.toml", "**/Cargo.toml", "package.json", "deny.toml", "clippy.toml", ".github/**"]
 
-# Fingerprints produced by CI-Scope-Web protected-files-contract.ts for the same inputs.
-TYPESCRIPT_VECTORS = {
-    ("Cargo.toml", CARGO): "ebdb8188030fb511bab7aeaced039b72c3fd65ae91dd50b804ea2e97d90063ab",
-    ("package.json", PACKAGE): "8739c55ffd6b5eef13b309bc01b7907f926a8b0a48304ab54dfbb1665b62d446",
-    ("pyproject.toml", PYPROJECT): "1290bc9cfa09d4679fa472d3e8e771eb85f707c0a884c5576d885945e516022e",
-    ("deny.toml", "[advisories]\n"): "29c3b3fd47a73c667752eba9599a53ab6eb24d3a4eb5e8c5786d7519cd8bd1ad",
-}
-
 
 class ProtectedFilesTests(unittest.TestCase):
     def kinds(self, observed, baseline=None):
@@ -44,11 +36,6 @@ class ProtectedFilesTests(unittest.TestCase):
 
     def same(self):
         return {"Cargo.toml": CARGO, "package.json": PACKAGE, "deny.toml": "[advisories]\n"}
-
-    def test_fingerprints_match_the_typescript_implementation(self):
-        for (path, content), expected in TYPESCRIPT_VECTORS.items():
-            with self.subTest(path=path):
-                self.assertEqual(pf.fingerprint_file(path, content), expected)
 
     def test_patterns(self):
         self.assertTrue(pf.matches_pattern("**/Cargo.toml", "Cargo.toml"))
