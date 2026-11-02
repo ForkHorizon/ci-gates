@@ -11,7 +11,7 @@ def spec():
 
 
 def mode_of(event: str) -> str:
-    command = commands_for(spec(), Path("/repo"), Path("/gates"), ("a", "b"), event)[0]
+    command = next(c for c in commands_for(spec(), Path("/repo"), Path("/gates"), ("a", "b"), event) if "--mode" in c)
     return command[command.index("--mode") + 1]
 
 
