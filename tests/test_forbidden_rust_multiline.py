@@ -1,4 +1,5 @@
 """Multi-line Rust attributes and oversized files cannot hide a suppression."""
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,7 +18,9 @@ class MultilineRustTests(unittest.TestCase):
 
     def test_spaced_and_split_attribute_forms_are_caught(self):
         self.assertEqual(rules("#[ allow ( dead_code ) ]\nfn f() {}\n", {1}), ["no-lint-suppression"])
-        self.assertEqual(rules("#[cfg_attr(\n    test,\n    allow(unused)\n)]\nfn f() {}\n", {3}), ["no-lint-suppression"])
+        self.assertEqual(
+            rules("#[cfg_attr(\n    test,\n    allow(unused)\n)]\nfn f() {}\n", {3}), ["no-lint-suppression"]
+        )
 
     def test_a_reasoned_marker_on_the_attribute_still_allows_it(self):
         text = "// allow-no-lint-suppression: generated code\n#[\n    allow(dead_code)\n]\nfn f() {}\n"
