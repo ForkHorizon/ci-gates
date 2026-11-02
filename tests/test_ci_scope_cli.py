@@ -114,7 +114,7 @@ class CliTests(unittest.TestCase):
             cli.device_settings({}, home)
         file.chmod(0o600)
         self.assertEqual(cli.device_settings({}, home), ("https://ci.example", "t"))
-        with self.assertRaises(cli.CliError):
+        with self.assertRaises(cli.ServerUnavailable):
             cli.device_settings({}, self.root / "nowhere")
 
     def test_digest_matches_the_typescript_default_config(self):
