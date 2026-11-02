@@ -36,6 +36,7 @@ class RunRequest:
     event: str = "local"  # "local" = working tree, "pull_request" = clean checkout of `revisions`
     revisions: tuple[str, str] | None = None  # (base, head) commits
     repository: str | None = None  # owner/name, defaults to the origin remote
+    config_version: int | None = None  # rerun with a past version of the server config
 
 
 def git(root: Path, *args: str) -> str:
@@ -88,8 +89,13 @@ def verdict_line(results: list[dict]) -> str:
 
 
 def run_checks(request: RunRequest, server: Server, runner: Runner = run_command) -> list[dict]:
+    return run_checks_versioned(request, server, runner)[0]
+
+
+def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = run_command) -> tuple[list[dict], int]:
+    """The results and the version of the server config they were produced with."""
     root = request.root
-    config, baseline = fetch_project(server, request.repository or repository_slug(root))
+    config, baseline = fetch_project(server, request.repository or repository_slug(root), request.config_version)
     patterns = config["protectedFiles"]
     violations = check_protected_files(baseline, observed_files(root, patterns, baseline), patterns)
     results: list[dict] = [
@@ -111,4 +117,4 @@ def run_checks(request: RunRequest, server: Server, runner: Runner = run_command
                     outcome, detail = code, output
                     break
             results.append({"id": spec.id, "status": "passed" if outcome == 0 else "failed", "detail": detail})
-    return results
+    return results, int(config["version"])
