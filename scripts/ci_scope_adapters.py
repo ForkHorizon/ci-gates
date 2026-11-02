@@ -50,7 +50,9 @@ def _code_linter(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str
         "--allowed-signers",
         str(gates / "configs/allowed_signers"),
     ]
-    return [guard, command] if mode == "changed" else [command]
+    # Server-held configs turn the guard off: the protected-files baseline plus the owner's passkey replace signed commits.
+    guarded = mode == "changed" and check.params.get("signature_guard", True)
+    return [guard, command] if guarded else [command]
 
 
 def _python_quality(check: CheckSpec, root: Path, gates: Path) -> list[list[str]]:

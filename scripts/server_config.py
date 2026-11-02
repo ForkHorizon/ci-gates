@@ -123,7 +123,11 @@ def build_check_specs(config: dict, config_dir: Path) -> list[CheckSpec]:
         config_dir.mkdir(parents=True, exist_ok=True)
         linter_path = config_dir / "code-linter.json"
         linter_path.write_text(json.dumps(code_linter_config(rules), indent=2) + "\n", encoding="utf-8")
-        specs.append(_spec("code-linter", "code-linter", config=str(linter_path), params={"mode": "auto"}))
+        specs.append(
+            _spec(
+                "code-linter", "code-linter", config=str(linter_path), params={"mode": "auto", "signature_guard": False}
+            )
+        )
         if rules["params"]["forbidSuppressions"]:
             specs.append(_spec("forbidden-constructs", "forbidden-constructs", params={"mode": "new"}))
         specs.append(_spec("duplicate-blocks", "duplicate-blocks", params={"mode": "new"}))
