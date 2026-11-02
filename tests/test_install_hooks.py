@@ -19,8 +19,10 @@ class HookTests(unittest.TestCase):
             "HOME": str(base),
             "GIT_CONFIG_GLOBAL": str(base / "gitconfig"),
             "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
-            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.com",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.com",
         }
         patcher = mock.patch.dict(os.environ, self.env, clear=True)
         patcher.start()
@@ -34,7 +36,9 @@ class HookTests(unittest.TestCase):
 
     def git(self, *args, cwd=None, check=True, extra_env=None):
         env = {**self.env, **(extra_env or {})}
-        return subprocess.run(["git", *args], cwd=cwd or self.repo, env=env, capture_output=True, text=True, check=check)
+        return subprocess.run(
+            ["git", *args], cwd=cwd or self.repo, env=env, capture_output=True, text=True, check=check
+        )
 
     def stub(self, code, name="stub"):
         path = Path(self.tmp.name) / name
@@ -81,7 +85,9 @@ class HookTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], env=self.env, check=True)
         self.git("remote", "add", "origin", str(remote))
         branch = self.git("branch", "--show-current").stdout.strip()
-        refused = self.git("push", "-q", "origin", branch, check=False, extra_env={"CI_SCOPE_CLI": str(self.stub(1, "no"))})
+        refused = self.git(
+            "push", "-q", "origin", branch, check=False, extra_env={"CI_SCOPE_CLI": str(self.stub(1, "no"))}
+        )
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn("--hook --tier push", (Path(self.tmp.name) / "no.calls").read_text(encoding="utf-8"))
         accepted = self.git("push", "-q", "origin", branch, extra_env={"CI_SCOPE_CLI": str(self.stub(0, "yes"))})
@@ -89,10 +95,10 @@ class HookTests(unittest.TestCase):
 
     def test_hook_mode_never_blocks_for_unregistered_repos_or_a_down_server(self):
         def not_registered(url, token):
-            raise cli.NotRegistered("no")
+            raise cli.NotRegisteredError("no")
 
         def down(url, token):
-            raise cli.ServerUnavailable("down")
+            raise cli.ServerUnavailableError("down")
 
         env = {"CI_SCOPE_URL": "https://ci.example", "CI_SCOPE_CONFIG_TOKEN": "t"}
         with mock.patch.dict(os.environ, env):

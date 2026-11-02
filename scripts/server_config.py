@@ -24,13 +24,54 @@ LANGUAGE_CHECKS = {
 }
 RESOURCES = {"swift-quality": ("xcode",), "swift-compile": ("xcode",)}
 CODE_LINTER_EXTENSIONS = [
-    ".cs", ".go", ".java", ".js", ".jsx", ".kt", ".kts", ".php", ".py", ".rb", ".rs", ".swift", ".ts", ".tsx",
+    ".cs",
+    ".go",
+    ".java",
+    ".js",
+    ".jsx",
+    ".kt",
+    ".kts",
+    ".php",
+    ".py",
+    ".rb",
+    ".rs",
+    ".swift",
+    ".ts",
+    ".tsx",
 ]
 CODE_LINTER_IGNORE = [
-    ".ci-gates", ".git", ".svn", ".hg", ".build", ".dart_tool", ".gradle", ".next", ".nuxt", ".pytest_cache",
-    ".tox", ".venv", "DerivedData", "Pods", "bin", "build", "coverage", "dist", "node_modules", "obj", "out",
-    "target", "vendor", "*.designer.cs", "*.generated.*", "*.g.cs", "*.g.swift", "*.gen.*", "*.min.js", "*.pb.*",
-    "*.snap", "*.snapshot",
+    ".ci-gates",
+    ".git",
+    ".svn",
+    ".hg",
+    ".build",
+    ".dart_tool",
+    ".gradle",
+    ".next",
+    ".nuxt",
+    ".pytest_cache",
+    ".tox",
+    ".venv",
+    "DerivedData",
+    "Pods",
+    "bin",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+    "obj",
+    "out",
+    "target",
+    "vendor",
+    "*.designer.cs",
+    "*.generated.*",
+    "*.g.cs",
+    "*.g.swift",
+    "*.gen.*",
+    "*.min.js",
+    "*.pb.*",
+    "*.snap",
+    "*.snapshot",
 ]
 
 
@@ -38,7 +79,9 @@ class ConfigError(ValueError):
     pass
 
 
-def _spec(check_id: str, check_type: str, *, config: str | None = None, params: dict | None = None, speed: str = "fast") -> CheckSpec:
+def _spec(
+    check_id: str, check_type: str, *, config: str | None = None, params: dict | None = None, speed: str = "fast"
+) -> CheckSpec:
     return CheckSpec(
         id=check_id,
         type=check_type,
@@ -95,5 +138,7 @@ def build_check_specs(config: dict, config_dir: Path) -> list[CheckSpec]:
             for check_type in LANGUAGE_CHECKS[adapter]:
                 specs.append(_spec(check_type, check_type, speed="full"))
     if lanes["tests"]["enabled"]:
-        specs.append(_spec("project-tests", "project-tests", params={"command": lanes["tests"]["command"]}, speed="full"))
+        specs.append(
+            _spec("project-tests", "project-tests", params={"command": lanes["tests"]["command"]}, speed="full")
+        )
     return specs

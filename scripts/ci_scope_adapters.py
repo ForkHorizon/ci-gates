@@ -103,6 +103,12 @@ def _shape_checks(check: CheckSpec, root: Path, gates: Path, revisions: tuple[st
     return [command]
 
 
+def _server_defined(check: CheckSpec, root: Path) -> list[list[str]]:
+    if check.type == "project-tests":
+        return [["/bin/sh", "-c", str(check.params["command"])]]
+    return _rust_quality(root, check.workdir)
+
+
 def _rust_quality(root: Path, workdir: str) -> list[list[str]]:
     commands = [
         ["cargo", "fmt", "--all", "--", "--check"],
@@ -179,6 +185,8 @@ def commands_for(
     revisions: tuple[str, str],
     event: str = "pull_request",
 ) -> list[list[str]]:
+    if check.type in {"rust-quality", "project-tests"}:
+        return _server_defined(check, root)
     if check.type == "code-linter":
         commands = _code_linter(check, root, gates, revisions, event)
     elif check.type == "python-quality":
@@ -208,10 +216,6 @@ def commands_for(
             ],
             ["golangci-lint", "run", "./..."],
         ]
-    elif check.type == "rust-quality":
-        commands = _rust_quality(root, check.workdir)
-    elif check.type == "project-tests":
-        commands = [["/bin/sh", "-c", str(check.params["command"])]]
     elif check.type == "swift-quality":
         commands = _swift_quality(check, root, gates, revisions, event)
     elif check.type == "swift-compile":

@@ -12,7 +12,15 @@ sys.modules["protected_files"] = pf
 SPEC.loader.exec_module(pf)
 
 CARGO = '[workspace]\nmembers = ["crates/*"]\n\n[workspace.dependencies]\nserde = "1"\n\n[workspace.lints.rust]\nunsafe_code = "forbid"\n\n[workspace.lints.clippy]\nall = "warn"\n'
-PACKAGE = json.dumps({"name": "client", "version": "1.0.0", "scripts": {"test": "node --test", "typecheck": "tsc --noEmit", "start": "node ."}, "dependencies": {"a": "1"}}, separators=(",", ":"))
+PACKAGE = json.dumps(
+    {
+        "name": "client",
+        "version": "1.0.0",
+        "scripts": {"test": "node --test", "typecheck": "tsc --noEmit", "start": "node ."},
+        "dependencies": {"a": "1"},
+    },
+    separators=(",", ":"),
+)
 PYPROJECT = '[project]\nname = "x"\n\n[tool.ruff]\nline-length = 100\n\n[tool.ruff.lint]\nselect = ["E"]\n'
 PATTERNS = ["Cargo.toml", "**/Cargo.toml", "package.json", "deny.toml", "clippy.toml", ".github/**"]
 
@@ -50,7 +58,10 @@ class ProtectedFilesTests(unittest.TestCase):
         self.assertTrue(pf.matches_pattern(".eslintrc*", ".eslintrc.json"))
         self.assertFalse(pf.matches_pattern(".eslintrc*", "src/.eslintrc.json"))
         self.assertFalse(pf.matches_pattern("Cargo.toml", "Cargo-toml"))
-        self.assertEqual(pf.select_protected_paths(["src/a.rs", "Cargo.toml", "crates/x/Cargo.toml", "deny.toml"], PATTERNS), ["Cargo.toml", "crates/x/Cargo.toml", "deny.toml"])
+        self.assertEqual(
+            pf.select_protected_paths(["src/a.rs", "Cargo.toml", "crates/x/Cargo.toml", "deny.toml"], PATTERNS),
+            ["Cargo.toml", "crates/x/Cargo.toml", "deny.toml"],
+        )
 
     def test_unchanged_and_dependency_edits_pass(self):
         self.assertEqual(self.kinds(self.same()), [])
@@ -60,9 +71,14 @@ class ProtectedFilesTests(unittest.TestCase):
         self.assertEqual(self.kinds(dep), [])
 
     def test_lint_weakening_is_caught(self):
-        weakened = CARGO.replace("[workspace.lints.clippy]", 'unused_variables = "allow"\ndead_code = "allow"\n\n[workspace.lints.clippy]')
+        weakened = CARGO.replace(
+            "[workspace.lints.clippy]", 'unused_variables = "allow"\ndead_code = "allow"\n\n[workspace.lints.clippy]'
+        )
         self.assertEqual(self.kinds({**self.same(), "Cargo.toml": weakened}), ["modified:Cargo.toml"])
-        self.assertEqual(self.kinds({**self.same(), "Cargo.toml": CARGO.replace('all = "warn"', 'all = "allow"')}), ["modified:Cargo.toml"])
+        self.assertEqual(
+            self.kinds({**self.same(), "Cargo.toml": CARGO.replace('all = "warn"', 'all = "allow"')}),
+            ["modified:Cargo.toml"],
+        )
 
     def test_new_test_hook_script_is_caught(self):
         scripts = {**json.loads(PACKAGE)["scripts"], "pretest": "cargo build"}
@@ -76,7 +92,9 @@ class ProtectedFilesTests(unittest.TestCase):
         self.assertEqual(self.kinds(missing), ["deleted:deny.toml"])
         self.assertEqual(self.kinds({**self.same(), "clippy.toml": "x = 1\n"}), ["added:clippy.toml"])
         self.assertEqual(self.kinds({**self.same(), "src/main.rs": "fn main() {}"}), [])
-        self.assertEqual(self.kinds({**self.same(), ".github/workflows/x.yml": "name: x\n"}), ["added:.github/workflows/x.yml"])
+        self.assertEqual(
+            self.kinds({**self.same(), ".github/workflows/x.yml": "name: x\n"}), ["added:.github/workflows/x.yml"]
+        )
 
 
 if __name__ == "__main__":

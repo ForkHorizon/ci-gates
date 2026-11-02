@@ -17,7 +17,14 @@ def config(**lanes):
         "lanes": {
             "code-rules": {
                 "enabled": True,
-                "params": {"maxFileLines": 600, "maxFunctionLines": 80, "maxNestingDepth": 4, "maxParameters": 5, "ignore": [], "forbidSuppressions": True},
+                "params": {
+                    "maxFileLines": 600,
+                    "maxFunctionLines": 80,
+                    "maxNestingDepth": 4,
+                    "maxParameters": 5,
+                    "ignore": [],
+                    "forbidSuppressions": True,
+                },
             },
             "agent-guard": {"enabled": True},
             "language": {"enabled": False, "adapters": []},
@@ -36,7 +43,17 @@ class ServerConfigTests(unittest.TestCase):
 
     def test_default_lanes_expand_to_the_core_checks(self):
         ids = [spec.id for spec in self.specs(config())]
-        self.assertEqual(ids, ["code-linter", "forbidden-constructs", "duplicate-blocks", "file-roles", "test-protection", "agent-docs-stable"])
+        self.assertEqual(
+            ids,
+            [
+                "code-linter",
+                "forbidden-constructs",
+                "duplicate-blocks",
+                "file-roles",
+                "test-protection",
+                "agent-docs-stable",
+            ],
+        )
 
     def test_disabled_lanes_and_suppression_switch_remove_checks(self):
         value = config(**{"agent-guard": {"enabled": False}})
@@ -46,7 +63,9 @@ class ServerConfigTests(unittest.TestCase):
         self.assertEqual(self.specs(value), [])
 
     def test_language_and_test_lanes_are_full_speed(self):
-        value = config(language={"enabled": True, "adapters": ["rust", "swift"]}, tests={"enabled": True, "command": "cargo test"})
+        value = config(
+            language={"enabled": True, "adapters": ["rust", "swift"]}, tests={"enabled": True, "command": "cargo test"}
+        )
         specs = {spec.id: spec for spec in self.specs(value)}
         self.assertEqual(specs["rust-quality"].speed, "full")
         self.assertEqual(specs["swift-compile"].resources, ("xcode",))
@@ -76,8 +95,20 @@ class ServerConfigTests(unittest.TestCase):
             (Path(repo) / "ok.py").write_text("x = 1\n", encoding="utf-8")
             (Path(repo) / "long.py").write_text("x = 1\n" * 150, encoding="utf-8")
             result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts/code-linter.py"), "--root", repo, "--mode", "all", "--config", spec.config, "--trusted-config"],
-                capture_output=True, text=True, check=False,
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/code-linter.py"),
+                    "--root",
+                    repo,
+                    "--mode",
+                    "all",
+                    "--config",
+                    spec.config,
+                    "--trusted-config",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
             )
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("long.py", result.stdout + result.stderr)
@@ -86,8 +117,19 @@ class ServerConfigTests(unittest.TestCase):
         spec = self.specs(config())[0]
         with tempfile.TemporaryDirectory() as repo:
             result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts/code-linter.py"), "--root", repo, "--mode", "all", "--config", spec.config],
-                capture_output=True, text=True, check=False,
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/code-linter.py"),
+                    "--root",
+                    repo,
+                    "--mode",
+                    "all",
+                    "--config",
+                    spec.config,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
             )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must be inside the repository", result.stdout + result.stderr)
@@ -99,15 +141,21 @@ class ServerConfigTests(unittest.TestCase):
         self.assertIn("--trusted-config", command)
 
     def test_new_check_types_have_commands(self):
-        value = config(language={"enabled": True, "adapters": ["rust"]}, tests={"enabled": True, "command": "make test"})
+        value = config(
+            language={"enabled": True, "adapters": ["rust"]}, tests={"enabled": True, "command": "make test"}
+        )
         specs = {spec.id: spec for spec in self.specs(value)}
         with tempfile.TemporaryDirectory() as root:
             rust = commands_for(specs["rust-quality"], Path(root), ROOT, ("a", "b"))
             self.assertEqual(rust[1][:4], ["cargo", "clippy", "--workspace", "--all-targets"])
             self.assertEqual(len(rust), 2)
             (Path(root) / "deny.toml").write_text("", encoding="utf-8")
-            self.assertEqual(commands_for(specs["rust-quality"], Path(root), ROOT, ("a", "b"))[-1], ["cargo", "deny", "check"])
-            self.assertEqual(commands_for(specs["project-tests"], Path(root), ROOT, ("a", "b")), [["/bin/sh", "-c", "make test"]])
+            self.assertEqual(
+                commands_for(specs["rust-quality"], Path(root), ROOT, ("a", "b"))[-1], ["cargo", "deny", "check"]
+            )
+            self.assertEqual(
+                commands_for(specs["project-tests"], Path(root), ROOT, ("a", "b")), [["/bin/sh", "-c", "make test"]]
+            )
 
 
 if __name__ == "__main__":

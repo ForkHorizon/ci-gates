@@ -19,7 +19,9 @@ class InstallError(RuntimeError):
 
 
 def global_hooks_path() -> str:
-    result = subprocess.run(["git", "config", "--global", "--get", "core.hooksPath"], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["git", "config", "--global", "--get", "core.hooksPath"], capture_output=True, text=True, check=False
+    )
     return result.stdout.strip()
 
 
@@ -45,7 +47,9 @@ def install(hooks_dir: Path, gates: Path = GATES, *, set_config: bool = True) ->
 
 
 def main(argv: list[str]) -> int:
-    hooks_dir = Path(argv[0]) if argv else Path(os.environ.get("CI_SCOPE_HOOKS_DIR", Path.home() / ".config/ci-scope/hooks"))
+    hooks_dir = (
+        Path(argv[0]) if argv else Path(os.environ.get("CI_SCOPE_HOOKS_DIR", Path.home() / ".config/ci-scope/hooks"))
+    )
     try:
         written = install(hooks_dir)
     except InstallError as error:
