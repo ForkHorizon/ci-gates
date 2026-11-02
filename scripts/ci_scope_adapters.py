@@ -20,7 +20,8 @@ def _code_linter(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str
     base, head = revisions
     mode = str(check.params.get("mode", "auto"))
     if mode == "auto":
-        mode = "changed" if event in {"pull_request", "merge_group"} else "all"
+        # A local run (git hook) checks what is being committed, so old code that predates the project cannot block it.
+        mode = "changed" if event in {"pull_request", "merge_group"} else "worktree" if event == "local" else "all"
     command = [
         sys.executable,
         str(gates / "scripts/code-linter.py"),
