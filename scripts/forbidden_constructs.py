@@ -71,6 +71,18 @@ RULES = {
             "catch block must handle or explain the error",
         ),
     ],
+    ".rs": [
+        (
+            "no-lint-suppression",
+            r"#!?\[[^\]]*\b(?:allow|expect)\s*\(",
+            "lint suppression attributes need an allow marker and reason",
+        ),
+        (
+            "no-rustfmt-skip",
+            r"\brustfmt::skip\b|#!?\[rustfmt::skip",
+            "rustfmt::skip needs an allow marker and reason",
+        ),
+    ],
     ".go": [
         (
             "no-ignored-error",
