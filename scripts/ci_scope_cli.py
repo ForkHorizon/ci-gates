@@ -41,6 +41,14 @@ class CliError(RuntimeError):
     pass
 
 
+class NotRegistered(CliError):
+    """The server has no config for this repository."""
+
+
+class ServerUnavailable(CliError):
+    """The server could not be reached or answered with an error."""
+
+
 def canonical_config(config: dict) -> str:
     """Same text as the server's canonicalConfig: sorted keys, compact, trailing newline."""
     return json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
@@ -54,7 +62,7 @@ def git(root: Path, *args: str) -> str:
 def repository_slug(root: Path) -> str:
     match = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", git(root, "remote", "get-url", "origin"))
     if not match:
-        raise CliError("cannot tell the GitHub repository from the origin remote")
+        raise NotRegistered("cannot tell the GitHub repository from the origin remote")
     return f"{match.group(1)}/{match.group(2)}"
 
 
@@ -64,7 +72,7 @@ def device_settings(environ: dict[str, str] | None = None, home: Path | None = N
     if not (url and token):
         path = (home or Path.home()) / ".config/ci-scope/device.json"
         if not path.is_file():
-            raise CliError(f"this device is not set up: missing {path}")
+            raise ServerUnavailable(f"this device is not set up: missing {path}")
         if path.stat().st_mode & 0o077:
             raise CliError(f"{path} must not be readable by other users (chmod 600)")
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -80,9 +88,11 @@ def http_fetch(url: str, token: str) -> dict:
         with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310 - scheme checked in device_settings
             return json.loads(response.read(2_000_000))
     except urllib.error.HTTPError as error:
-        raise CliError(f"the server refused the request ({error.code})") from error
+        if error.code == 404:
+            raise NotRegistered("this repository is not registered with CI Scope") from error
+        raise ServerUnavailable(f"the server refused the request ({error.code})") from error
     except OSError as error:
-        raise CliError(f"cannot reach the CI Scope server: {error}") from error
+        raise ServerUnavailable(f"cannot reach the CI Scope server: {error}") from error
 
 
 def fetch_project(base_url: str, token: str, repository: str, fetch: Fetch) -> tuple[dict, dict[str, str]]:
@@ -158,6 +168,7 @@ def main(argv: list[str], fetch: Fetch = lambda url, token: http_fetch(url, toke
     parser = argparse.ArgumentParser(prog="ci-scope check")
     parser.add_argument("--tier", choices=sorted(TIERS), default="push")
     parser.add_argument("--root", default=".")
+    parser.add_argument("--hook", action="store_true", help="Git hook mode: stay quiet for unregistered repositories and do not block when the server is down.")
     parser.add_argument("--json", action="store_true", help="Print the full result as JSON after the one-line verdict.")
     args = parser.parse_args(argv)
     root = Path(git(Path(args.root), "rev-parse", "--show-toplevel") or args.root).resolve()
@@ -165,6 +176,17 @@ def main(argv: list[str], fetch: Fetch = lambda url, token: http_fetch(url, toke
     try:
         base_url, token = device_settings()
         results = run_checks(root, gates, args.tier, fetch, runner, base_url, token)
+    except NotRegistered as error:
+        if args.hook:
+            return 0
+        print(f"CI Scope: FAILED — {error}")
+        return 2
+    except ServerUnavailable as error:
+        if args.hook:
+            print(f"CI Scope: skipped locally — {error}; the pull request check still applies", file=sys.stderr)
+            return 0
+        print(f"CI Scope: FAILED — {error}")
+        return 2
     except (CliError, KeyError, ValueError) as error:
         print(f"CI Scope: FAILED — {error}")
         return 2
