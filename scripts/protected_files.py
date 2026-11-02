@@ -11,10 +11,25 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-LINT_SECTION = re.compile(r"^\s*\[\[?\s*(?:workspace\.)?lints(?:[.\s\]]|$)")
-PYTHON_TOOL_SECTION = re.compile(r"^\s*\[\s*tool\.(?:ruff|pytest|mypy|pyright)(?:[.\s\]]|$)")
-SECTION_HEADER = re.compile(r"^\s*\[")
-SCRIPT_NAME = re.compile(r"^(?:pre|post)?(?:test|lint|typecheck|check|build)(?::.*)?$")
+try:
+    from toml_scope import cargo_lint_path, python_tool_path, toml_scope
+except ModuleNotFoundError:
+    try:
+        from .toml_scope import cargo_lint_path, python_tool_path, toml_scope
+    except ImportError:  # loaded straight from its file, with neither the scripts folder nor a package around it
+        import importlib.util
+        import sys
+        from pathlib import Path
+
+        _spec = importlib.util.spec_from_file_location("toml_scope", Path(__file__).with_name("toml_scope.py"))
+        _module = importlib.util.module_from_spec(_spec)
+        sys.modules["toml_scope"] = _module
+        _spec.loader.exec_module(_module)
+        cargo_lint_path, python_tool_path, toml_scope = (
+            _module.cargo_lint_path,
+            _module.python_tool_path,
+            _module.toml_scope,
+        )
 
 
 @dataclass(frozen=True)
@@ -50,18 +65,6 @@ def select_protected_paths(paths: Iterable[str], patterns: Iterable[str]) -> lis
     return sorted(path for path in paths if any(matches_pattern(pattern, path) for pattern in patterns))
 
 
-def _toml_sections(content: str, header: re.Pattern[str]) -> str:
-    kept: list[str] = []
-    inside = False
-    for line in re.split(r"\r?\n", content):
-        if SECTION_HEADER.match(line):
-            inside = header.match(line) is not None
-        stripped = line.strip()
-        if inside and stripped and not stripped.startswith("#"):
-            kept.append(stripped)
-    return "\n".join(kept)
-
-
 def _sorted_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -70,20 +73,19 @@ def _package_json_scope(content: str) -> str:
     try:
         parsed = json.loads(content)
     except ValueError:
-        return content  # not parseable: any change at all counts
+        return content  # not parseable, so every byte counts
     scripts = parsed.get("scripts") if isinstance(parsed, dict) else None
-    scripts = scripts if isinstance(scripts, dict) else {}
-    kept = {name: value for name, value in scripts.items() if SCRIPT_NAME.match(name)}
     eslint = parsed.get("eslintConfig") if isinstance(parsed, dict) else None
-    return _sorted_json({"scripts": kept, "eslintConfig": eslint})
+    # Every script counts: a check may run any of them, and lifecycle scripts run on install.
+    return _sorted_json({"scripts": scripts if isinstance(scripts, dict) else {}, "eslintConfig": eslint})
 
 
 def protected_scope(path: str, content: str) -> str:
     name = path.rsplit("/", 1)[-1]
     if name == "Cargo.toml":
-        return _toml_sections(content, LINT_SECTION)
+        return toml_scope(content, cargo_lint_path)
     if name == "pyproject.toml":
-        return _toml_sections(content, PYTHON_TOOL_SECTION)
+        return toml_scope(content, python_tool_path)
     if name == "package.json":
         return _package_json_scope(content)
     return content

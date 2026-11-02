@@ -1,4 +1,5 @@
 #!/bin/sh
+# ci-scope-managed-hook
 # Installed as pre-commit and pre-push by install_hooks.py (global core.hooksPath).
 # Runs the CI Scope check for registered repositories, then hands over to the project's own hook.
 set -u
