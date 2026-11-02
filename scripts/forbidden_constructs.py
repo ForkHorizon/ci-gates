@@ -11,9 +11,11 @@ from pathlib import Path
 
 try:
     from added_lines import added_lines
+    from forbidden_rust_rules import RUST_RULES
     from source_comments import split_comments
 except ModuleNotFoundError:
     from .added_lines import added_lines
+    from .forbidden_rust_rules import RUST_RULES
     from .source_comments import split_comments
 
 
@@ -71,6 +73,7 @@ RULES = {
             "catch block must handle or explain the error",
         ),
     ],
+    ".rs": RUST_RULES,
     ".go": [
         (
             "no-ignored-error",
@@ -103,15 +106,7 @@ for extension in (".tsx", ".js", ".jsx", ".mjs"):
 
 ALLOW = re.compile(r"allow-([a-z][a-z0-9-]*):\s*(.*)")
 SUPPORTED = set(RULES)
-EXCLUDED_PARTS = {
-    "tests",
-    "test",
-    "fixtures",
-    "node_modules",
-    "vendor",
-    "Pods",
-    ".build",
-}
+EXCLUDED_PARTS = {"tests", "test", "fixtures", "node_modules", "vendor", "Pods", ".build"}
 
 
 def scan_text(text: str, extension: str, added: set[int], *, mode: str = "new", rules=None) -> list[Violation]:

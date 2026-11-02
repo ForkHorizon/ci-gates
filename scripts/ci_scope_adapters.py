@@ -33,6 +33,8 @@ def _code_linter(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str
         command += ["--base", base, "--head", head]
     if check.config:
         command += ["--config", check.config]
+        if Path(check.config).is_absolute():
+            command.append("--trusted-config")
     if check.params.get("coverage_mode"):
         command += ["--coverage-mode", str(check.params["coverage_mode"])]
     guard = [
@@ -101,6 +103,22 @@ def _shape_checks(check: CheckSpec, root: Path, gates: Path, revisions: tuple[st
     return [command]
 
 
+def _server_defined(check: CheckSpec, root: Path) -> list[list[str]]:
+    if check.type == "project-tests":
+        return [["/bin/sh", "-c", str(check.params["command"])]]
+    return _rust_quality(root, check.workdir)
+
+
+def _rust_quality(root: Path, workdir: str) -> list[list[str]]:
+    commands = [
+        ["cargo", "fmt", "--all", "--", "--check"],
+        ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+    ]
+    if (root / workdir / "deny.toml").is_file():
+        commands.append(["cargo", "deny", "check"])
+    return commands
+
+
 def _web_quality(check: CheckSpec, root: Path) -> list[list[str]]:
     workdir = root / check.workdir
     compiler = workdir / "node_modules/typescript/bin/tsc"
@@ -167,6 +185,8 @@ def commands_for(
     revisions: tuple[str, str],
     event: str = "pull_request",
 ) -> list[list[str]]:
+    if check.type in {"rust-quality", "project-tests"}:
+        return _server_defined(check, root)
     if check.type == "code-linter":
         commands = _code_linter(check, root, gates, revisions, event)
     elif check.type == "python-quality":

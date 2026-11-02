@@ -1,0 +1,21 @@
+#!/bin/sh
+# Installed as pre-commit and pre-push by install_hooks.py (global core.hooksPath).
+# Runs the CI Scope check for registered repositories, then hands over to the project's own hook.
+set -u
+hook=$(basename "$0")
+case "$hook" in
+  pre-commit) tier=commit ;;
+  pre-push) tier=push ;;
+  *) tier="" ;;
+esac
+here=$(cd "$(dirname "$0")" && pwd)
+cli="${CI_SCOPE_CLI:-$here/ci-scope-check}"
+if [ -n "$tier" ] && [ -x "$cli" ]; then
+  "$cli" --hook --tier "$tier" || exit $?
+fi
+common=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+project_hook="$common/hooks/$hook"
+if [ -x "$project_hook" ]; then
+  exec "$project_hook" "$@"
+fi
+exit 0
