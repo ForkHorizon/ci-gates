@@ -106,9 +106,9 @@ RULES = {
 for extension in (".tsx", ".js", ".jsx", ".mjs"):
     RULES[extension] = RULES[".ts"]
 
+MAX_SCAN_BYTES = 1_000_000
 ALLOW = re.compile(r"allow-([a-z][a-z0-9-]*):\s*(.*)")
 SUPPORTED = set(RULES)
-MAX_SCAN_BYTES = 1_000_000
 EXCLUDED_PARTS = {"tests", "test", "fixtures", "node_modules", "vendor", "Pods", ".build"}
 
 
@@ -260,18 +260,11 @@ def check(root: Path, options: ScanOptions) -> list[Violation]:
             continue
         selected = additions.get(relative, set())
         if (options.mode == "all" or selected) and path.stat().st_size > MAX_SCAN_BYTES:
-            results.append(Violation(relative, 1, "file-too-large", "file is too large to scan; split it or review it by hand"))
+            results.append(Violation(relative, 1, "file-too-large", "file is too large to scan"))
         elif options.mode == "all" or selected:
-            results.extend(
-                Violation(relative, item.line, item.rule_id, item.message)
-                for item in scan_text(
-                    path.read_text(encoding="utf-8", errors="replace"),
-                    path.suffix,
-                    selected,
-                    mode=options.mode,
-                    rules=rules,
-                )
-            )
+            text = path.read_text(encoding="utf-8", errors="replace")
+            found = scan_text(text, path.suffix, selected, mode=options.mode, rules=rules)
+            results.extend(Violation(relative, item.line, item.rule_id, item.message) for item in found)
     return results
 
 
