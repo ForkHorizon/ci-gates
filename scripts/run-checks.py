@@ -43,6 +43,8 @@ ADAPTERS = {
     "swift-quality",
     "swift-compile",
     "slop-review",
+    "rust-quality",
+    "project-tests",
 }
 GATE_NAMES = {
     "code-linter": "Code Linter",

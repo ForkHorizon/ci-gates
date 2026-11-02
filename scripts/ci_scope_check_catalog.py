@@ -49,6 +49,8 @@ CHECK_CATALOG: dict[str, CheckDefinition] = {
         frozenset({"explain_model"}),
         frozenset({"xcode"}),
     ),
+    "rust-quality": CheckDefinition("rust-quality", True),
+    "project-tests": CheckDefinition("project-tests", True, None, frozenset({"command"})),
     "slop-review": CheckDefinition(
         "slop-review",
         False,

@@ -35,7 +35,7 @@ def main(argv: Sequence[str]) -> int:
     args = parse_args(argv)
     root = Path(args.root).resolve()
     config_path = (root / args.config).resolve()
-    if not config_path.is_relative_to(root):
+    if not config_path.is_relative_to(root) and not args.trusted_config:
         config_error(config_path, "Code Linter config must be inside the repository.")
     if not config_path.is_file():
         config_error(config_path, "Code Linter config does not exist.")
@@ -67,6 +67,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--head", default="HEAD", help="Head ref for changed mode.")
     parser.add_argument("--config", default=".code-linter.json")
     parser.add_argument("--root", default=".")
+    parser.add_argument(
+        "--trusted-config",
+        action="store_true",
+        help="Allow --config outside the repository; only for configs supplied by the CI Scope server.",
+    )
     parser.add_argument("--coverage-mode", choices=("report", "strict"), default=None)
     return parser.parse_args(argv)
 

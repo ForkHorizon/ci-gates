@@ -33,6 +33,8 @@ def _code_linter(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str
         command += ["--base", base, "--head", head]
     if check.config:
         command += ["--config", check.config]
+        if Path(check.config).is_absolute():
+            command.append("--trusted-config")
     if check.params.get("coverage_mode"):
         command += ["--coverage-mode", str(check.params["coverage_mode"])]
     guard = [
@@ -99,6 +101,16 @@ def _shape_checks(check: CheckSpec, root: Path, gates: Path, revisions: tuple[st
     if check.config:
         command += ["--config", str(root / check.config)]
     return [command]
+
+
+def _rust_quality(root: Path, workdir: str) -> list[list[str]]:
+    commands = [
+        ["cargo", "fmt", "--all", "--", "--check"],
+        ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+    ]
+    if (root / workdir / "deny.toml").is_file():
+        commands.append(["cargo", "deny", "check"])
+    return commands
 
 
 def _web_quality(check: CheckSpec, root: Path) -> list[list[str]]:
@@ -196,6 +208,10 @@ def commands_for(
             ],
             ["golangci-lint", "run", "./..."],
         ]
+    elif check.type == "rust-quality":
+        commands = _rust_quality(root, check.workdir)
+    elif check.type == "project-tests":
+        commands = [["/bin/sh", "-c", str(check.params["command"])]]
     elif check.type == "swift-quality":
         commands = _swift_quality(check, root, gates, revisions, event)
     elif check.type == "swift-compile":
