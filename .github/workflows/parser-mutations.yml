@@ -11,7 +11,7 @@ permissions:
 jobs:
   parser-mutations:
     name: Parser Mutations
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64, ci-scope]
     timeout-minutes: 15
 
     steps:

@@ -28,7 +28,7 @@ permissions:
 jobs:
   validate:
     name: Validate routing inputs
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64, ci-scope]
     timeout-minutes: 5
     steps:
       - name: Set up Python
