@@ -13,8 +13,11 @@ permissions:
 jobs:
   self-check:
     name: Self Check
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64, ci-scope]
     timeout-minutes: 10
+    env:
+      # setup-python on the self-hosted runner resolves to a uv-managed (PEP 668) Python
+      PIP_BREAK_SYSTEM_PACKAGES: "1"
 
     steps:
       - name: Set up Python

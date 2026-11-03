@@ -22,7 +22,7 @@ permissions:
 jobs:
   checks:
     name: CI Scope / Checks
-    runs-on: self-hosted
+    runs-on: [self-hosted, macOS, ARM64, ci-scope]
     timeout-minutes: 45
     steps:
       - name: Set up trusted Python
