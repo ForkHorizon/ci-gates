@@ -104,7 +104,3 @@ class ScanTests(unittest.TestCase):
         git(self.root, "commit", "-aqm", "weaken")
         found = scan(self.root, "committed", "HEAD~1", "HEAD")
         self.assertEqual([f.rule_id for f in found], ["test-modified"])
-
-
-if __name__ == "__main__":
-    unittest.main()

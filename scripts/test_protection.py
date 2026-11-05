@@ -12,8 +12,10 @@ from pathlib import Path, PurePosixPath
 
 try:
     from added_lines import added_lines
+    from rust_tests import cargo_test_keys, rust_tests, tests_lost
 except ModuleNotFoundError:
     from .added_lines import added_lines
+    from .rust_tests import cargo_test_keys, rust_tests, tests_lost
 
 TEST_PATTERNS = (
     r"(^|/)tests?/",
@@ -34,6 +36,7 @@ RUNNER_FILES = (
 )
 SKIP_MARKERS = re.compile(
     r"\.skip\(|\b(?:xit|xdescribe|xtest)\(|@Disabled\b|\bt\.Skip(?:Now|f)?\(|pytest\.mark\.skip|@unittest\.skip|XCTSkip\b"
+    r"|#\[ignore\b|#\[cfg\(any\(\)\)\]"
 )
 ALLOW = re.compile(r"allow-skip:\s*\S")
 
@@ -81,6 +84,40 @@ def _changes(root: Path, revision: str) -> list[tuple[str, str, str]]:
 def _deleted_lines(root: Path, revision: str, path: str) -> int:
     row = _git(root, "diff", "--numstat", revision, "--", path).split("\t")
     return int(row[1]) if len(row) > 1 and row[1].isdigit() else 1
+
+
+def _show(root: Path, rev: str, path: str) -> str | None:
+    result = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=root, capture_output=True, text=True, check=False)
+    return None if result.returncode else result.stdout
+
+
+def _rust_files_now(root: Path, skip: str) -> dict[str, int]:
+    """Tests defined in every Rust file of the checkout except `skip` (the file being removed)."""
+    listed = _git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.rs").split("\0")
+    found: dict[str, int] = {}
+    for path in filter(None, listed):
+        if path == skip or not (root / path).is_file():
+            continue
+        for name, asserts in rust_tests((root / path).read_text(encoding="utf-8", errors="replace")).items():
+            found[name] = max(found.get(name, 0), asserts)
+    return found
+
+
+def _moved_intact(root: Path, base_rev: str, path: str) -> bool:
+    """A deleted Rust test file is a move when every test in it, with at least its assertions, lives on elsewhere."""
+    old = rust_tests(_show(root, base_rev, path) or "") if path.endswith(".rs") else {}
+    return bool(old) and not tests_lost(old, _rust_files_now(root, path))
+
+
+def _cargo_test_config_changed(root: Path, revisions: tuple[str, str, str], path: str) -> bool:
+    git_mode, base, head = revisions
+    old = _show(root, base if git_mode == "committed" else "HEAD", path) or ""
+    new = (
+        _show(root, head, path)
+        if git_mode == "committed"
+        else (root / path).read_text(encoding="utf-8", errors="replace")
+    )
+    return cargo_test_keys(old) != cargo_test_keys(new or "")
 
 
 def _package_test_script(root: Path, rev: str, path: str) -> str | None:
@@ -133,9 +170,19 @@ def scan(root: Path, git_mode: str, base: str, head: str, config: Path | None = 
                     Finding("high", new, "test-modified", "existing test file has removed or changed lines")
                 )
         elif status == "D" and is_test_path(old, extra, excluded):
+            if _moved_intact(root, base if git_mode == "committed" else "HEAD", old):
+                continue
             findings.append(Finding("high", old, "test-deleted", "existing test file was deleted"))
         elif status == "R" and is_test_path(old, extra, excluded):
             findings.append(Finding("high", old, "test-renamed", f"existing test file was renamed to {new}"))
+        elif (
+            status == "M"
+            and PurePosixPath(new).name == "Cargo.toml"
+            and _cargo_test_config_changed(root, (git_mode, base, head), new)
+        ):
+            findings.append(
+                Finding("high", new, "test-build-config-changed", "Cargo.toml changes which tests are built or run")
+            )
         elif status in "MR" and any(re.search(pattern, new) for pattern in RUNNER_FILES):
             findings.append(Finding("high", new, "runner-config-changed", "test runner configuration changed"))
         elif (
