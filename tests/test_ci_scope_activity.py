@@ -37,7 +37,19 @@ class ActivityTests(unittest.TestCase):
             run.run_command([sys.executable, "-c", script], Path(tempfile.gettempdir()))
 
         got = events({"CI_SCOPE_ACTIVITY": "1"}, go)
-        self.assertEqual(got, [{"check": "code-linter", "state": "running", "step": "lint", "current": 2, "total": 9, "detail": "src/a.swift"}])
+        self.assertEqual(
+            got,
+            [
+                {
+                    "check": "code-linter",
+                    "state": "running",
+                    "step": "lint",
+                    "current": 2,
+                    "total": 9,
+                    "detail": "src/a.swift",
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":
