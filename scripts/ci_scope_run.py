@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-import os
 import re
 import resource
 import subprocess
-import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 try:
+    from ci_scope_activity import CURRENT, MarkerTail, emit
     from ci_scope_adapters import commands_for
     from ci_scope_errors import NotRegisteredError
     from ci_scope_server import Server, fetch_project
     from protected_files import check_protected_files, select_protected_paths
     from server_config import build_check_specs
 except ModuleNotFoundError:
+    from .ci_scope_activity import CURRENT, MarkerTail, emit
     from .ci_scope_adapters import commands_for
     from .ci_scope_errors import NotRegisteredError
     from .ci_scope_server import Server, fetch_project
@@ -76,7 +76,7 @@ def _limit_file_size() -> None:
 
 def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
     # Output goes to a size-limited temporary file, so a noisy or hostile command cannot fill this process's memory.
-    with tempfile.TemporaryFile() as sink:
+    with tempfile.TemporaryFile() as sink, MarkerTail(sink.fileno()):
         try:
             done = subprocess.run(
                 command,
@@ -92,12 +92,6 @@ def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
         size = sink.seek(0, 2)
         sink.seek(max(0, size - MAX_OUTPUT * 4))
         return done.returncode, sink.read().decode("utf-8", errors="replace")[-MAX_OUTPUT:]
-
-
-def announce(text: str) -> None:
-    """Tell the CI Scope agent what is running now (it relays this to the app); silent for people and git hooks."""
-    if os.environ.get("CI_SCOPE_ACTIVITY") == "1":
-        print(f"@@activity {text[:200]}", file=sys.stderr, flush=True)
 
 
 def clip(text: str, limit: int = MAX_DETAIL) -> str:
@@ -124,7 +118,6 @@ def run_checks(request: RunRequest, server: Server, runner: Runner = run_command
 def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = run_command) -> tuple[list[dict], int]:
     """The results and the version of the server config they were produced with."""
     root = request.root
-    announce("Reading the project config")
     config, baseline = fetch_project(server, request.repository or repository_slug(root), request.config_version)
     patterns = config["protectedFiles"]
     violations = check_protected_files(baseline, observed_files(root, patterns, baseline), patterns)
@@ -137,15 +130,18 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
     ]
     base, head = request.revisions or (git(root, "merge-base", "HEAD", "origin/main") or "HEAD", "HEAD")
     with tempfile.TemporaryDirectory(prefix="ci-scope-config-") as directory:
-        for spec in build_check_specs(config, Path(directory)):
-            if spec.speed not in TIERS[request.tier]:
-                continue
+        specs = [spec for spec in build_check_specs(config, Path(directory)) if spec.speed in TIERS[request.tier]]
+        emit({"plan": ["protected-files", *(spec.id for spec in specs)]})
+        emit({"check": "protected-files", "state": results[0]["status"]})
+        for spec in specs:
+            CURRENT["check"] = spec.id
+            emit({"check": spec.id, "state": "running"})
             outcome, detail = 0, ""
             for command in commands_for(spec, root, request.gates, (base, head), request.event):
-                announce(f"{spec.id}: {' '.join(Path(part).name for part in command[:2])}")
                 code, output = runner(command, root)
                 if code != 0:
                     outcome, detail = code, output
                     break
             results.append({"id": spec.id, "status": "passed" if outcome == 0 else "failed", "detail": detail})
+            emit({"check": spec.id, "state": results[-1]["status"]})
     return results, int(config["version"])
