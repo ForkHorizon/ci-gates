@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from importlib import import_module
 import os
+import re
 import stat
 from collections.abc import Iterable, Sequence
 from pathlib import Path
@@ -135,6 +136,10 @@ def source_issues(relative: Path, text: str, language: str | None, limits: dict[
     line_count = len(text.splitlines())
     if line_count > limits["max_file_lines"]:
         message = f"File has {line_count} lines; limit is {limits['max_file_lines']}."
+        if re.search(r"(^|/)(tests?|__tests__)/|_tests?\.|\.(spec|test)\.", Path(relative).as_posix()):
+            message += (
+                " Split it into modules; test-protection accepts deleting the original once every test has moved."
+            )
         issues.append(Issue(relative, 1, "file_length", message))
     syntax = check_syntax(relative, text, language or "")
     issues.extend(syntax)
