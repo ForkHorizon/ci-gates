@@ -112,7 +112,11 @@ def _moved_intact(root: Path, base_rev: str, path: str) -> bool:
 def _cargo_test_config_changed(root: Path, revisions: tuple[str, str, str], path: str) -> bool:
     git_mode, base, head = revisions
     old = _show(root, base if git_mode == "committed" else "HEAD", path) or ""
-    new = _show(root, head, path) if git_mode == "committed" else (root / path).read_text(encoding="utf-8", errors="replace")
+    new = (
+        _show(root, head, path)
+        if git_mode == "committed"
+        else (root / path).read_text(encoding="utf-8", errors="replace")
+    )
     return cargo_test_keys(old) != cargo_test_keys(new or "")
 
 
@@ -171,8 +175,14 @@ def scan(root: Path, git_mode: str, base: str, head: str, config: Path | None = 
             findings.append(Finding("high", old, "test-deleted", "existing test file was deleted"))
         elif status == "R" and is_test_path(old, extra, excluded):
             findings.append(Finding("high", old, "test-renamed", f"existing test file was renamed to {new}"))
-        elif status == "M" and PurePosixPath(new).name == "Cargo.toml" and _cargo_test_config_changed(root, (git_mode, base, head), new):
-            findings.append(Finding("high", new, "test-build-config-changed", "Cargo.toml changes which tests are built or run"))
+        elif (
+            status == "M"
+            and PurePosixPath(new).name == "Cargo.toml"
+            and _cargo_test_config_changed(root, (git_mode, base, head), new)
+        ):
+            findings.append(
+                Finding("high", new, "test-build-config-changed", "Cargo.toml changes which tests are built or run")
+            )
         elif status in "MR" and any(re.search(pattern, new) for pattern in RUNNER_FILES):
             findings.append(Finding("high", new, "runner-config-changed", "test runner configuration changed"))
         elif (

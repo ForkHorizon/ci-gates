@@ -16,10 +16,11 @@ def git(root, *args):
     subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
 
 
-BIG = (
-    "#[test]\nfn one() {\n    assert_eq!(1, 1);\n}\n\n"
-    "#[tokio::test(flavor = \"multi_thread\")]\nasync fn two() {\n    assert!(true);\n    assert!(2 > 1);\n}\n"
+FIRST, SECOND = (
+    "#[test]\nfn one() {\n    assert_eq!(1, 1);\n}\n\n",
+    '#[tokio::test(flavor = "multi_thread")]\nasync fn two() {\n    assert!(true);\n    assert!(2 > 1);\n}\n',
 )
+BIG = FIRST + SECOND
 CARGO = '[package]\nname = "x"\n'
 
 
@@ -42,11 +43,10 @@ class RustScenarioTests(unittest.TestCase):
     def found(self):
         return sorted(f.rule_id for f in scan(self.root, "worktree", "HEAD~1", "HEAD"))
 
-    def split(self, second=BIG.split("#[tokio")[1], *, keep_asserts=True):
+    def split(self, *, keep_asserts=True):
         (self.root / "tests/big").mkdir()
-        (self.root / "tests/big/a.rs").write_text(BIG.split("#[tokio")[0])
-        text = "#[tokio" + second
-        (self.root / "tests/big/b.rs").write_text(text if keep_asserts else text.replace("assert!(2 > 1);", ""))
+        (self.root / "tests/big/a.rs").write_text(FIRST)
+        (self.root / "tests/big/b.rs").write_text(SECOND if keep_asserts else SECOND.replace("assert!(2 > 1);", ""))
 
     def test_splitting_a_file_and_deleting_the_original_is_allowed(self):
         self.split()
