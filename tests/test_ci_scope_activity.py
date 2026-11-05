@@ -33,7 +33,7 @@ class ActivityTests(unittest.TestCase):
         script = f"import time; print({MARKER!r}, flush=True); time.sleep(1.5)"
 
         def go():
-            activity.CURRENT["check"] = "code-linter"
+            run.CURRENT["check"] = "code-linter"
             run.run_command([sys.executable, "-c", script], Path(tempfile.gettempdir()))
 
         got = events({"CI_SCOPE_ACTIVITY": "1"}, go)

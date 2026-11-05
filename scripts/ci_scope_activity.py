@@ -51,7 +51,7 @@ class MarkerTail:
         self.done = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
 
-    def __enter__(self) -> MarkerTail:
+    def __enter__(self):
         if os.environ.get("CI_SCOPE_ACTIVITY") == "1":
             self.thread.start()
         return self
