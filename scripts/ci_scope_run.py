@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import resource
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -92,6 +94,12 @@ def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
         return done.returncode, sink.read().decode("utf-8", errors="replace")[-MAX_OUTPUT:]
 
 
+def announce(text: str) -> None:
+    """Tell the CI Scope agent what is running now (it relays this to the app); silent for people and git hooks."""
+    if os.environ.get("CI_SCOPE_ACTIVITY") == "1":
+        print(f"@@activity {text[:200]}", file=sys.stderr, flush=True)
+
+
 def clip(text: str, limit: int = MAX_DETAIL) -> str:
     flat = " ".join(text.split())
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
@@ -116,6 +124,7 @@ def run_checks(request: RunRequest, server: Server, runner: Runner = run_command
 def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = run_command) -> tuple[list[dict], int]:
     """The results and the version of the server config they were produced with."""
     root = request.root
+    announce("Reading the project config")
     config, baseline = fetch_project(server, request.repository or repository_slug(root), request.config_version)
     patterns = config["protectedFiles"]
     violations = check_protected_files(baseline, observed_files(root, patterns, baseline), patterns)
@@ -133,6 +142,7 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
                 continue
             outcome, detail = 0, ""
             for command in commands_for(spec, root, request.gates, (base, head), request.event):
+                announce(f"{spec.id}: {' '.join(Path(part).name for part in command[:2])}")
                 code, output = runner(command, root)
                 if code != 0:
                     outcome, detail = code, output
