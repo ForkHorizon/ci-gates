@@ -80,6 +80,46 @@ def _package_json_scope(content: str) -> str:
     return _sorted_json({"scripts": scripts if isinstance(scripts, dict) else {}, "eslintConfig": eslint})
 
 
+_LOCK_NAMES = frozenset(
+    {"Cargo.lock", "uv.lock", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"}
+)
+_URL_PATTERN = re.compile(r"(?:git\+)?(?:https?|ssh|git|file)://[^\s\"',)}\]]+|github:[^\s\"',)}\]]+")
+_TARBALL = re.compile(r"\.(?:tgz|tar\.gz|zip)$")
+_FRAGMENT = re.compile(r"#[0-9A-Za-z]{7,64}")
+
+
+def is_lock_file(path: str) -> bool:
+    return path.rsplit("/", 1)[-1] in _LOCK_NAMES
+
+
+def _source_of(address: str) -> str:
+    """The origin of a downloaded archive, or the whole address of anything else (a git repository, a path)."""
+    bare = address.split("#", 1)[0]
+    web = re.match(r"^(https?://[^/]+)/(.*)$", bare)
+    return web.group(1) if web and _TARBALL.search(web.group(2)) else bare
+
+
+def _line_sources(content: str, pattern: str) -> set[str]:
+    found = set()
+    for line in content.split("\n"):
+        match = re.match(pattern, line)
+        if match:
+            found.add(_FRAGMENT.sub("", match.group(1)))
+    return found
+
+
+def lock_scope(path: str, content: str) -> str:
+    """Where a lock file's packages come from, never which version. Mirrors CI-Scope-Web `lock-scope.ts`."""
+    name = path.rsplit("/", 1)[-1]
+    if name == "Cargo.lock":
+        sources = _line_sources(content, r'^source = "(.*)"\s*$')
+    elif name == "uv.lock":
+        sources = _line_sources(content, r"^source = (\{.*\})\s*$")
+    else:
+        sources = {_source_of(address) for address in _URL_PATTERN.findall(content)}
+    return "\n".join(sorted(sources))
+
+
 def protected_scope(path: str, content: str) -> str:
     name = path.rsplit("/", 1)[-1]
     if name == "Cargo.toml":
@@ -88,6 +128,8 @@ def protected_scope(path: str, content: str) -> str:
         return toml_scope(content, python_tool_path)
     if name == "package.json":
         return _package_json_scope(content)
+    if is_lock_file(path):
+        return lock_scope(path, content)
     return content
 
 
@@ -95,26 +137,45 @@ def fingerprint_file(path: str, content: str) -> str:
     return hashlib.sha256(protected_scope(path, content).encode("utf-8")).hexdigest()
 
 
+def _matches_expected(path: str, content: str, expected: str) -> bool:
+    """Lock files were once fingerprinted whole; a baseline taken then still matches until the owner replaces it."""
+    if fingerprint_file(path, content) == expected:
+        return True
+    return is_lock_file(path) and hashlib.sha256(content.encode("utf-8")).hexdigest() == expected
+
+
+def _violation_kind(path: str, content: str | None, expected: str | None, approved: set[str | None]) -> str | None:
+    if content is None:
+        return None if expected is None or None in approved else "deleted"
+    if expected is not None and _matches_expected(path, content, expected):
+        return None
+    if fingerprint_file(path, content) in approved:
+        return None
+    return "added" if expected is None else "modified"
+
+
 def check_protected_files(
     baseline: dict[str, str],
     observed: dict[str, str | None],
     patterns: Iterable[str],
+    approved: dict[str, set[str | None]] | None = None,
 ) -> list[Violation]:
-    """`baseline` maps path to fingerprint; `observed` maps path to file text (None = missing)."""
+    """`baseline` maps path to fingerprint; `observed` maps path to file text (None = missing).
+
+    `approved` maps a path to the fingerprints the owner approved for it (None = approved deletion).
+    """
     patterns = list(patterns)
+    approved = approved or {}
     seen: set[str] = set()
     violations: list[Violation] = []
     for path, content in observed.items():
         if path not in baseline and not any(matches_pattern(pattern, path) for pattern in patterns):
             continue
         seen.add(path)
-        expected = baseline.get(path)
-        if content is None:
-            if expected is not None:
-                violations.append(Violation(path, "deleted"))
-        elif expected is None:
-            violations.append(Violation(path, "added"))
-        elif fingerprint_file(path, content) != expected:
-            violations.append(Violation(path, "modified"))
-    violations.extend(Violation(path, "deleted") for path in baseline if path not in seen)
+        kind = _violation_kind(path, content, baseline.get(path), approved.get(path, set()))
+        if kind:
+            violations.append(Violation(path, kind))
+    violations.extend(
+        Violation(path, "deleted") for path in baseline if path not in seen and None not in approved.get(path, set())
+    )
     return sorted(violations, key=lambda item: item.path)

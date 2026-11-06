@@ -68,6 +68,14 @@ def http_fetch(url: str, token: str) -> dict:
 
 def fetch_project(server: Server, repository: str, version: int | None = None) -> tuple[dict, dict[str, str]]:
     """The config (a pinned past version when `version` is given) and the protected-file baseline."""
+    config, baseline, _approved = fetch_project_with_approvals(server, repository, version)
+    return config, baseline
+
+
+def fetch_project_with_approvals(
+    server: Server, repository: str, version: int | None = None
+) -> tuple[dict, dict[str, str], dict[str, set[str | None]]]:
+    """Like `fetch_project`, plus the content the owner approved for pull requests that are not merged yet."""
     quoted = urllib.parse.quote(repository, safe="/")
     pinned = f"&version={version}" if version else ""
     config_reply = server.fetch(
@@ -77,4 +85,8 @@ def fetch_project(server: Server, repository: str, version: int | None = None) -
     if hashlib.sha256(canonical_config(config).encode("utf-8")).hexdigest() != config_reply.get("digest"):
         raise CliError("the config digest does not match; refusing to use it")
     baseline_reply = server.fetch(f"{server.base_url}/api/ci/v2/projects/baseline?repository={quoted}", server.token)
-    return config, {item["path"]: item["fingerprint"] for item in baseline_reply["baseline"]["files"]}
+    baseline = {item["path"]: item["fingerprint"] for item in baseline_reply["baseline"]["files"]}
+    approved: dict[str, set[str | None]] = {}
+    for item in baseline_reply.get("approved", []):
+        approved.setdefault(item["path"], set()).add(item["fingerprint"])
+    return config, baseline, approved

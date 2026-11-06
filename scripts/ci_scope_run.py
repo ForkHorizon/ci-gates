@@ -14,14 +14,14 @@ try:
     from ci_scope_activity import CURRENT, MarkerTail, emit
     from ci_scope_adapters import commands_for
     from ci_scope_errors import NotRegisteredError
-    from ci_scope_server import Server, fetch_project
+    from ci_scope_server import Server, fetch_project_with_approvals
     from protected_files import check_protected_files, select_protected_paths
     from server_config import build_check_specs
 except ModuleNotFoundError:
     from .ci_scope_activity import CURRENT, MarkerTail, emit
     from .ci_scope_adapters import commands_for
     from .ci_scope_errors import NotRegisteredError
-    from .ci_scope_server import Server, fetch_project
+    from .ci_scope_server import Server, fetch_project_with_approvals
     from .protected_files import check_protected_files, select_protected_paths
     from .server_config import build_check_specs
 
@@ -118,9 +118,11 @@ def run_checks(request: RunRequest, server: Server, runner: Runner = run_command
 def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = run_command) -> tuple[list[dict], int]:
     """The results and the version of the server config they were produced with."""
     root = request.root
-    config, baseline = fetch_project(server, request.repository or repository_slug(root), request.config_version)
+    config, baseline, approved = fetch_project_with_approvals(
+        server, request.repository or repository_slug(root), request.config_version
+    )
     patterns = config["protectedFiles"]
-    violations = check_protected_files(baseline, observed_files(root, patterns, baseline), patterns)
+    violations = check_protected_files(baseline, observed_files(root, patterns, baseline), patterns, approved)
     results: list[dict] = [
         {
             "id": "protected-files",
