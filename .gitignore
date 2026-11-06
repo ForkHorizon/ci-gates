@@ -14,3 +14,4 @@ graphify-out/
 .projectmem/watch.log
 .projectmem/structure.json
 .codex/
+.DS_Store

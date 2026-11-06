@@ -1,5 +1,14 @@
 # ci-gates
 
+> **Part of [CI Scope](https://forkhorizon.com/ci-scope).** These are the checks the CI Scope agent runs on each pull
+> request. They are pinned by commit SHA so the same change always gets the same result. Status: working prototype,
+> designed for and used on self-hosted macOS runners; other platforms are not covered yet. A license
+> has not been chosen yet, so all rights are reserved until one is added. Questions or interest in collaborating:
+> [forkhorizon.com/ci-scope](https://forkhorizon.com/ci-scope). The macOS app and agent live in
+> [`ForkHorizon/CI-Scope`](https://github.com/ForkHorizon/CI-Scope); the control plane is private for now.
+>
+> Older planning notes and reports are kept in [`docs/history/`](docs/history/); they may be out of date.
+
 Reusable GitHub Actions quality gates for all ForkHorizon projects. The gate
 logic lives here once; each project only carries a thin caller workflow. Use a
 commit SHA for production callers so a gate rollout is reproducible.
@@ -173,6 +182,7 @@ on a fresh checkout.
 
 ## Versioning
 
-Projects reference `@main`, so a push here rolls out everywhere at once. If a
-rollout misbehaves, revert the commit. For a breaking change in gate behavior,
+Production callers pin a full commit SHA, so a push here does not change them until
+they are migrated. Callers on `@main` pick up every push at once; if a rollout
+misbehaves, revert the commit. For a breaking change in gate behavior,
 cut a tag and migrate callers deliberately.
