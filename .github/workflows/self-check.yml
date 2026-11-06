@@ -13,6 +13,8 @@ permissions:
 jobs:
   self-check:
     name: Self Check
+    # Public repo + self-hosted runner: never run code from a fork's pull request on this machine.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, macOS, ARM64, ci-scope]
     timeout-minutes: 10
     env:
