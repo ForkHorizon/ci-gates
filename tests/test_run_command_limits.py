@@ -7,6 +7,14 @@ from scripts import ci_scope_run as run
 
 
 class RunCommandLimitTests(unittest.TestCase):
+    def test_a_clipped_verdict_detail_keeps_the_failing_tail(self):
+        detail = "test ok " * 80 + "panicked: timed out reading a daemon frame"
+        shown = run.clip(detail, 160)
+        self.assertLessEqual(len(shown), 160)
+        self.assertTrue(shown.endswith("timed out reading a daemon frame"))
+        self.assertTrue(shown.startswith("test ok"))
+        self.assertEqual(run.clip("  short   text ", 160), "short text")
+
     def test_the_tail_of_the_output_is_returned_with_the_exit_code(self):
         code, output = run.run_command(
             [sys.executable, "-c", "print('a'*10000); print('the end'); raise SystemExit(3)"],
