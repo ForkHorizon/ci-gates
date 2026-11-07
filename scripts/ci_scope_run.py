@@ -96,7 +96,11 @@ def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
 
 def clip(text: str, limit: int = MAX_DETAIL) -> str:
     flat = " ".join(text.split())
-    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+    if len(flat) <= limit:
+        return flat
+    # The cause of a failed command is at the end of its output, so keep the tail and only a short head.
+    head = limit // 4
+    return flat[:head] + "…" + flat[len(flat) - (limit - head - 1) :]
 
 
 def verdict_line(results: list[dict]) -> str:
