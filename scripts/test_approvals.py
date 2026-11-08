@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
@@ -12,6 +13,14 @@ except ModuleNotFoundError:
     from .protected_files import fingerprint_file
 
 Approvals = dict[str, set[str | None]]
+
+
+@dataclass
+class ApprovalState:
+    """What the owner approved, and (filled by a scan) the edits still waiting for a decision."""
+
+    approved: Approvals = field(default_factory=dict)
+    requests: list[dict] = field(default_factory=list)
 
 
 def load_approvals(path: Path | None) -> Approvals:
@@ -39,7 +48,7 @@ def _fingerprint(root: Path, rev: str | None, path: str) -> str | None:
 
 
 def change_item(root: Path, revs: tuple[str | None, str], kind: str, path: str) -> dict:
-    """One file the request asks about: its content now (`revs[0]`, None = working tree) against the base (`revs[1]`)."""
+    """One file the request asks about: its content now (`revs[0]`, None = working tree) against `revs[1]`."""
     now, base = revs
     return {
         "path": path,

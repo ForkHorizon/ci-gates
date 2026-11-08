@@ -13,11 +13,11 @@ from pathlib import Path, PurePosixPath
 try:
     from added_lines import added_lines
     from rust_tests import cargo_test_keys, rust_tests, tests_lost
-    from test_approvals import Approvals, all_approved, change_item, load_approvals
+    from test_approvals import ApprovalState, all_approved, change_item, load_approvals
 except ModuleNotFoundError:
     from .added_lines import added_lines
     from .rust_tests import cargo_test_keys, rust_tests, tests_lost
-    from .test_approvals import Approvals, all_approved, change_item, load_approvals
+    from .test_approvals import ApprovalState, all_approved, change_item, load_approvals
 
 TEST_PATTERNS = (
     r"(^|/)tests?/",
@@ -190,17 +190,16 @@ def _test_edit(
     return "test-modified", new, message, [change_item(root, (now, before), "modified", new)]
 
 
-def scan(
-    root: Path,
-    git_mode: str,
-    base: str,
-    head: str,
-    config: Path | None = None,
-    approved: Approvals | None = None,
-    requests: list[dict] | None = None,
+def scan(root: Path, git_mode: str, base: str, head: str, config: Path | None = None) -> list[Finding]:
+    return scan_with_approvals(root, (git_mode, base, head), config, ApprovalState())
+
+
+def scan_with_approvals(
+    root: Path, revisions: tuple[str, str, str], config: Path | None, state: ApprovalState
 ) -> list[Finding]:
-    """Findings for edits that weaken tests. `approved` (the owner's decisions) clears edits to existing tests;
-    the items of the edits left are appended to `requests` so a gate can ask the owner about them."""
+    """Findings for edits that weaken tests. `state.approved` (the owner's decisions) clears edits to existing
+    tests; the items of the edits left are appended to `state.requests` so a gate can ask the owner about them."""
+    git_mode, base, head = revisions
     root = root.resolve()
     extra, excluded = _config(config)
     revision = _revision(git_mode, base, head)
@@ -215,10 +214,9 @@ def scan(
             _runner_finding(root, (git_mode, base, head), (status, new), findings)
         if weakened:
             rule, path, message, items = _test_edit(root, (git_mode, base, head), status, old, new)
-            if not all_approved(items, approved or {}):
+            if not all_approved(items, state.approved):
                 findings.append(Finding("high", path, rule, message))
-                if requests is not None:
-                    requests.extend(items)
+                state.requests.extend(items)
     findings.extend(_skip_findings(root, (git_mode, base, head), (extra, excluded)))
     return findings
 
@@ -252,12 +250,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--request-out", type=Path, help="Write the unapproved test edits here as request items.")
     args = parser.parse_args(argv)
     try:
-        requests: list[dict] = []
-        findings = scan(
-            args.root, args.git_mode, args.base, args.head, args.config, load_approvals(args.approved), requests
-        )
+        state = ApprovalState(load_approvals(args.approved))
+        findings = scan_with_approvals(args.root, (args.git_mode, args.base, args.head), args.config, state)
         if args.request_out is not None:
-            args.request_out.write_text(json.dumps(requests), encoding="utf-8")
+            args.request_out.write_text(json.dumps(state.requests), encoding="utf-8")
     except (OSError, ValueError, RuntimeError) as error:
         print(f"test-protection: {error}", file=sys.stderr)
         return 2

@@ -77,14 +77,7 @@ def _python_pytest(check: CheckSpec, root: Path) -> list[list[str]]:
     return [["python3", "-m", "pytest", "tests", "-q"]]
 
 
-def _shape_checks(
-    check: CheckSpec,
-    root: Path,
-    gates: Path,
-    revisions: tuple[str, str],
-    event: str,
-    test_files: tuple[Path, Path] | None = None,
-) -> list[list[str]]:
+def _shape_checks(check: CheckSpec, root: Path, gates: Path, revisions: tuple[str, str], event: str) -> list[list[str]]:
     script = {
         "forbidden-constructs": "forbidden_constructs.py",
         "duplicate-blocks": "duplicate_blocks.py",
@@ -110,8 +103,6 @@ def _shape_checks(
         command += ["--min-lines", str(check.params.get("min_lines", 10))]
     if check.config:
         command += ["--config", str(root / check.config)]
-    if check.type == "test-protection" and test_files:
-        command += ["--approved", str(test_files[0]), "--request-out", str(test_files[1])]
     return [command]
 
 
@@ -196,9 +187,7 @@ def commands_for(
     gates: Path,
     revisions: tuple[str, str],
     event: str = "pull_request",
-    test_files: tuple[Path, Path] | None = None,
 ) -> list[list[str]]:
-    """`test_files`: (approved test edits to read, request items to write) for the test-protection check."""
     if check.type in {"rust-quality", "project-tests"}:
         return _server_defined(check, root)
     if check.type == "code-linter":
@@ -214,7 +203,7 @@ def commands_for(
         "agent-docs-stable",
         "test-protection",
     }:
-        commands = _shape_checks(check, root, gates, revisions, event, test_files)
+        commands = _shape_checks(check, root, gates, revisions, event)
     elif check.type == "web-quality":
         commands = _web_quality(check, root)
     elif check.type == "web-test":

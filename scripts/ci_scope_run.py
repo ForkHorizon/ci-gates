@@ -125,6 +125,11 @@ def _test_edit_files(server: Server, repository: str, directory: Path) -> tuple[
     return approved, wanted
 
 
+def _with_test_files(commands: list[list[str]], test_files: tuple[Path, Path]) -> list[list[str]]:
+    """The test-protection command reads the approved edits and writes the ones still waiting for the owner."""
+    return [[*command, "--approved", str(test_files[0]), "--request-out", str(test_files[1])] for command in commands]
+
+
 def _ask_owner(server: Server, repository: str, request_file: Path, result: dict) -> None:
     """A failed test-protection on the working tree opens a request for the owner and says what to do next."""
     items = json.loads(request_file.read_text(encoding="utf-8")) if request_file.is_file() else []
@@ -135,7 +140,8 @@ def _ask_owner(server: Server, repository: str, request_file: Path, result: dict
         note = f"to ask the owner set {REASON_ENV}='why the tests change'"
     else:
         try:
-            note = f"request #{open_test_request(server, repository, items, reason)}: owner approves in the Inbox, then commit again"
+            number = open_test_request(server, repository, items, reason)
+            note = f"request #{number}: owner approves in the Inbox, then commit again"
         except CliError as error:
             note = f"could not ask the owner: {error}"
     result["detail"] = f"{result['detail'].rstrip()} | {note}"
@@ -169,7 +175,10 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
             CURRENT["check"] = spec.id
             emit({"check": spec.id, "state": "running"})
             outcome, detail = 0, ""
-            for command in commands_for(spec, root, request.gates, (base, head), request.event, test_files):
+            commands = commands_for(spec, root, request.gates, (base, head), request.event)
+            if spec.type == "test-protection":
+                commands = _with_test_files(commands, test_files)
+            for command in commands:
                 code, output = runner(command, root)
                 if code != 0:
                     outcome, detail = code, output
