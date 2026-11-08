@@ -13,9 +13,11 @@ from pathlib import Path, PurePosixPath
 try:
     from added_lines import added_lines
     from rust_tests import cargo_test_keys, rust_tests, tests_lost
+    from test_approvals import Approvals, all_approved, change_item, load_approvals
 except ModuleNotFoundError:
     from .added_lines import added_lines
     from .rust_tests import cargo_test_keys, rust_tests, tests_lost
+    from .test_approvals import Approvals, all_approved, change_item, load_approvals
 
 TEST_PATTERNS = (
     r"(^|/)tests?/",
@@ -158,39 +160,65 @@ def _config(path: Path | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
     return lists[0], lists[1]
 
 
-def scan(root: Path, git_mode: str, base: str, head: str, config: Path | None = None) -> list[Finding]:
+def _runner_finding(
+    root: Path, revisions: tuple[str, str, str], change: tuple[str, str], findings: list[Finding]
+) -> None:
+    """Changes to what tests are built or run: never approvable, they weaken the check itself."""
+    status, new = change
+    if status == "M" and PurePosixPath(new).name == "Cargo.toml" and _cargo_test_config_changed(root, revisions, new):
+        findings.append(
+            Finding("high", new, "test-build-config-changed", "Cargo.toml changes which tests are built or run")
+        )
+    elif status in "MR" and any(re.search(pattern, new) for pattern in RUNNER_FILES):
+        findings.append(Finding("high", new, "runner-config-changed", "test runner configuration changed"))
+    elif status == "M" and PurePosixPath(new).name == "package.json" and _package_script_changed(root, *revisions, new):
+        findings.append(Finding("high", new, "runner-config-changed", "package.json scripts.test changed"))
+
+
+def _test_edit(
+    root: Path, revisions: tuple[str, str, str], status: str, old: str, new: str
+) -> tuple[str, str, str, list[dict]]:
+    """(rule id, path, message, items) of an edit to an existing test file; the items are what the owner approves."""
+    git_mode, base, head = revisions
+    now, before = (None, "HEAD") if git_mode == "worktree" else (head, base)
+    if status == "D":
+        return "test-deleted", old, "existing test file was deleted", [change_item(root, (now, before), "deleted", old)]
+    if status == "R":
+        items = [change_item(root, (now, before), "deleted", old), change_item(root, (now, before), "added", new)]
+        return "test-renamed", old, f"existing test file was renamed to {new}", items
+    message = "existing test file has removed or changed lines"
+    return "test-modified", new, message, [change_item(root, (now, before), "modified", new)]
+
+
+def scan(
+    root: Path,
+    git_mode: str,
+    base: str,
+    head: str,
+    config: Path | None = None,
+    approved: Approvals | None = None,
+    requests: list[dict] | None = None,
+) -> list[Finding]:
+    """Findings for edits that weaken tests. `approved` (the owner's decisions) clears edits to existing tests;
+    the items of the edits left are appended to `requests` so a gate can ask the owner about them."""
     root = root.resolve()
     extra, excluded = _config(config)
     revision = _revision(git_mode, base, head)
     findings: list[Finding] = []
     for status, old, new in _changes(root, revision):
         if status == "M" and is_test_path(new, extra, excluded):
-            if _deleted_lines(root, revision, new):
-                findings.append(
-                    Finding("high", new, "test-modified", "existing test file has removed or changed lines")
-                )
-        elif status == "D" and is_test_path(old, extra, excluded):
-            if _moved_intact(root, base if git_mode == "committed" else "HEAD", old):
-                continue
-            findings.append(Finding("high", old, "test-deleted", "existing test file was deleted"))
-        elif status == "R" and is_test_path(old, extra, excluded):
-            findings.append(Finding("high", old, "test-renamed", f"existing test file was renamed to {new}"))
-        elif (
-            status == "M"
-            and PurePosixPath(new).name == "Cargo.toml"
-            and _cargo_test_config_changed(root, (git_mode, base, head), new)
-        ):
-            findings.append(
-                Finding("high", new, "test-build-config-changed", "Cargo.toml changes which tests are built or run")
-            )
-        elif status in "MR" and any(re.search(pattern, new) for pattern in RUNNER_FILES):
-            findings.append(Finding("high", new, "runner-config-changed", "test runner configuration changed"))
-        elif (
-            status == "M"
-            and PurePosixPath(new).name == "package.json"
-            and _package_script_changed(root, git_mode, base, head, new)
-        ):
-            findings.append(Finding("high", new, "runner-config-changed", "package.json scripts.test changed"))
+            weakened = bool(_deleted_lines(root, revision, new))
+        elif status in "DR" and is_test_path(old, extra, excluded):
+            weakened = not (status == "D" and _moved_intact(root, base if git_mode == "committed" else "HEAD", old))
+        else:
+            weakened = False
+            _runner_finding(root, (git_mode, base, head), (status, new), findings)
+        if weakened:
+            rule, path, message, items = _test_edit(root, (git_mode, base, head), status, old, new)
+            if not all_approved(items, approved or {}):
+                findings.append(Finding("high", path, rule, message))
+                if requests is not None:
+                    requests.extend(items)
     findings.extend(_skip_findings(root, (git_mode, base, head), (extra, excluded)))
     return findings
 
@@ -220,9 +248,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="HEAD~1")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--approved", type=Path, help="JSON of the owner's approved test edits (path, fingerprint).")
+    parser.add_argument("--request-out", type=Path, help="Write the unapproved test edits here as request items.")
     args = parser.parse_args(argv)
     try:
-        findings = scan(args.root, args.git_mode, args.base, args.head, args.config)
+        requests: list[dict] = []
+        findings = scan(
+            args.root, args.git_mode, args.base, args.head, args.config, load_approvals(args.approved), requests
+        )
+        if args.request_out is not None:
+            args.request_out.write_text(json.dumps(requests), encoding="utf-8")
     except (OSError, ValueError, RuntimeError) as error:
         print(f"test-protection: {error}", file=sys.stderr)
         return 2
