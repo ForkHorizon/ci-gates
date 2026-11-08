@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import resource
 import subprocess
@@ -13,16 +15,16 @@ from pathlib import Path
 try:
     from ci_scope_activity import CURRENT, MarkerTail, emit
     from ci_scope_adapters import commands_for
-    from ci_scope_errors import NotRegisteredError
-    from ci_scope_server import Server, fetch_project_with_approvals
+    from ci_scope_errors import CliError, NotRegisteredError
+    from ci_scope_server import Server, fetch_approved_tests, fetch_project_with_approvals, open_test_request
     from failure_digest import digest
     from protected_files import check_protected_files, select_protected_paths
     from server_config import build_check_specs
 except ModuleNotFoundError:
     from .ci_scope_activity import CURRENT, MarkerTail, emit
     from .ci_scope_adapters import commands_for
-    from .ci_scope_errors import NotRegisteredError
-    from .ci_scope_server import Server, fetch_project_with_approvals
+    from .ci_scope_errors import CliError, NotRegisteredError
+    from .ci_scope_server import Server, fetch_approved_tests, fetch_project_with_approvals, open_test_request
     from .failure_digest import digest
     from .protected_files import check_protected_files, select_protected_paths
     from .server_config import build_check_specs
@@ -31,6 +33,7 @@ TIERS = {"edit": {"fast"}, "commit": {"fast"}, "push": {"fast", "full"}}
 MAX_DETAIL = 160
 MAX_OUTPUT = 16_000  # enough of a check's output for failure_digest to see every reported location
 MAX_RAW_DETAIL = 4_000
+REASON_ENV = "CI_SCOPE_TEST_EDIT_REASON"
 Runner = Callable[[list[str], Path], tuple[int, str]]
 
 
@@ -135,6 +138,35 @@ def check_result(check_id: str, outcome: int, output: str) -> dict:
     }
 
 
+def _test_edit_files(server: Server, repository: str, directory: Path) -> tuple[Path, Path]:
+    """The owner's approved test edits for the test-protection check to read, and where it writes what is left."""
+    approved, wanted = directory / "test-approved.json", directory / "test-request.json"
+    approved.write_text(json.dumps(fetch_approved_tests(server, repository)), encoding="utf-8")
+    return approved, wanted
+
+
+def _with_test_files(commands: list[list[str]], test_files: tuple[Path, Path]) -> list[list[str]]:
+    """The test-protection command reads the approved edits and writes the ones still waiting for the owner."""
+    return [[*command, "--approved", str(test_files[0]), "--request-out", str(test_files[1])] for command in commands]
+
+
+def _ask_owner(server: Server, repository: str, request_file: Path, result: dict) -> None:
+    """A failed test-protection on the working tree opens a request for the owner and says what to do next."""
+    items = json.loads(request_file.read_text(encoding="utf-8")) if request_file.is_file() else []
+    reason = os.environ.get(REASON_ENV, "").strip()
+    if not items:
+        return
+    if not reason:
+        note = f"to ask the owner set {REASON_ENV}='why the tests change'"
+    else:
+        try:
+            number = open_test_request(server, repository, items, reason)
+            note = f"request #{number}: owner approves in the Inbox, then commit again"
+        except CliError as error:
+            note = f"could not ask the owner: {error}"
+    result["detail"] = f"{result['detail'].rstrip()} | {note}"
+
+
 def run_checks(request: RunRequest, server: Server, runner: Runner = run_command) -> list[dict]:
     return run_checks_versioned(request, server, runner)[0]
 
@@ -142,9 +174,8 @@ def run_checks(request: RunRequest, server: Server, runner: Runner = run_command
 def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = run_command) -> tuple[list[dict], int]:
     """The results and the version of the server config they were produced with."""
     root = request.root
-    config, baseline, approved = fetch_project_with_approvals(
-        server, request.repository or repository_slug(root), request.config_version
-    )
+    repository = request.repository or repository_slug(root)
+    config, baseline, approved = fetch_project_with_approvals(server, repository, request.config_version)
     patterns = config["protectedFiles"]
     violations = check_protected_files(baseline, observed_files(root, patterns, baseline), patterns, approved)
     results: list[dict] = [
@@ -156,6 +187,7 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
     ]
     base, head = request.revisions or (git(root, "merge-base", "HEAD", "origin/main") or "HEAD", "HEAD")
     with tempfile.TemporaryDirectory(prefix="ci-scope-config-") as directory:
+        test_files = _test_edit_files(server, repository, Path(directory))
         specs = [spec for spec in build_check_specs(config, Path(directory)) if spec.speed in TIERS[request.tier]]
         emit({"plan": ["protected-files", *(spec.id for spec in specs)]})
         emit({"check": "protected-files", "state": results[0]["status"]})
@@ -163,11 +195,16 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
             CURRENT["check"] = spec.id
             emit({"check": spec.id, "state": "running"})
             outcome, detail = 0, ""
-            for command in commands_for(spec, root, request.gates, (base, head), request.event):
+            commands = commands_for(spec, root, request.gates, (base, head), request.event)
+            if spec.type == "test-protection":
+                commands = _with_test_files(commands, test_files)
+            for command in commands:
                 code, output = runner(command, root)
                 if code != 0:
                     outcome, detail = code, output
                     break
             results.append(check_result(spec.id, outcome, detail))
+            if outcome and spec.type == "test-protection" and request.event == "local":
+                _ask_owner(server, repository, test_files[1], results[-1])
             emit({"check": spec.id, "state": results[-1]["status"]})
     return results, int(config["version"])

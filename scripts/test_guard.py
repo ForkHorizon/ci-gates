@@ -14,6 +14,7 @@ except ModuleNotFoundError:
     from .test_protection import _config, is_test_path
 
 OVERRIDE = "CI_SCOPE_ALLOW_TEST_EDIT"
+REASON = "CI_SCOPE_TEST_EDIT_REASON"
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -55,7 +56,9 @@ def main(stdin_text: str, cwd: Path) -> int:
         if blocked(Path(top), file_path):
             print(
                 f"Existing test files are protected: {file_path}. Add a new test file instead of changing this one. "
-                f"If a requirement really changed, ask the owner to allow it ({OVERRIDE}=1 for the session).",
+                f"If a requirement really changed, make the edit and commit with {REASON}='why the tests change': "
+                "CI Scope asks the owner, who approves that exact content in the website Inbox with Touch ID. "
+                f"({OVERRIDE}=1 only lifts this edit-time guard for the session, not the commit check.)",
                 file=sys.stderr,
             )
             return 2

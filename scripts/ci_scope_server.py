@@ -19,10 +19,24 @@ except ModuleNotFoundError:
 
 TOKEN_HEADER = "x-ci-scope-config-token"
 Fetch = Callable[[str, str], dict]
+Post = Callable[[str, str, dict], dict]
 
 
 class ServerUnavailableError(CliError):
     """The server could not be reached or answered with an error."""
+
+
+def http_post(url: str, token: str, body: dict) -> dict:
+    payload = json.dumps(body).encode("utf-8")
+    headers = {TOKEN_HEADER: token, "accept": "application/json", "content-type": "application/json"}
+    request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.loads(response.read(2_000_000))
+    except urllib.error.HTTPError as error:
+        raise ServerUnavailableError(f"the server refused the request ({error.code})") from error
+    except OSError as error:
+        raise ServerUnavailableError(f"cannot reach the CI Scope server: {error}") from error
 
 
 @dataclass(frozen=True)
@@ -30,6 +44,7 @@ class Server:
     base_url: str
     token: str
     fetch: Fetch
+    post: Post = http_post
 
 
 def canonical_config(config: dict) -> str:
@@ -90,3 +105,23 @@ def fetch_project_with_approvals(
     for item in baseline_reply.get("approved", []):
         approved.setdefault(item["path"], set()).add(item["fingerprint"])
     return config, baseline, approved
+
+
+def fetch_approved_tests(server: Server, repository: str) -> list[dict]:
+    """Edits to existing tests the owner approved (`path`, `fingerprint`); none when the server cannot say."""
+    quoted = urllib.parse.quote(repository, safe="/")
+    try:
+        reply = server.fetch(f"{server.base_url}/api/ci/v2/changes/test-approved?repository={quoted}", server.token)
+        return [{"path": item["path"], "fingerprint": item["fingerprint"]} for item in reply["approved"]]
+    except (CliError, KeyError, TypeError):
+        return []
+
+
+def open_test_request(server: Server, repository: str, items: list[dict], reason: str) -> int:
+    """Ask the owner to approve edits to existing tests; returns the request id."""
+    reply = server.post(
+        f"{server.base_url}/api/ci/v2/changes/test-request",
+        server.token,
+        {"repository": repository, "items": items, "reason": reason},
+    )
+    return int(reply["id"])
