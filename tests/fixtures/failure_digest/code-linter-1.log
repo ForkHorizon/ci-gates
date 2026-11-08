@@ -1,0 +1,9 @@
+::ci-scope-progress:: {"step": "lint", "current": 1, "total": 6, "detail": "scripts/ci_scope_run.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 2, "total": 6, "detail": "scripts/ci_scope_server.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 3, "total": 6, "detail": "scripts/protected_files.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 4, "total": 6, "detail": "tests/test_ci_scope_approved.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 5, "total": 6, "detail": "tests/test_fingerprint_parity.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 6, "total": 6, "detail": "tests/test_protected_files.py", "version": 1}
+Code Linter coverage: all 6 selected source file(s) are covered.
+::error file=scripts/ci_scope_run.py,line=134,title=function_length::run_checks_versioned has 51 lines; function/method limit is 50.
+Code Linter failed: 1 issue(s) across 6 scanned file(s) in worktree mode.

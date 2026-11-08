@@ -1,0 +1,15 @@
+I001 [*] Import block is un-sorted or un-formatted
+ --> planning/tests/test_browser_first_plan.py:1:1
+  |
+1 | / import unittest
+2 | | from pathlib import Path
+  | |________________________^
+help: Organize imports
+  |
+3 |
+  -
+4 | ROOT = Path(__file__).resolve().parents[2]
+  |
+
+Found 1 error.
+[*] 1 fixable with `--fix`.
