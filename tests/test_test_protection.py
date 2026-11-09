@@ -1,5 +1,7 @@
 """Tests for the existing-test protection detector."""
 
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -10,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.test_protection import is_test_path, scan
+from scripts.test_protection import is_test_path, main, scan
 
 
 def git(root, *args):
@@ -64,6 +66,16 @@ class ScanTests(unittest.TestCase):
     def test_modifying_an_existing_assertion_is_high_severity(self):
         (self.root / "tests/test_a.py").write_text("def test_a():\n    assert True\n")
         self.assertEqual(self.found(), [("test-modified", "high")])
+
+    def test_cli_says_no_request_exists_unless_the_gate_asked_for_one(self):
+        (self.root / "tests/test_a.py").write_text("def test_a():\n    assert True\n")
+        argv = ["--root", str(self.root)]
+        with contextlib.redirect_stdout(io.StringIO()) as local:
+            self.assertEqual(main(argv), 1)
+        with contextlib.redirect_stdout(io.StringIO()) as server_backed:
+            self.assertEqual(main([*argv, "--request-out", str(self.root / "out.json")]), 1)
+        self.assertIn("CI_SCOPE_TEST_EDIT_REASON", local.getvalue())
+        self.assertNotIn("CI_SCOPE_TEST_EDIT_REASON", server_backed.getvalue())
 
     def test_pure_additions_and_new_test_files_are_allowed(self):
         (self.root / "tests/test_a.py").write_text(
