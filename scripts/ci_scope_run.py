@@ -109,13 +109,17 @@ def clip(text: str, limit: int = MAX_DETAIL) -> str:
     return flat[:head] + "…" + flat[len(flat) - (limit - head - 1) :]
 
 
+PROTECTED_HINT = " | Protected files need the owner's approval: push the branch and open a PR, then approve it in the CI Scope Inbox."
+
+
 def verdict_line(results: list[dict]) -> str:
     failed = [item for item in results if item["status"] == "failed"]
     ran = [item for item in results if item["status"] in {"passed", "failed"}]
     if failed:
         shown = "; ".join(f"{item['id']}: {clip(item['detail'] or 'failed')}" for item in failed[:3])
         more = f" (+{len(failed) - 3} more)" if len(failed) > 3 else ""
-        return f"CI Scope: FAILED — {shown}{more}"
+        hint = PROTECTED_HINT if any(item["id"] == "protected-files" for item in failed) else ""
+        return f"CI Scope: FAILED — {shown}{more}{hint}"
     if not ran:
         return "CI Scope: FAILED — no check produced a result"
     return f"CI Scope: PASSED — {len(ran)} of {len(results)} checks passed"
