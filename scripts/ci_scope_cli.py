@@ -87,7 +87,11 @@ def main(argv: list[str], fetch: Fetch = http_fetch, runner=run_command) -> int:
     print(verdict_line(results))
     if args.json:
         print(json.dumps({"results": results, "configVersion": config_version}, ensure_ascii=False))
-    return 1 if any(item["status"] == "failed" for item in results) or not results else 0
+    # A hook must not stop the commit behind the PR where the owner approves protected files; the server blocks there.
+    blocking = [
+        item for item in results if item["status"] == "failed" and not (args.hook and item["id"] == "protected-files")
+    ]
+    return 1 if blocking or not results else 0
 
 
 if __name__ == "__main__":
