@@ -125,6 +125,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(results[0]["status"], "failed")
         self.assertIn("modified Cargo.toml", results[0]["detail"])
         self.assertIn("protected-files: modified Cargo.toml", run.verdict_line(results))
+        self.assertIn("open a PR", run.verdict_line(results))
 
     def test_deleted_protected_file_fails(self):
         (self.root / "Cargo.toml").unlink()
