@@ -238,6 +238,13 @@ def _skip_findings(
     return findings
 
 
+ASK_HINT = (
+    "No owner request exists for these edits yet. To create one for exactly this content, commit with "
+    "CI_SCOPE_TEST_EDIT_REASON='why the tests change' (the CI Scope git hook sends it); the owner then approves "
+    "it in the Inbox."
+)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
@@ -259,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     for finding in findings:
         print(f"{finding.path}  {finding.severity}  {finding.rule_id}  {finding.message}")
+    if state.requests and args.request_out is None:
+        print(ASK_HINT)
     return int(bool(findings))
 
 
