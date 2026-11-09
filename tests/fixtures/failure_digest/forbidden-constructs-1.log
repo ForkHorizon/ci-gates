@@ -1,0 +1,2 @@
+crates/shardraild/src/containment.rs:12  no-lint-suppression  lint suppression attributes need an allow marker and reason
+crates/shardraild/src/containment.rs:21  no-lint-suppression  lint suppression attributes need an allow marker and reason

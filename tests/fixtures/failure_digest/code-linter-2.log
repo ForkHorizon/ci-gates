@@ -1,0 +1,9 @@
+::ci-scope-progress:: {"step": "lint", "current": 1, "total": 5, "detail": "scripts/added_lines.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 2, "total": 5, "detail": "scripts/forbidden_constructs.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 3, "total": 5, "detail": "tests/test_added_lines.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 4, "total": 5, "detail": "tests/test_check_wrapper.py", "version": 1}
+::ci-scope-progress:: {"step": "lint", "current": 5, "total": 5, "detail": "tests/test_forbidden_constructs.py", "version": 1}
+Code Linter coverage: 1 gap(s) (unknown_text_surface=1); 0 approved exclusion(s), 5 selected file(s).
+::warning file=scripts/check,line=1,title=coverage_gap::Unknown Text/Config is not mapped to a structural checker.
+::error file=scripts/forbidden_constructs.py,line=1,title=file_length::File has 344 lines; limit is 300.
+Code Linter failed: 1 issue(s) across 5 scanned file(s) in worktree mode.

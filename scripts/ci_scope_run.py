@@ -17,6 +17,7 @@ try:
     from ci_scope_adapters import commands_for
     from ci_scope_errors import CliError, NotRegisteredError
     from ci_scope_server import Server, fetch_approved_tests, fetch_project_with_approvals, open_test_request
+    from failure_digest import digest
     from protected_files import check_protected_files, select_protected_paths
     from server_config import build_check_specs
 except ModuleNotFoundError:
@@ -24,12 +25,14 @@ except ModuleNotFoundError:
     from .ci_scope_adapters import commands_for
     from .ci_scope_errors import CliError, NotRegisteredError
     from .ci_scope_server import Server, fetch_approved_tests, fetch_project_with_approvals, open_test_request
+    from .failure_digest import digest
     from .protected_files import check_protected_files, select_protected_paths
     from .server_config import build_check_specs
 
 TIERS = {"edit": {"fast"}, "commit": {"fast"}, "push": {"fast", "full"}}
 MAX_DETAIL = 160
-MAX_OUTPUT = 4_000
+MAX_OUTPUT = 16_000  # enough of a check's output for failure_digest to see every reported location
+MAX_RAW_DETAIL = 4_000
 REASON_ENV = "CI_SCOPE_TEST_EDIT_REASON"
 Runner = Callable[[list[str], Path], tuple[int, str]]
 
@@ -118,6 +121,23 @@ def verdict_line(results: list[dict]) -> str:
     return f"CI Scope: PASSED — {len(ran)} of {len(results)} checks passed"
 
 
+def check_result(check_id: str, outcome: int, output: str) -> dict:
+    """The result item for one check. A failure carries a digest line, or a cleaned excerpt when no format matched."""
+    if outcome == 0:
+        return {"id": check_id, "status": "passed", "detail": ""}
+    found = digest(output)
+    if found.structured:
+        return {"id": check_id, "status": "failed", "detail": found.line()}
+    # Unstructured: `excerpt` is for an optional model step on the agent and never leaves the agent's machine.
+    return {
+        "id": check_id,
+        "status": "failed",
+        "detail": found.excerpt[-MAX_RAW_DETAIL:],
+        "unstructured": True,
+        "excerpt": found.excerpt,
+    }
+
+
 def _test_edit_files(server: Server, repository: str, directory: Path) -> tuple[Path, Path]:
     """The owner's approved test edits for the test-protection check to read, and where it writes what is left."""
     approved, wanted = directory / "test-approved.json", directory / "test-request.json"
@@ -183,7 +203,7 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
                 if code != 0:
                     outcome, detail = code, output
                     break
-            results.append({"id": spec.id, "status": "passed" if outcome == 0 else "failed", "detail": detail})
+            results.append(check_result(spec.id, outcome, detail))
             if outcome and spec.type == "test-protection" and request.event == "local":
                 _ask_owner(server, repository, test_files[1], results[-1])
             emit({"check": spec.id, "state": results[-1]["status"]})
