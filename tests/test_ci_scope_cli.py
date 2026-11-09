@@ -127,6 +127,15 @@ class CliTests(unittest.TestCase):
         self.assertIn("protected-files: modified Cargo.toml", run.verdict_line(results))
         self.assertIn("open a PR", run.verdict_line(results))
 
+    def test_hook_does_not_block_on_protected_files_but_the_cli_does(self):
+        (self.root / "Cargo.toml").write_text(CARGO + 'dead_code = "allow"\n', encoding="utf-8")
+        env = {"CI_SCOPE_URL": "https://ci.example", "CI_SCOPE_CONFIG_TOKEN": "secret"}
+        argv = ["--root", str(self.root), "--tier", "commit"]
+
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(cli.main([*argv, "--hook"], fetch=self.fetch(), runner=self.runner()), 0)
+            self.assertEqual(cli.main(argv, fetch=self.fetch(), runner=self.runner()), 1)
+
     def test_deleted_protected_file_fails(self):
         (self.root / "Cargo.toml").unlink()
         self.assertIn("deleted Cargo.toml", self.results(tier="commit")[0]["detail"])
