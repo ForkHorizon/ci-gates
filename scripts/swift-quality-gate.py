@@ -195,6 +195,9 @@ def run_dead_code(root: Path, config: dict) -> None:
         if project.configuration:
             xcode_args.extend(["-configuration", project.configuration])
         xcode_args.append("CODE_SIGNING_ALLOWED=NO")
+    if project.kind == "spm":
+        # Periphery reads the index store of SwiftPM's native build; newer toolchains default to another backend.
+        xcode_args.extend(["--build-system", "native"])
     if xcode_args:
         cmd.append("--")
         cmd.extend(xcode_args)
