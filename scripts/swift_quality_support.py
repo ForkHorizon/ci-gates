@@ -25,6 +25,10 @@ class SwiftProject:
 
 
 def ensure_developer_dir() -> None:
+    if "CommandLineTools" in os.environ.get("SDKROOT", ""):
+        # The /usr/bin/git shim exports the Command Line Tools SDK into hooks; it hides the SwiftUI macro plugins.
+        for name in ("SDKROOT", "CPATH", "LIBRARY_PATH"):
+            os.environ.pop(name, None)
     if "DEVELOPER_DIR" in os.environ:
         return
     try:
