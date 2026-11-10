@@ -124,7 +124,9 @@ def main(argv: list[str], fetch: Fetch = http_fetch, runner=run_command) -> int:
         print(json.dumps({"results": results, "configVersion": config_version}, ensure_ascii=False))
     # A hook must not stop the commit behind the PR where the owner approves protected files; the server blocks there.
     blocking = [
-        item for item in results if item["status"] == "failed" and not (args.hook and item["id"] == "protected-files")
+        item
+        for item in results
+        if item["status"] == "failed" and not (args.hook and (item["id"] == "protected-files" or item.get("deferred")))
     ]
     return 1 if blocking or not results else 0
 

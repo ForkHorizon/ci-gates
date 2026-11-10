@@ -75,6 +75,24 @@ class ScanApprovalTests(Repo):
         approved = {"conftest.py": {fingerprint_file("conftest.py", "x = 2\n")}, TEST: {fingerprint_file(TEST, NEW)}}
         self.assertEqual(self.findings(approved), ["runner-config-changed"])
 
+    def test_runner_config_is_cleared_only_by_the_protected_file_approval_of_that_content(self):
+        (self.root / "conftest.py").write_text("x = 1\n", encoding="utf-8")
+        git(self.root, "add", "conftest.py")
+        git(self.root, "commit", "-q", "-m", "runner")
+        (self.root / "conftest.py").write_text("x = 2\n", encoding="utf-8")
+        revisions = ("worktree", "HEAD~1", "HEAD")
+        approved = {TEST: {fingerprint_file(TEST, NEW)}}
+
+        def rules(config):
+            return [
+                f.rule_id for f in scan_with_approvals(self.root, revisions, None, ApprovalState(approved, [], config))
+            ]
+
+        self.assertEqual(rules({"conftest.py": {fingerprint_file("conftest.py", "x = 2\n")}}), [])
+        self.assertEqual(
+            rules({"conftest.py": {fingerprint_file("conftest.py", "x = 3\n")}}), ["runner-config-changed"]
+        )
+
     def test_a_missing_approvals_file_means_none(self):
         self.assertEqual(load_approvals(None), {})
         self.assertEqual(load_approvals(self.root / "absent.json"), {})

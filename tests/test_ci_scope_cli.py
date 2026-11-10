@@ -138,6 +138,13 @@ class CliTests(unittest.TestCase):
             self.assertEqual(cli.main([*argv, "--hook"], fetch=self.fetch(), runner=self.runner()), 0)
             self.assertEqual(cli.main(argv, fetch=self.fetch(), runner=self.runner()), 1)
 
+    def test_only_runner_config_findings_are_deferred_to_the_pr_gate(self):
+        config = "apps/web/package.json  high  runner-config-changed  package.json scripts.test changed\n"
+        edit = "a/test_x.py  high  test-modified  existing test file has removed or changed lines\n"
+        self.assertTrue(run._only_runner_config(config))
+        self.assertFalse(run._only_runner_config(config + edit))
+        self.assertFalse(run._only_runner_config("boom"))
+
     def test_requests_flag_prints_the_owner_requests_and_runs_no_checks(self):
         env = {"CI_SCOPE_URL": "https://ci.example", "CI_SCOPE_CONFIG_TOKEN": "secret"}
         reply = {
