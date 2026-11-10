@@ -21,6 +21,8 @@ class ApprovalState:
 
     approved: Approvals = field(default_factory=dict)
     requests: list[dict] = field(default_factory=list)
+    # Content the owner approved as protected files: it also clears a runner-config change of that exact content.
+    config_approved: Approvals = field(default_factory=dict)
 
 
 def load_approvals(path: Path | None) -> Approvals:

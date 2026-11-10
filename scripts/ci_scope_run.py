@@ -118,7 +118,7 @@ def verdict_line(results: list[dict]) -> str:
     if failed:
         shown = "; ".join(f"{item['id']}: {clip(item['detail'] or 'failed')}" for item in failed[:3])
         more = f" (+{len(failed) - 3} more)" if len(failed) > 3 else ""
-        hint = PROTECTED_HINT if any(item["id"] == "protected-files" for item in failed) else ""
+        hint = PROTECTED_HINT if any(item["id"] == "protected-files" or item.get("deferred") for item in failed) else ""
         return f"CI Scope: FAILED — {shown}{more}{hint}"
     if not ran:
         return "CI Scope: FAILED — no check produced a result"
@@ -142,16 +142,36 @@ def check_result(check_id: str, outcome: int, output: str) -> dict:
     }
 
 
-def _test_edit_files(server: Server, repository: str, directory: Path) -> tuple[Path, Path]:
-    """The owner's approved test edits for the test-protection check to read, and where it writes what is left."""
-    approved, wanted = directory / "test-approved.json", directory / "test-request.json"
+def _test_edit_files(
+    server: Server, repository: str, directory: Path, protected: dict[str, set[str | None]]
+) -> tuple[Path, Path, Path]:
+    """The owner's approved test edits and approved protected files for the test-protection check to read, and
+    where it writes what is left."""
+    approved, wanted, config = (
+        directory / "test-approved.json",
+        directory / "test-request.json",
+        directory / "config-approved.json",
+    )
     approved.write_text(json.dumps(fetch_approved_tests(server, repository)), encoding="utf-8")
-    return approved, wanted
+    entries = [{"path": path, "fingerprint": fp} for path, prints in protected.items() for fp in prints if fp]
+    config.write_text(json.dumps(entries), encoding="utf-8")
+    return approved, wanted, config
 
 
-def _with_test_files(commands: list[list[str]], test_files: tuple[Path, Path]) -> list[list[str]]:
+def _with_test_files(commands: list[list[str]], test_files: tuple[Path, Path, Path]) -> list[list[str]]:
     """The test-protection command reads the approved edits and writes the ones still waiting for the owner."""
-    return [[*command, "--approved", str(test_files[0]), "--request-out", str(test_files[1])] for command in commands]
+    return [
+        [
+            *command,
+            "--approved",
+            str(test_files[0]),
+            "--request-out",
+            str(test_files[1]),
+            "--config-approved",
+            str(test_files[2]),
+        ]
+        for command in commands
+    ]
 
 
 def _ask_owner(server: Server, repository: str, request_file: Path, result: dict) -> None:
@@ -169,6 +189,15 @@ def _ask_owner(server: Server, repository: str, request_file: Path, result: dict
         except CliError as error:
             note = f"could not ask the owner: {error}"
     result["detail"] = f"{result['detail'].rstrip()} | {note}"
+
+
+def _only_runner_config(output: str) -> bool:
+    rules = [
+        line.split()[2]
+        for line in output.splitlines()
+        if len(line.split()) > 2 and line.split()[1] in {"high", "medium"}
+    ]
+    return bool(rules) and all(rule in {"runner-config-changed", "test-build-config-changed"} for rule in rules)
 
 
 def run_checks(request: RunRequest, server: Server, runner: Runner = run_command) -> list[dict]:
@@ -191,7 +220,7 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
     ]
     base, head = request.revisions or (git(root, "merge-base", "HEAD", "origin/main") or "HEAD", "HEAD")
     with tempfile.TemporaryDirectory(prefix="ci-scope-config-") as directory:
-        test_files = _test_edit_files(server, repository, Path(directory))
+        test_files = _test_edit_files(server, repository, Path(directory), approved)
         specs = [spec for spec in build_check_specs(config, Path(directory)) if spec.speed in TIERS[request.tier]]
         emit({"plan": ["protected-files", *(spec.id for spec in specs)]})
         emit({"check": "protected-files", "state": results[0]["status"]})
@@ -208,6 +237,8 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
                     outcome, detail = code, output
                     break
             results.append(check_result(spec.id, outcome, detail))
+            if outcome and spec.type == "test-protection" and _only_runner_config(detail):
+                results[-1]["deferred"] = True  # the PR gate blocks it; a local hook must not stop the commit before
             if outcome and spec.type == "test-protection" and request.event == "local":
                 _ask_owner(server, repository, test_files[1], results[-1])
             emit({"check": spec.id, "state": results[-1]["status"]})

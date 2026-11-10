@@ -161,10 +161,13 @@ def _config(path: Path | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 
 def _runner_finding(
-    root: Path, revisions: tuple[str, str, str], change: tuple[str, str], findings: list[Finding]
+    root: Path, revisions: tuple[str, str, str], change: tuple[str, str], state: ApprovalState, findings: list[Finding]
 ) -> None:
-    """Changes to what tests are built or run: never approvable, they weaken the check itself."""
+    """Changes to what tests are built or run: not approvable as test edits, they weaken the check itself. Only the
+    owner's protected-file approval of this exact content clears them."""
     status, new = change
+    if _config_approved(root, revisions, new, state):
+        return
     if status == "M" and PurePosixPath(new).name == "Cargo.toml" and _cargo_test_config_changed(root, revisions, new):
         findings.append(
             Finding("high", new, "test-build-config-changed", "Cargo.toml changes which tests are built or run")
@@ -173,6 +176,14 @@ def _runner_finding(
         findings.append(Finding("high", new, "runner-config-changed", "test runner configuration changed"))
     elif status == "M" and PurePosixPath(new).name == "package.json" and _package_script_changed(root, *revisions, new):
         findings.append(Finding("high", new, "runner-config-changed", "package.json scripts.test changed"))
+
+
+def _config_approved(root: Path, revisions: tuple[str, str, str], path: str, state: ApprovalState) -> bool:
+    if path not in state.config_approved:
+        return False
+    git_mode, base, head = revisions
+    now, before = (None, "HEAD") if git_mode == "worktree" else (head, base)
+    return change_item(root, (now, before), "modified", path)["fingerprint"] in state.config_approved[path]
 
 
 def _test_edit(
@@ -211,7 +222,7 @@ def scan_with_approvals(
             weakened = not (status == "D" and _moved_intact(root, base if git_mode == "committed" else "HEAD", old))
         else:
             weakened = False
-            _runner_finding(root, (git_mode, base, head), (status, new), findings)
+            _runner_finding(root, (git_mode, base, head), (status, new), state, findings)
         if weakened:
             rule, path, message, items = _test_edit(root, (git_mode, base, head), status, old, new)
             if not all_approved(items, state.approved):
@@ -254,10 +265,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--approved", type=Path, help="JSON of the owner's approved test edits (path, fingerprint).")
+    parser.add_argument("--config-approved", type=Path, help="JSON of the owner's approved protected files.")
     parser.add_argument("--request-out", type=Path, help="Write the unapproved test edits here as request items.")
     args = parser.parse_args(argv)
     try:
-        state = ApprovalState(load_approvals(args.approved))
+        state = ApprovalState(load_approvals(args.approved), config_approved=load_approvals(args.config_approved))
         findings = scan_with_approvals(args.root, (args.git_mode, args.base, args.head), args.config, state)
         if args.request_out is not None:
             args.request_out.write_text(json.dumps(state.requests), encoding="utf-8")
