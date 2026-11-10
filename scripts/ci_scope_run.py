@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import resource
+import signal
 import subprocess
 import tempfile
 from collections.abc import Callable
@@ -73,31 +73,42 @@ def observed_files(root: Path, patterns: list[str], baseline: dict[str, str]) ->
 
 
 MAX_CAPTURE_BYTES = 64 * 1024 * 1024
+TIMEOUT_SECONDS = 1_800
+WATCH_SECONDS = 0.05
 
 
-def _limit_file_size() -> None:
-    """Runs in the child before exec: a command cannot write more than the capture limit to its output file."""
-    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_CAPTURE_BYTES, MAX_CAPTURE_BYTES))
+def _wait_within_limits(process: subprocess.Popen, sink: tempfile._TemporaryFileWrapper) -> None:
+    """Kills the command when its output file outgrows the capture limit or it runs too long.
+
+    Watched from here, not with RLIMIT_FSIZE: that limit is inherited by everything the command spawns and
+    killed `swift build` (SIGXFSZ) as soon as it wrote any build artifact larger than the output limit.
+    """
+    waited = 0.0
+    while True:
+        try:
+            process.wait(WATCH_SECONDS)
+            return
+        except subprocess.TimeoutExpired:
+            waited += WATCH_SECONDS
+            if os.fstat(sink.fileno()).st_size > MAX_CAPTURE_BYTES or waited > TIMEOUT_SECONDS:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+                if waited > TIMEOUT_SECONDS:
+                    raise subprocess.TimeoutExpired(process.args, TIMEOUT_SECONDS) from None
+                return
 
 
 def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
-    # Output goes to a size-limited temporary file, so a noisy or hostile command cannot fill this process's memory.
+    # Output goes to a size-watched temporary file, so a noisy or hostile command cannot fill this process's memory.
     with tempfile.TemporaryFile() as sink, MarkerTail(sink.fileno()):
         try:
-            done = subprocess.run(
-                command,
-                cwd=cwd,
-                stdout=sink,
-                stderr=subprocess.STDOUT,
-                check=False,
-                timeout=1_800,
-                preexec_fn=_limit_file_size,
-            )
+            process = subprocess.Popen(command, cwd=cwd, stdout=sink, stderr=subprocess.STDOUT, start_new_session=True)
+            _wait_within_limits(process, sink)
         except (OSError, subprocess.TimeoutExpired) as error:
             return 127, str(error)
         size = sink.seek(0, 2)
         sink.seek(max(0, size - MAX_OUTPUT * 4))
-        return done.returncode, sink.read().decode("utf-8", errors="replace")[-MAX_OUTPUT:]
+        return process.returncode, sink.read().decode("utf-8", errors="replace")[-MAX_OUTPUT:]
 
 
 def clip(text: str, limit: int = MAX_DETAIL) -> str:

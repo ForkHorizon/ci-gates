@@ -33,6 +33,16 @@ class RunCommandLimitTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertLessEqual(len(output), run.MAX_OUTPUT)
 
+    def test_the_limit_is_not_inherited_by_what_the_command_writes_elsewhere(self):
+        original = run.MAX_CAPTURE_BYTES
+        self.addCleanup(setattr, run, "MAX_CAPTURE_BYTES", original)
+        run.MAX_CAPTURE_BYTES = 1024 * 1024
+        with tempfile.TemporaryDirectory() as folder:
+            script = f"open({folder + '/big'!r}, 'wb').write(b'x' * (4 * 1024 * 1024)); print('done')"
+            code, output = run.run_command([sys.executable, "-c", script], Path(folder))
+        self.assertEqual(code, 0)
+        self.assertIn("done", output)
+
     def test_a_missing_program_is_reported_not_raised(self):
         code, output = run.run_command(["definitely-not-a-program-xyz"], Path(tempfile.gettempdir()))
         self.assertEqual(code, 127)
