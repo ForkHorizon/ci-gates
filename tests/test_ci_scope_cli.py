@@ -1,4 +1,6 @@
+import contextlib
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -135,6 +137,34 @@ class CliTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env):
             self.assertEqual(cli.main([*argv, "--hook"], fetch=self.fetch(), runner=self.runner()), 0)
             self.assertEqual(cli.main(argv, fetch=self.fetch(), runner=self.runner()), 1)
+
+    def test_requests_flag_prints_the_owner_requests_and_runs_no_checks(self):
+        env = {"CI_SCOPE_URL": "https://ci.example", "CI_SCOPE_CONFIG_TOKEN": "secret"}
+        reply = {
+            "requests": [
+                {
+                    "id": 7,
+                    "status": "approved",
+                    "kind": "protected",
+                    "pullRequest": 29,
+                    "headSha": "a0d92377ae66",
+                    "paths": ["modified Cargo.lock"],
+                }
+            ]
+        }
+        urls = []
+
+        def fetch(url, token):
+            urls.append(url)
+            return reply
+
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(io.StringIO()) as out:
+            code = cli.main(["--root", str(self.root), "--requests", "--repository", "Org/Repo"], fetch=fetch)
+
+        self.assertEqual(code, 0)
+        self.assertIn("#7 approved protected PR #29 a0d92377: modified Cargo.lock", out.getvalue())
+        self.assertEqual(urls, ["https://ci.example/api/ci/v2/changes/status?repository=Org/Repo"])
+        self.assertEqual(self.commands, [])
 
     def test_deleted_protected_file_fails(self):
         (self.root / "Cargo.toml").unlink()

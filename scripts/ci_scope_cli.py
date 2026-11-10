@@ -13,12 +13,28 @@ from pathlib import Path
 
 try:
     from ci_scope_errors import CliError, NotRegisteredError
-    from ci_scope_run import RunRequest, TIERS, git, run_checks_versioned, run_command, verdict_line
-    from ci_scope_server import Fetch, Server, ServerUnavailableError, canonical_config, device_settings, http_fetch
+    from ci_scope_run import RunRequest, TIERS, git, repository_slug, run_checks_versioned, run_command, verdict_line
+    from ci_scope_server import (
+        Fetch,
+        Server,
+        ServerUnavailableError,
+        canonical_config,
+        device_settings,
+        fetch_request_status,
+        http_fetch,
+    )
 except ModuleNotFoundError:
     from .ci_scope_errors import CliError, NotRegisteredError
-    from .ci_scope_run import RunRequest, TIERS, git, run_checks_versioned, run_command, verdict_line
-    from .ci_scope_server import Fetch, Server, ServerUnavailableError, canonical_config, device_settings, http_fetch
+    from .ci_scope_run import RunRequest, TIERS, git, repository_slug, run_checks_versioned, run_command, verdict_line
+    from .ci_scope_server import (
+        Fetch,
+        Server,
+        ServerUnavailableError,
+        canonical_config,
+        device_settings,
+        fetch_request_status,
+        http_fetch,
+    )
 
 __all__ = [
     "CliError",
@@ -47,6 +63,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Git hook mode: stay quiet for unregistered repositories and do not block when the server is down.",
     )
+    parser.add_argument(
+        "--requests",
+        action="store_true",
+        help="Print the status of the owner requests (protected files, test edits) of the repository and exit.",
+    )
     parser.add_argument("--json", action="store_true", help="Print the full result as JSON after the one-line verdict.")
     return parser.parse_args(argv)
 
@@ -69,10 +90,24 @@ def build_request(args: argparse.Namespace) -> RunRequest:
     )
 
 
+def print_requests(args: argparse.Namespace, server: Server) -> int:
+    """One line per request: no browser, app or Touch ID is needed to see whether the owner has decided."""
+    root = Path(git(Path(args.root), "rev-parse", "--show-toplevel") or args.root).resolve()
+    found = fetch_request_status(server, args.repository or repository_slug(root), args.head or "")
+    for item in found:
+        pull = f"PR #{item['pullRequest']}" if item["pullRequest"] else "no PR"
+        print(f"#{item['id']} {item['status']} {item['kind']} {pull} {item['headSha'][:8]}: {', '.join(item['paths'])}")
+    if not found:
+        print("No owner requests for this repository.")
+    return 0
+
+
 def main(argv: list[str], fetch: Fetch = http_fetch, runner=run_command) -> int:
     args = parse_args(argv)
     try:
         url, token = device_settings()
+        if args.requests:
+            return print_requests(args, Server(url, token, fetch))
         results, config_version = run_checks_versioned(build_request(args), Server(url, token, fetch), runner)
     except (NotRegisteredError, ServerUnavailableError) as error:
         if args.hook:

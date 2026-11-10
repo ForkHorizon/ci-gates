@@ -117,6 +117,12 @@ def fetch_approved_tests(server: Server, repository: str) -> list[dict]:
         return []
 
 
+def fetch_request_status(server: Server, repository: str, head: str = "") -> list[dict]:
+    """What happened to the owner requests of a repository (newest first); the read token cannot decide any."""
+    query = urllib.parse.urlencode({"repository": repository, **({"head": head} if head else {})}, safe="/")
+    return list(server.fetch(f"{server.base_url}/api/ci/v2/changes/status?{query}", server.token)["requests"])
+
+
 def open_test_request(server: Server, repository: str, items: list[dict], reason: str) -> int:
     """Ask the owner to approve edits to existing tests; returns the request id."""
     reply = server.post(
