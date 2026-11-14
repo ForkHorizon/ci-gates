@@ -13,11 +13,13 @@ try:
     from added_lines import added_lines
     from forbidden_rust_attributes import join_attributes
     from forbidden_rust_rules import RUST_RULES
+    from forbidden_yaml_rules import YAML_RULES
     from source_comments import split_comments
 except ModuleNotFoundError:
     from .added_lines import added_lines
     from .forbidden_rust_attributes import join_attributes
     from .forbidden_rust_rules import RUST_RULES
+    from .forbidden_yaml_rules import YAML_RULES
     from .source_comments import split_comments
 
 
@@ -103,6 +105,8 @@ RULES = {
         ),
     ],
 }
+RULES[".yml"] = YAML_RULES
+RULES[".yaml"] = YAML_RULES
 for extension in (".tsx", ".js", ".jsx", ".mjs"):
     RULES[extension] = RULES[".ts"]
 

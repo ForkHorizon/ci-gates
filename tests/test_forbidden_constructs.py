@@ -21,6 +21,30 @@ class ForbiddenConstructTests(unittest.TestCase):
             ["invalid-suppression", "no-any"],
         )
 
+    def test_github_hosted_runners_are_flagged_and_self_hosted_ones_are_not(self):
+        hosted = "jobs:\n  a:\n    runs-on: ubuntu-24.04\n  b:\n    runs-on: [macos-15]\n  c:\n    runs-on: ubuntu-24.04-arm\n"
+        self.assertEqual({v.rule_id for v in scan_text(hosted, ".yml", {3, 5, 7})}, {"no-hosted-runner"})
+        self.assertEqual(len(scan_text(hosted, ".yml", {3, 5, 7})), 3)
+        own = "jobs:\n  a:\n    runs-on: [self-hosted, macOS, ARM64, ci-scope]\n"
+        self.assertEqual(scan_text(own, ".yml", {3}), [])
+
+    def test_workflow_comments_and_suppressions_with_a_reason_are_respected(self):
+        commented = "# runs-on: ubuntu-latest was the old runner\n"
+        self.assertEqual(scan_text(commented, ".yml", {1}), [])
+        allowed = "# allow-no-hosted-runner: needs a Linux-only sandbox test\nruns-on: ubuntu-24.04\n"
+        self.assertEqual(scan_text(allowed, ".yml", {2}), [])
+        bare = "# allow-no-hosted-runner:\nruns-on: ubuntu-24.04\n"
+        self.assertEqual(
+            [v.rule_id for v in scan_text(bare, ".yml", {2})],
+            ["invalid-suppression", "no-hosted-runner"],
+        )
+
+    def test_pull_request_target_is_flagged(self):
+        self.assertEqual(
+            [v.rule_id for v in scan_text("on:\n  pull_request_target:\n", ".yaml", {2})],
+            ["no-pull-request-target"],
+        )
+
     def test_python_bare_catch_and_unexplained_noqa_are_flagged(self):
         text = "except:\n    pass  # noqa\n"
         self.assertEqual(
