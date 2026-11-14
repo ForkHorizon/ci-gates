@@ -103,6 +103,20 @@ RULES = {
         ),
     ],
 }
+# GitHub Actions workflows: every job runs on the self-hosted Mac, never on a GitHub-hosted runner.
+RULES[".yml"] = [
+    (
+        "no-hosted-runner",
+        r"^[^#]*\b(?:ubuntu|macos|windows)-(?:latest|\d[\w.]*)\b",
+        "GitHub-hosted runner: use runs-on: [self-hosted, macOS, ARM64, ci-scope]",
+    ),
+    (
+        "no-pull-request-target",
+        r"^[^#]*\bpull_request_target\b",
+        "pull_request_target runs pull-request code with secrets",
+    ),
+]
+RULES[".yaml"] = RULES[".yml"]
 for extension in (".tsx", ".js", ".jsx", ".mjs"):
     RULES[extension] = RULES[".ts"]
 

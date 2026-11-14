@@ -20,7 +20,7 @@ def split_comments(lines: list[str], extension: str) -> tuple[list[str], list[st
                 code.append(token)
             elif line.startswith("/*", i):
                 block_depth, i = 1, i + 2
-            elif line.startswith("//", i) or (extension == ".py" and line[i] == "#"):
+            elif line.startswith("//", i) or (extension in (".py", ".yml", ".yaml") and line[i] == "#"):
                 comment.append(line[i:])
                 break
             else:
