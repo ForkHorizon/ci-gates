@@ -13,11 +13,13 @@ try:
     from added_lines import added_lines
     from forbidden_rust_attributes import join_attributes
     from forbidden_rust_rules import RUST_RULES
+    from forbidden_yaml_rules import YAML_RULES
     from source_comments import split_comments
 except ModuleNotFoundError:
     from .added_lines import added_lines
     from .forbidden_rust_attributes import join_attributes
     from .forbidden_rust_rules import RUST_RULES
+    from .forbidden_yaml_rules import YAML_RULES
     from .source_comments import split_comments
 
 
@@ -103,20 +105,8 @@ RULES = {
         ),
     ],
 }
-# GitHub Actions workflows: every job runs on the self-hosted Mac, never on a GitHub-hosted runner.
-RULES[".yml"] = [
-    (
-        "no-hosted-runner",
-        r"^[^#]*\b(?:ubuntu|macos|windows)-(?:latest|\d[\w.]*)\b",
-        "GitHub-hosted runner: use runs-on: [self-hosted, macOS, ARM64, ci-scope]",
-    ),
-    (
-        "no-pull-request-target",
-        r"^[^#]*\bpull_request_target\b",
-        "pull_request_target runs pull-request code with secrets",
-    ),
-]
-RULES[".yaml"] = RULES[".yml"]
+RULES[".yml"] = YAML_RULES
+RULES[".yaml"] = YAML_RULES
 for extension in (".tsx", ".js", ".jsx", ".mjs"):
     RULES[extension] = RULES[".ts"]
 
