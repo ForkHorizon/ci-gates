@@ -68,6 +68,20 @@ def device_settings(environ: dict[str, str] | None = None, home: Path | None = N
     return url.rstrip("/"), token
 
 
+def _not_found_message(error: urllib.error.HTTPError) -> str:
+    """The server answers 404 for two different reasons; say which one, so a registered project is not called unregistered."""
+    try:
+        code = json.loads(error.read(10_000)).get("error")
+    except (OSError, ValueError, AttributeError):
+        code = None
+    if code == "baseline_not_found":
+        return (
+            "this repository is registered with CI Scope but has no protected-files baseline yet: "
+            "the owner saves one on the website (Projects, then the repository)"
+        )
+    return "this repository is not registered with CI Scope"
+
+
 def http_fetch(url: str, token: str) -> dict:
     request = urllib.request.Request(url, headers={TOKEN_HEADER: token, "accept": "application/json"})
     try:
@@ -75,7 +89,7 @@ def http_fetch(url: str, token: str) -> dict:
             return json.loads(response.read(2_000_000))
     except urllib.error.HTTPError as error:
         if error.code == 404:
-            raise NotRegisteredError("this repository is not registered with CI Scope") from error
+            raise NotRegisteredError(_not_found_message(error)) from error
         raise ServerUnavailableError(f"the server refused the request ({error.code})") from error
     except OSError as error:
         raise ServerUnavailableError(f"cannot reach the CI Scope server: {error}") from error
