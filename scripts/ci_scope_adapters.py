@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -122,13 +123,41 @@ def _rust_quality(root: Path, workdir: str) -> list[list[str]]:
     return commands
 
 
+# The agent checks every job out clean (git clean -x removes node_modules), so the compiler must be installed first.
+# Frozen lockfile, no lifecycle scripts: the install reads the pull request's package.json but never runs its scripts.
+_WEB_INSTALL = (
+    ("pnpm-lock.yaml", ("pnpm", "install", "--frozen-lockfile", "--ignore-scripts")),
+    ("package-lock.json", ("npm", "ci", "--ignore-scripts")),
+    ("yarn.lock", ("yarn", "install", "--frozen-lockfile", "--ignore-scripts")),
+)
+
+
+def _web_install(workdir: Path) -> list[str] | None:
+    return next((list(command) for lock, command in _WEB_INSTALL if (workdir / lock).is_file()), None)
+
+
+def _declared_packages(workdir: Path) -> set[str]:
+    try:
+        manifest = json.loads((workdir / "package.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    names: set[str] = set()
+    for section in ("dependencies", "devDependencies"):
+        found = manifest.get(section) if isinstance(manifest, dict) else None
+        names.update(found if isinstance(found, dict) else ())
+    return names
+
+
 def _web_quality(check: CheckSpec, root: Path) -> list[list[str]]:
     workdir = root / check.workdir
     compiler = workdir / "node_modules/typescript/bin/tsc"
-    commands = [["node", str(compiler), "--noEmit"]]
+    install = None if compiler.is_file() else _web_install(workdir)
+    commands = [install] if install else []
+    commands.append(["node", str(compiler), "--noEmit"])
     binaries = workdir / "node_modules/.bin"
+    declared = _declared_packages(workdir) if install else set()
     for tool, arguments in (("eslint", ["."]), ("knip", []), ("jscpd", ["."])):
-        if (binaries / tool).is_file():
+        if (binaries / tool).is_file() or tool in declared:
             commands.append([str(binaries / tool), *arguments])
     return commands
 
