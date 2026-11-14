@@ -29,7 +29,9 @@ class WebQualityInstallTests(unittest.TestCase):
 
     def test_npm_and_yarn_lockfiles_pick_their_own_manager(self):
         self.assertEqual(self.commands({"package-lock.json": ""})[0], ["npm", "ci", "--ignore-scripts"])
-        self.assertEqual(self.commands({"yarn.lock": ""})[0], ["yarn", "install", "--frozen-lockfile", "--ignore-scripts"])
+        self.assertEqual(
+            self.commands({"yarn.lock": ""})[0], ["yarn", "install", "--frozen-lockfile", "--ignore-scripts"]
+        )
 
     def test_declared_tools_run_after_the_install_even_though_they_are_not_installed_yet(self):
         manifest = json.dumps({"devDependencies": {"eslint": "9", "typescript": "7"}})
