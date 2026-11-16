@@ -130,6 +130,7 @@ def _go_quality(workdir: Path) -> list[list[str]]:
         return [[sys.executable, "-c", f"print({message!r})"]]
     commands: list[list[str]] = []
     for module in modules:
+
         def inside(*command: str, module: Path = module) -> list[str]:
             return ["sh", "-c", 'cd "$0" && exec "$@"', str(module), *command]
 
