@@ -107,6 +107,42 @@ def _shape_checks(check: CheckSpec, root: Path, gates: Path, revisions: tuple[st
     return [command]
 
 
+_GOFMT = "import subprocess,sys; files=subprocess.check_output(['gofmt','-l','.'], text=True); print(files, end=''); sys.exit(bool(files))"
+_GO_SKIP_DIRS = {"vendor", "node_modules", "DerivedData", "build", "dist", "target"}
+
+
+def _go_modules(workdir: Path) -> list[Path]:
+    """Directories holding a go.mod, relative to workdir; hidden and dependency directories are skipped."""
+    found = []
+    for mod in sorted(workdir.rglob("go.mod")):
+        parts = mod.relative_to(workdir).parts[:-1]
+        if not any(part.startswith(".") or part in _GO_SKIP_DIRS for part in parts):
+            found.append(mod.parent.relative_to(workdir))
+    return found
+
+
+def _go_quality(workdir: Path) -> list[list[str]]:
+    # `./...` stops at nested modules, so a repository with go.mod only below the root (agent/, agent/watchdog/)
+    # needs every module checked in its own directory; run from the root it fails with "no modules specified".
+    modules = _go_modules(workdir)
+    if not modules:
+        message = "go-quality skipped: no go.mod in the project"
+        return [[sys.executable, "-c", f"print({message!r})"]]
+    commands: list[list[str]] = []
+    for module in modules:
+
+        def inside(*command: str, module: Path = module) -> list[str]:
+            return ["sh", "-c", 'cd "$0" && exec "$@"', str(module), *command]
+
+        commands += [
+            inside("go", "mod", "download"),
+            inside("go", "vet", "./..."),
+            inside(sys.executable, "-c", _GOFMT),
+            inside("golangci-lint", "run", "./..."),
+        ]
+    return commands
+
+
 def _server_defined(check: CheckSpec, root: Path) -> list[list[str]]:
     if check.type == "project-tests":
         return [["/bin/sh", "-c", str(check.params["command"])]]
@@ -238,16 +274,7 @@ def commands_for(
     elif check.type == "web-test":
         commands = _web_test()
     elif check.type == "go-quality":
-        commands = [
-            ["go", "mod", "download"],
-            ["go", "vet", "./..."],
-            [
-                sys.executable,
-                "-c",
-                "import subprocess,sys; files=subprocess.check_output(['gofmt','-l','.'], text=True); print(files, end=''); sys.exit(bool(files))",
-            ],
-            ["golangci-lint", "run", "./..."],
-        ]
+        commands = _go_quality(root / check.workdir)
     elif check.type == "swift-quality":
         commands = _swift_quality(check, root, gates, revisions, event)
     elif check.type == "swift-compile":

@@ -14,8 +14,12 @@ class HookTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         base = Path(self.tmp.name)
+        # The agent runs gates with GIT_CONFIG_COUNT/KEY_n/VALUE_n set to core.hooksPath=/dev/null, which would
+        # override the hooks path these tests install; they need git's own configuration only.
+        inherited = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))}
+        inherited.pop("GIT_CONFIG_COUNT", None)
         self.env = {
-            **os.environ,
+            **inherited,
             "HOME": str(base),
             "GIT_CONFIG_GLOBAL": str(base / "gitconfig"),
             "GIT_CONFIG_NOSYSTEM": "1",
