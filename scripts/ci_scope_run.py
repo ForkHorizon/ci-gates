@@ -98,11 +98,28 @@ def _wait_within_limits(process: subprocess.Popen, sink: tempfile._TemporaryFile
                 return
 
 
+def _pytest_progress_env(command: list[str]) -> dict[str, str] | None:
+    """Env that makes a pytest command report "test n of total", or None when it is not pytest or nobody listens."""
+    if os.environ.get("CI_SCOPE_ACTIVITY") != "1" or not any("pytest" in part for part in command):
+        return None
+    env = dict(os.environ, CI_SCOPE_PYTEST_PROGRESS="1")
+    env["PYTEST_ADDOPTS"] = f"{env.get('PYTEST_ADDOPTS', '')} -p ci_scope_pytest_progress".strip()
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(Path(__file__).resolve().parent), env.get("PYTHONPATH")]))
+    return env
+
+
 def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
     # Output goes to a size-watched temporary file, so a noisy or hostile command cannot fill this process's memory.
     with tempfile.TemporaryFile() as sink, MarkerTail(sink.fileno()):
         try:
-            process = subprocess.Popen(command, cwd=cwd, stdout=sink, stderr=subprocess.STDOUT, start_new_session=True)
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                stdout=sink,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                env=_pytest_progress_env(command),
+            )
             _wait_within_limits(process, sink)
         except (OSError, subprocess.TimeoutExpired) as error:
             return 127, str(error)

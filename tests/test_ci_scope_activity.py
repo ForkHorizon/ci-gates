@@ -6,9 +6,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace as Obj
 from unittest import mock
 
 from scripts import ci_scope_activity as activity
+from scripts import ci_scope_pytest_progress as plugin
 from scripts import ci_scope_run as run
 
 MARKER = '::ci-scope-progress:: {"step":"lint","current":2,"total":9,"detail":"src/a.swift","version":1}'
@@ -50,6 +52,19 @@ class ActivityTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_pytest_plugin_reports_test_n_of_total(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {plugin.ENV: "1"}), contextlib.redirect_stdout(out):
+            plugin.pytest_configure(Obj())
+            plugin.pytest_collection_finish(Obj(items=[1, 2]))
+            for node in ("t.py::a", "t.py::b"):
+                plugin.pytest_runtest_logreport(Obj(when="call", outcome="passed", nodeid=node))
+        marks = [activity.parse_marker(line) for line in out.getvalue().splitlines()]
+        marks = [m for m in marks if m]
+        self.assertEqual([(m["current"], m["total"]) for m in marks], [(0, 2), (1, 2), (2, 2)])
+        self.assertEqual(marks[-1]["detail"], "t.py::b")
+        self.assertNotIn(plugin.ENV, os.environ)  # nested pytest runs stay quiet
 
 
 if __name__ == "__main__":
