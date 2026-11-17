@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 
@@ -43,11 +44,47 @@ def marker_event(check: str, payload: dict) -> dict:
     return event
 
 
+# One finished test per matching line, whatever the runner: (runner name, pattern of a finished test).
+FINISHED = (
+    ("cargo test", re.compile(r"^test \S.* \.\.\. (?:ok|FAILED|ignored)\b")),
+    ("go test", re.compile(r"^\s*--- (?:PASS|FAIL|SKIP): ")),
+    ("unittest", re.compile(r"^\S.* \.\.\. (?:ok|FAIL|ERROR|skipped\b)")),
+    ("xcodebuild", re.compile(r"^Test [Cc]ase '.*' (?:passed|failed)")),
+    ("swift test", re.compile(r"^[✔✘] Test .* (?:passed|failed)")),
+    ("node test", re.compile(r"^\s*(?:ok|not ok) \d+ - |^\s*[✔✖] .* \(\d")),
+)
+ANNOUNCED = re.compile(r"^running (\d+) tests?$")  # cargo says how many tests a binary will run before it runs them
+
+
+class TestCounter:
+    """Counts the finished tests in a command's output, so any project's test run can show "n done (of total)"."""
+
+    __test__ = False  # not a pytest test class
+
+    def __init__(self) -> None:
+        self.done, self.total, self.runner = 0, 0, ""
+
+    def feed(self, line: str) -> dict | None:
+        announced = ANNOUNCED.match(line)
+        if announced:
+            self.total += int(announced.group(1))
+            return None
+        for runner, pattern in FINISHED:
+            if pattern.match(line):
+                self.done, self.runner = self.done + 1, runner
+                payload = {"step": runner, "current": self.done}
+                if self.total >= self.done:  # a total below the count would be a lie; show the count alone
+                    payload["total"] = self.total
+                return payload
+        return None
+
+
 class MarkerTail:
     """Relays the markers a running command writes to its output file `fd`; `stop()` after the command ends."""
 
     def __init__(self, fd: int) -> None:
         self.fd, self.offset, self.pending = fd, 0, b""
+        self.counter = TestCounter()
         self.done = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
 
@@ -76,7 +113,8 @@ class MarkerTail:
             *lines, self.pending = self.pending.split(b"\n")
             last = None
             for raw in lines:
-                payload = parse_marker(raw.decode("utf-8", errors="replace"))
+                text = raw.decode("utf-8", errors="replace")
+                payload = parse_marker(text) or self.counter.feed(text)
                 last = payload or last
             if last:  # only the newest of a burst: the screen cannot show more than that anyway
                 emit(marker_event(CURRENT["check"], last))
