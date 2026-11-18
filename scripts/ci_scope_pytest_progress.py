@@ -8,6 +8,18 @@ import json
 import os
 import time
 
+try:
+    from pytest import hookimpl
+except ImportError:  # imported outside pytest (unit tests run by unittest): no hook validation to satisfy
+
+    def hookimpl(**options):
+        def mark(function):
+            function.pytest_impl = options  # the attribute pytest's own marker sets
+            return function
+
+        return mark
+
+
 ENV = "CI_SCOPE_PYTEST_PROGRESS"
 MIN_INTERVAL = 0.5
 STATE = {"total": 0, "done": 0, "last": 0.0, "on": False, "seen": set()}
@@ -29,6 +41,7 @@ def pytest_collection_finish(session):
         _marker("pytest", 0, STATE["total"], "collected")
 
 
+@hookimpl(optionalhook=True)  # xdist's hook: unknown, and fatal, without xdist installed
 def pytest_xdist_node_collection_finished(ids):
     """xdist: each worker collects every test, so the first one to finish tells the controller the total."""
     if STATE["on"] and not STATE["total"]:
