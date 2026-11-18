@@ -98,11 +98,31 @@ def _wait_within_limits(process: subprocess.Popen, sink: tempfile._TemporaryFile
                 return
 
 
-def _pytest_progress_env(command: list[str]) -> dict[str, str] | None:
-    """Env that makes a pytest command report "test n of total", or None when it is not pytest or nobody listens."""
+# Repository-location variables git sets for a hook (`git rev-parse --local-env-vars`). Inherited by a check, they
+# point every `git` call in it at the hook's repository instead of the check's own working directory.
+GIT_LOCATION_VARS = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_INTERNAL_SUPER_PREFIX",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
+    "GIT_WORK_TREE",
+)
+
+
+def _check_env(command: list[str]) -> dict[str, str]:
+    """This process's env without git's hook location variables; pytest also reports "test n of total" when listened to."""
+    env = {key: value for key, value in os.environ.items() if key not in GIT_LOCATION_VARS}
     if os.environ.get("CI_SCOPE_ACTIVITY") != "1" or not any("pytest" in part for part in command):
-        return None
-    env = dict(os.environ, CI_SCOPE_PYTEST_PROGRESS="1")
+        return env
+    env["CI_SCOPE_PYTEST_PROGRESS"] = "1"
     env["PYTEST_ADDOPTS"] = f"{env.get('PYTEST_ADDOPTS', '')} -p ci_scope_pytest_progress".strip()
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(Path(__file__).resolve().parent), env.get("PYTHONPATH")]))
     return env
@@ -118,7 +138,7 @@ def run_command(command: list[str], cwd: Path) -> tuple[int, str]:
                 stdout=sink,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
-                env=_pytest_progress_env(command),
+                env=_check_env(command),
             )
             _wait_within_limits(process, sink)
         except (OSError, subprocess.TimeoutExpired) as error:
