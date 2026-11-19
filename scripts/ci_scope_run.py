@@ -18,6 +18,7 @@ try:
     from ci_scope_errors import CliError, NotRegisteredError
     from ci_scope_server import Server, fetch_approved_tests, fetch_project_with_approvals, open_test_request
     from failure_digest import digest
+    from legacy_gates import legacy_gate_workflows
     from protected_files import check_protected_files, select_protected_paths
     from server_config import build_check_specs
 except ModuleNotFoundError:
@@ -26,6 +27,7 @@ except ModuleNotFoundError:
     from .ci_scope_errors import CliError, NotRegisteredError
     from .ci_scope_server import Server, fetch_approved_tests, fetch_project_with_approvals, open_test_request
     from .failure_digest import digest
+    from .legacy_gates import legacy_gate_workflows
     from .protected_files import check_protected_files, select_protected_paths
     from .server_config import build_check_specs
 
@@ -70,21 +72,6 @@ def observed_files(root: Path, patterns: list[str], baseline: dict[str, str]) ->
             file.read_text(encoding="utf-8", errors="replace") if file.is_file() and not file.is_symlink() else None
         )
     return result
-
-
-# The GitHub Actions gates CI Scope replaced: reusable ci-gates workflows and the old "CI Scope / Checks" workflow.
-LEGACY_GATE_MARKERS = ("ForkHorizon/ci-gates/.github/workflows/", "ci-scope-unified")
-
-
-def legacy_gate_workflows(root: Path) -> list[str]:
-    """Workflow files that still run an old gate next to the CI Scope check."""
-    workflows = root / ".github/workflows"
-    files = sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]) if workflows.is_dir() else []
-    return [
-        f".github/workflows/{file.name}"
-        for file in files
-        if any(marker in file.read_text(encoding="utf-8", errors="replace") for marker in LEGACY_GATE_MARKERS)
-    ]
 
 
 MAX_CAPTURE_BYTES = 64 * 1024 * 1024
