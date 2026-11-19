@@ -18,6 +18,7 @@ try:
     from ci_scope_errors import CliError, NotRegisteredError
     from ci_scope_server import Server, fetch_approved_tests, fetch_project_with_approvals, open_test_request
     from failure_digest import digest
+    from legacy_gates import legacy_gate_workflows
     from protected_files import check_protected_files, select_protected_paths
     from server_config import build_check_specs
 except ModuleNotFoundError:
@@ -26,6 +27,7 @@ except ModuleNotFoundError:
     from .ci_scope_errors import CliError, NotRegisteredError
     from .ci_scope_server import Server, fetch_approved_tests, fetch_project_with_approvals, open_test_request
     from .failure_digest import digest
+    from .legacy_gates import legacy_gate_workflows
     from .protected_files import check_protected_files, select_protected_paths
     from .server_config import build_check_specs
 
@@ -266,12 +268,17 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
             "detail": ", ".join(f"{item.kind} {item.path}" for item in violations),
         }
     ]
+    legacy = legacy_gate_workflows(root)
+    if legacy:  # only reported when found, so clean projects see no extra item
+        detail = "remove " + ", ".join(legacy) + " (old gate: CI Scope runs these checks now)"
+        results.append({"id": "legacy-gates", "status": "failed", "detail": detail})
     base, head = request.revisions or (git(root, "merge-base", "HEAD", "origin/main") or "HEAD", "HEAD")
     with tempfile.TemporaryDirectory(prefix="ci-scope-config-") as directory:
         test_files = _test_edit_files(server, repository, Path(directory), approved)
         specs = [spec for spec in build_check_specs(config, Path(directory)) if spec.speed in TIERS[request.tier]]
-        emit({"plan": ["protected-files", *(spec.id for spec in specs)]})
-        emit({"check": "protected-files", "state": results[0]["status"]})
+        emit({"plan": [*(item["id"] for item in results), *(spec.id for spec in specs)]})
+        for item in results:
+            emit({"check": item["id"], "state": item["status"]})
         for spec in specs:
             CURRENT["check"] = spec.id
             emit({"check": spec.id, "state": "running"})
