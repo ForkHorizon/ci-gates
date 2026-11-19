@@ -72,6 +72,21 @@ def observed_files(root: Path, patterns: list[str], baseline: dict[str, str]) ->
     return result
 
 
+# The GitHub Actions gates CI Scope replaced: reusable ci-gates workflows and the old "CI Scope / Checks" workflow.
+LEGACY_GATE_MARKERS = ("ForkHorizon/ci-gates/.github/workflows/", "ci-scope-unified")
+
+
+def legacy_gate_workflows(root: Path) -> list[str]:
+    """Workflow files that still run an old gate next to the CI Scope check."""
+    workflows = root / ".github/workflows"
+    files = sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]) if workflows.is_dir() else []
+    return [
+        f".github/workflows/{file.name}"
+        for file in files
+        if any(marker in file.read_text(encoding="utf-8", errors="replace") for marker in LEGACY_GATE_MARKERS)
+    ]
+
+
 MAX_CAPTURE_BYTES = 64 * 1024 * 1024
 TIMEOUT_SECONDS = 1_800
 WATCH_SECONDS = 0.05
@@ -266,12 +281,17 @@ def run_checks_versioned(request: RunRequest, server: Server, runner: Runner = r
             "detail": ", ".join(f"{item.kind} {item.path}" for item in violations),
         }
     ]
+    legacy = legacy_gate_workflows(root)
+    if legacy:  # only reported when found, so clean projects see no extra item
+        detail = "remove " + ", ".join(legacy) + " (old gate: CI Scope runs these checks now)"
+        results.append({"id": "legacy-gates", "status": "failed", "detail": detail})
     base, head = request.revisions or (git(root, "merge-base", "HEAD", "origin/main") or "HEAD", "HEAD")
     with tempfile.TemporaryDirectory(prefix="ci-scope-config-") as directory:
         test_files = _test_edit_files(server, repository, Path(directory), approved)
         specs = [spec for spec in build_check_specs(config, Path(directory)) if spec.speed in TIERS[request.tier]]
-        emit({"plan": ["protected-files", *(spec.id for spec in specs)]})
-        emit({"check": "protected-files", "state": results[0]["status"]})
+        emit({"plan": [*(item["id"] for item in results), *(spec.id for spec in specs)]})
+        for item in results:
+            emit({"check": item["id"], "state": item["status"]})
         for spec in specs:
             CURRENT["check"] = spec.id
             emit({"check": spec.id, "state": "running"})
