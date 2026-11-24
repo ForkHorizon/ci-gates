@@ -65,6 +65,23 @@ class SyntaxAndParserTests(unittest.TestCase):
         source = "function longMethod() {\n  const matcher = /}/;\n" + "  work();\n" * 50 + "}\n"
         self.assertEqual(linter.brace_function_lengths(source, "javascript")[0][2], 53)
 
+    def test_jsx_self_closing_tags_are_not_regex_literals(self):
+        tags = [
+            '<B c="d" />',
+            "<B c={x} />",
+            "<A x={1} />{items.map((i) => <B key={i} />)}",
+            "<B\n    c={x}\n  />",
+        ]
+        for tag in tags:
+            with self.subTest(tag=tag):
+                source = f"function A() {{\n  return {tag};\n}}\nfunction C() {{\n  if (x) {{ y(); }}\n}}\n"
+                self.assertEqual(linter.check_syntax("x.tsx", source, "typescript"), [])
+
+    def test_regex_literals_still_hide_braces_and_never_span_lines(self):
+        source = "function A() {\n  const r = s.split(/>{/);\n  return a / b;\n}\nfunction C() {\n  x = 1 / 2 / 3;\n}\n"
+        self.assertEqual(linter.check_syntax("x.ts", source, "typescript"), [])
+        self.assertEqual(linter.check_syntax("y.ts", "function A() {\n  x = /\n}\n", "typescript"), [])
+
     def test_additional_supported_function_forms_are_measured(self):
         cases = [
             (

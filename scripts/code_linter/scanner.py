@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
+from .javascript_regex import skip_javascript_regex
 from .javascript_templates import TemplateContext, consume_template_brace, consume_template_text
 from .literals import is_rust_lifetime
 from .php_heredoc import closes_marker, marker_at
@@ -73,15 +74,6 @@ def scan_c_style_lines(text: str, language: str) -> list[tuple[str, str, bool]]:
         clean, is_comment = scan_c_style_line(raw_line, language, state)
         scanned.append((raw_line, clean, is_comment))
     return scanned
-
-
-def starts_javascript_regex(output: Sequence[str]) -> bool:
-    prefix = "".join(output).rstrip()
-    if not prefix:
-        return True
-    return prefix[-1] in "=(:,[!&|?{};" or bool(
-        re.search(r"\b(?:return|throw|case|delete|typeof|void|new|in|of)\s*$", prefix)
-    )
 
 
 def scan_heredoc(line: str, language: str, state: CStyleScanState, index: int = 0) -> int | None:
@@ -158,30 +150,6 @@ def raw_string_terminator(line: str, index: int, language: str) -> tuple[int, st
             delimiter = match.group(1)
             return index + match.end(), f'){delimiter}"'
     return None
-
-
-def consume_javascript_regex(line: str, index: int, state: CStyleScanState) -> int:
-    state.quote = "/"
-    in_class = False
-    index += 1
-    while index < len(line):
-        if line[index] == "\\" and index + 1 < len(line):
-            index += 2
-        elif line[index] == "[":
-            in_class = True
-            index += 1
-        elif line[index] == "]":
-            in_class = False
-            index += 1
-        elif line[index] == "/" and not in_class:
-            state.quote = None
-            index += 1
-            while index < len(line) and line[index].isalpha():
-                index += 1
-            break
-        else:
-            index += 1
-    return index
 
 
 def consume_quoted_literal(line: str, index: int) -> int:
@@ -280,8 +248,9 @@ def scan_c_style_line(line: str, language: str, state: CStyleScanState) -> tuple
                 break
             continue
         char = line[index]
-        if char == "/" and language in {"javascript", "typescript"} and starts_javascript_regex(output):
-            index = consume_javascript_regex(line, index, state)
+        regex_end = skip_javascript_regex(line, index, language, output)
+        if regex_end is not None:
+            index = regex_end
             continue
         if char == "'" and is_rust_lifetime(line, index, language):
             output.append(char)
